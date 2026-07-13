@@ -1,0 +1,29 @@
+opam-version: "2.0"
+maintainer: "Zichen Zhang <zichenzhang@nyu.edu> "
+authors: [
+  "Zichen Zhang <zichenzhang@nyu.edu>"
+  "Simon Gregersen <gregersen@cispa.de>"
+  "Joseph Tassarotti <jt4767@nyu.edu>"
+]
+license: "BSD-2-Clause"
+homepage: "none"
+bug-reports: "https://github.com/u8cat/iris-logatom/issues"
+dev-repo: "git+https://github.com/u8cat/iris-logatom.git"
+version: "dev"
+
+name: "rocq-iris-logatom"
+synopsis: "Obtaining Iris logically atomic triples via linearizability"
+
+depends: [
+  "rocq-core" { (= "9.1.0") }
+  "rocq-stdlib"
+  "rocq-iris" { (= "4.5.0") }
+  "rocq-stdpp"
+  "rocq-iris-heap-lang"
+  "coq-autosubst"
+]
+conflicts: []
+
+build: [dune build --profile dev "rocq-iris-logatom.install"]
+install: [dune install rocq-iris-logatom]
+remove: [ "sh" "-c" "rm -rf '%{lib}%/coq/user-contrib/rocq-iris-logatom' " ]

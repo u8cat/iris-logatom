@@ -1,0 +1,6 @@
+(include_subdirs qualified)
+(dirs :standard)
+(rocq.theory
+ (name case_studies)
+ (modules (:standard))
+ (theories Stdlib Ltac2 stdpp iris iris_logatom))

@@ -1,0 +1,9 @@
+(lang dune 3.21)
+; Flags for [dev] to be kept in sync with [_CoqProject].
+(env
+ (dev
+  (rocq
+   (flags :standard %{read-lines:flags})))
+ (mangle
+  (rocq
+   (flags :standard %{read-lines:flags} -mangle-names "_mangled_"))))

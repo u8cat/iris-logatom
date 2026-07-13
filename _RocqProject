@@ -1,0 +1,5 @@
+-Q _build/default/theories iris_logatom
+-Q _build/default/case_studies case_studies
+
+-arg -w
+-arg -redundant-canonical-projection

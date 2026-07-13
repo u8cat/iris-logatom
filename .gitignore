@@ -1,0 +1,10 @@
+*~
+*#
+.*
+!.github
+!.gitignore
+!.gitattributes
+_opam
+build-dep
+_build
+_build_*

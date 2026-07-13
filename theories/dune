@@ -1,0 +1,7 @@
+(include_subdirs qualified)
+(dirs :standard)
+(rocq.theory
+ (name iris_logatom)
+ (package rocq-iris-logatom)
+ (modules (:standard))
+ (theories Stdlib Ltac2 stdpp iris Autosubst))
