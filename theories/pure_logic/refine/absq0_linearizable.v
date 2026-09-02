@@ -30,20 +30,21 @@ From iris.heap_lang Require Import notation.
 From stdpp Require Import list gmap.
 
 (** Per-label translation from AbsQ₀ action labels to [linear.v] trace
-  events. Requests/responses use [bag_like.v]'s [encode_request] /
-  [encode_response]: enqueue of [d] is [SOMEV d] and dequeue is [NONEV]
-  on the request side; on the response side, dequeue results are
-  already option-encoded ([SOMEV d] for non-empty, [NONEV] for empty)
-  by [absq_step] / [absq0_step]. *)
+  events. A [Call]/[Lin] event names its operation by the index it has in
+  [bag_like.queue_model]'s [valid_requests] / [request_responses]: [Push]
+  for enqueue, whose request is the enqueued value, and [Pop] for dequeue,
+  whose request is [#()]. Responses are unchanged: enqueues return [#()]
+  and dequeue results are already option-encoded ([SOMEV d] for non-empty,
+  [NONEV] for empty) by [absq_step] / [absq0_step]. *)
 Definition trace_of_absq_label (la : positive * absq_action)
   : positive * trace :=
   match la with
-  | (τ, ACallEnq d) => (τ, Call (encode_request (Push d)))
-  | (τ, ACallDeq)   => (τ, Call (encode_request Pop))
+  | (τ, ACallEnq d) => (τ, Call Push d)
+  | (τ, ACallDeq)   => (τ, Call Pop #())
   | (τ, ARetEnq)    => (τ, Ret #())
   | (τ, ARetDeq v)  => (τ, Ret v)
-  | (τ, ALinEnq d)  => (τ, Lin (encode_request (Push d)) #())
-  | (τ, ALinDeq v)  => (τ, Lin (encode_request Pop) v)
+  | (τ, ALinEnq d)  => (τ, Lin Push d #())
+  | (τ, ALinDeq v)  => (τ, Lin Pop #() v)
   end.
 
 Definition trace_of_absq_labels
@@ -72,8 +73,8 @@ Qed.
   the induced trace are determined exactly by the AbsQ₀ state via
   [cp0(τ)]. Each control-point maps to a specific prefix of the
   [Call → Lin → Ret] sequence, with input/return values read from
-  [in0]/[rv0]. Requests/responses follow [bag_like.queue_model]'s
-  encoding. *)
+  [in0]/[rv0]. Operation indices and responses follow
+  [bag_like.queue_model]'s convention. *)
 Definition per_tag_invariant (u : absq0_state) (τ : positive)
     (ts' : list (positive * trace)) : Prop :=
   match u.(absq0_cp) !! τ with
@@ -81,30 +82,30 @@ Definition per_tag_invariant (u : absq0_state) (τ : positive)
       filter (λ t, t.1 = τ) ts' = []
   | Some A1 =>
       ∃ d, u.(absq0_in) !! τ = Some d ∧
-           filter (λ t, t.1 = τ) ts' = [(τ, Call (encode_request (Push d)))]
+           filter (λ t, t.1 = τ) ts' = [(τ, Call Push d)]
   | Some A =>
       ∃ d, u.(absq0_in) !! τ = Some d ∧
            filter (λ t, t.1 = τ) ts' =
-             [(τ, Call (encode_request (Push d)));
-              (τ, Lin (encode_request (Push d)) #())]
+             [(τ, Call Push d);
+              (τ, Lin Push d #())]
   | Some A2 =>
       ∃ d, u.(absq0_in) !! τ = Some d ∧
            filter (λ t, t.1 = τ) ts' =
-             [(τ, Call (encode_request (Push d)));
-              (τ, Lin (encode_request (Push d)) #());
+             [(τ, Call Push d);
+              (τ, Lin Push d #());
               (τ, Ret #())]
   | Some R1 =>
-      filter (λ t, t.1 = τ) ts' = [(τ, Call (encode_request Pop))]
+      filter (λ t, t.1 = τ) ts' = [(τ, Call Pop #())]
   | Some R2 =>
       ∃ v, u.(absq0_rv) !! τ = Some v ∧
            filter (λ t, t.1 = τ) ts' =
-             [(τ, Call (encode_request Pop));
-              (τ, Lin (encode_request Pop) v)]
+             [(τ, Call Pop #());
+              (τ, Lin Pop #() v)]
   | Some R3 =>
       ∃ v, u.(absq0_rv) !! τ = Some v ∧
            filter (λ t, t.1 = τ) ts' =
-             [(τ, Call (encode_request Pop));
-              (τ, Lin (encode_request Pop) v);
+             [(τ, Call Pop #());
+              (τ, Lin Pop #() v);
               (τ, Ret v)]
   end.
 
@@ -115,18 +116,18 @@ Proof.
   intros H τ. specialize (H τ). rewrite /per_tag_invariant in H.
   destruct (absq0_cp u !! τ) as [c|] eqn:Hcp.
   - destruct c.
-    + destruct H as (d & _ & Hf). exists (encode_request (Push d)), #().
+    + destruct H as (d & _ & Hf). exists Push, d, #().
       rewrite Hf. apply prefix_cons, prefix_nil.
-    + destruct H as (d & _ & Hf). exists (encode_request (Push d)), #().
+    + destruct H as (d & _ & Hf). exists Push, d, #().
       rewrite Hf. apply prefix_cons, prefix_cons, prefix_nil.
-    + destruct H as (d & _ & Hf). exists (encode_request (Push d)), #().
+    + destruct H as (d & _ & Hf). exists Push, d, #().
       rewrite Hf. done.
-    + exists (encode_request Pop), #(). rewrite H. apply prefix_cons, prefix_nil.
-    + destruct H as (v & _ & Hf). exists (encode_request Pop), v.
+    + exists Pop, #(), #(). rewrite H. apply prefix_cons, prefix_nil.
+    + destruct H as (v & _ & Hf). exists Pop, #(), v.
       rewrite Hf. apply prefix_cons, prefix_cons, prefix_nil.
-    + destruct H as (v & _ & Hf). exists (encode_request Pop), v.
+    + destruct H as (v & _ & Hf). exists Pop, #(), v.
       rewrite Hf. done.
-  - exists #(), #(). rewrite H. apply prefix_nil.
+  - exists Push, #(), #(). rewrite H. apply prefix_nil.
 Qed.
 
 (** The filter for tag τ, when appending a new event whose tag is τ₀ ≠ τ,
@@ -148,13 +149,13 @@ Proof.
   by rewrite filter_nil.
 Qed.
 
-Local Lemma not_is_lin_Call v : ¬ is_lin (Call v).
+Local Lemma not_is_lin_Call n v : ¬ is_lin (Call n v).
 Proof. compute. tauto. Qed.
 
 Local Lemma not_is_lin_Ret v : ¬ is_lin (Ret v).
 Proof. compute. tauto. Qed.
 
-Local Lemma is_lin_Lin v v' : is_lin (Lin v v').
+Local Lemma is_lin_Lin n v v' : is_lin (Lin n v v').
 Proof. compute. trivial. Qed.
 
 Local Lemma filter_is_lin_app_nonlin (ts' : list (positive * trace)) te :
@@ -270,8 +271,8 @@ Proof.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
         rewrite fmap_app /=.
         eapply linearized_sound_snoc; [exact IH_lin| |].
-        + left. exists d. split; [exact Hd_ub_lin|done].
-        + exists (Push d). done. }
+        + exact Hd_ub_lin.
+        + done. }
     { (* RET-ENQ: l = (k0, ARetEnq). *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
@@ -316,11 +317,10 @@ Proof.
         rewrite filter_tag_app_eq /=; last done.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
-        eapply (linearized_sound_snoc _ _ _ _ (encode_request Pop) (SOMEV d));
+        eapply (linearized_sound_snoc _ _ _ Pop _ #() (SOMEV d));
           [exact IH_lin| |].
-        + right. done.
-        + exists Pop. split; first done.
-          rewrite Hσ_split fmap_cons /=. done. }
+        + reflexivity.
+        + rewrite Hσ_split fmap_cons /=. done. }
     { (* LIN-DEQ2: l = (k0, ALinDeq NONEV), σ0 = []. *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
@@ -334,11 +334,10 @@ Proof.
         rewrite filter_tag_app_eq /=; last done.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
-        eapply (linearized_sound_snoc _ _ _ _ (encode_request Pop) NONEV);
+        eapply (linearized_sound_snoc _ _ _ Pop _ #() NONEV);
           [exact IH_lin| |].
-        + right. done.
-        + simpl. exists Pop. split; first done.
-          destruct rme; [done|exact Hrme_guard]. }
+        + reflexivity.
+        + simpl. destruct rme; [done|exact Hrme_guard]. }
     { (* RET-DEQ: l = (k0, ARetDeq v). *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
@@ -380,11 +379,11 @@ Proof.
 Qed.
 
 (** Every [Call] event of a reachable AbsQ₀ execution carries a valid
-  request: [ACallEnq d] steps record [valid_value d] (left disjunct of
-  [valid_bag_request]) and [ACallDeq] steps produce [encode_request Pop]
-  (right disjunct). Hence the induced trace is [call_valid] — the only
-  ingredient of [trace_linearizable] that the old library-level proof
-  obtained from [adv_steps]. *)
+  request: [ACallEnq d] steps record [valid_value d], which is exactly
+  [queue_model]'s [Push] request predicate, and [ACallDeq] steps produce
+  the [Pop] request [#()]. Hence the induced trace is [call_valid] — the
+  only ingredient of [trace_linearizable] that the old library-level
+  proof obtained from [adv_steps]. *)
 Lemma absq0_steps_call_valid rme valid_value ls u :
   absq0_steps rme valid_value absq0_init ls u →
   call_valid (M := queue_model rme valid_value) (trace_of_absq_labels ls).
@@ -394,11 +393,10 @@ Proof.
   - apply absq0_steps_snoc_inv in Hs as (u' & Hpre & Hstep).
     rewrite /trace_of_absq_labels map_app /call_valid Forall_app.
     split; [by eapply IH|]. rewrite Forall_singleton.
-    inversion Hstep; subst; simpl; try done.
-    + (* CALL-ENQ: valid_value d *)
-      rewrite /valid_request /= /valid_bag_request. left. eauto.
-    + (* CALL-DEQ *)
-      rewrite /valid_request /= /valid_bag_request. by right.
+    (* CALL-ENQ contributes [valid_value d], which [inversion] puts in
+       context; CALL-DEQ contributes [#() = #()]; no other step emits a
+       [Call]. *)
+    inversion Hstep; subst; simpl; done.
 Qed.
 
 (** The trace-level refinement hypothesis: the Call/Ret trace [ts] is the

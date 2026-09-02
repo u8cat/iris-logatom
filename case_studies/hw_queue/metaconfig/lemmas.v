@@ -47,48 +47,48 @@ Qed.
 Lemma per_tag_wellformed_snoc_call_push ts τ v :
   τ ∉ ts.*1 →
   per_tag_wellformed ts →
-  per_tag_wellformed (ts ++ [(τ, Call (encode_request (Push v)))]).
+  per_tag_wellformed (ts ++ [(τ, Call Push v)]).
 Proof.
   intros Hfresh Hwf τ'.
   destruct (decide (τ' = τ)) as [-> | Hne].
-  - exists (encode_request (Push v)), #().
+  - exists Push, v, #().
     rewrite filter_app filter_cons_True // filter_nil /=.
     rewrite (filter_τ_fresh_nil _ _ Hfresh) /=.
     apply prefix_cons. apply prefix_nil.
-  - destruct (Hwf τ') as (v_a & v_b & Hpref).
-    exists v_a, v_b. rewrite filter_app filter_cons_False //=.
+  - destruct (Hwf τ') as (n_a & v_a & v_b & Hpref).
+    exists n_a, v_a, v_b. rewrite filter_app filter_cons_False //=.
     by rewrite filter_nil app_nil_r.
 Qed.
 
 Lemma per_tag_wellformed_snoc_call_pop ts τ :
   τ ∉ ts.*1 →
   per_tag_wellformed ts →
-  per_tag_wellformed (ts ++ [(τ, Call (encode_request Pop))]).
+  per_tag_wellformed (ts ++ [(τ, Call Pop #())]).
 Proof.
   intros Hfresh Hwf τ'.
   destruct (decide (τ' = τ)) as [-> | Hne].
-  - exists (encode_request Pop), #().
+  - exists Pop, #(), #().
     rewrite filter_app filter_cons_True // filter_nil /=.
     rewrite (filter_τ_fresh_nil _ _ Hfresh) /=.
     apply prefix_cons. apply prefix_nil.
-  - destruct (Hwf τ') as (v_a & v_b & Hpref).
-    exists v_a, v_b. rewrite filter_app filter_cons_False //=.
+  - destruct (Hwf τ') as (n_a & v_a & v_b & Hpref).
+    exists n_a, v_a, v_b. rewrite filter_app filter_cons_False //=.
     by rewrite filter_nil app_nil_r.
 Qed.
 
-Lemma per_tag_wellformed_snoc_ret ts τ v_call v_ret :
+Lemma per_tag_wellformed_snoc_ret ts τ n_call v_call v_ret :
   per_tag_wellformed ts →
-  filter (λ t, t.1 = τ) ts = [(τ, Call v_call)] →
+  filter (λ t, t.1 = τ) ts = [(τ, Call n_call v_call)] →
   per_tag_wellformed (ts ++ [(τ, Ret v_ret)]).
 Proof.
   intros Hwf Hfilter τ'.
   destruct (decide (τ' = τ)) as [-> | Hne].
-  - exists v_call, v_ret.
+  - exists n_call, v_call, v_ret.
     rewrite filter_app filter_cons_True // filter_nil /=.
     rewrite Hfilter.
     exists []. by rewrite app_nil_r.
-  - destruct (Hwf τ') as (v_a & v_b & Hpref).
-    exists v_a, v_b. rewrite filter_app filter_cons_False //=.
+  - destruct (Hwf τ') as (n_a & v_a & v_b & Hpref).
+    exists n_a, v_a, v_b. rewrite filter_app filter_cons_False //=.
     by rewrite filter_nil app_nil_r.
 Qed.
 
@@ -113,11 +113,11 @@ Qed.
    requiring Proper instances. *)
 
 Lemma gset_to_propset_set_map_call
-    (M_g : gset single_config_q) (τ : positive) (v : val) :
-  ((λ '(s, π), (s, <[τ:=(v, None)]> π))
+    (M_g : gset single_config_q) (τ : positive) (n : nat) (v : val) :
+  ((λ '(s, π), (s, <[τ:=(n, v, None)]> π))
      <$> (set_to_propset M_g : @meta_config hwq_model))
   = set_to_propset (set_map (λ x : single_config_q,
-                              (x.1, <[τ:=(v, None)]> x.2)) M_g
+                              (x.1, <[τ:=(n, v, None)]> x.2)) M_g
                     : gset single_config_q).
 Proof.
   apply leibniz_equiv. intros [s π].
@@ -193,8 +193,8 @@ Lemma mcfg_step_dom_in_trace_aux
 Proof.
   intros Hstep Hin Hpre.
   inversion Hstep as
-    [M τ v Hf Hvr
-    | M s_pre π_pre τ v s_post v' Hsπ Hπτ Hrr
+    [M τ n v Hf Hvr
+    | M s_pre π_pre τ n v s_post v' Hsπ Hπτ Hrr
     | M τ v'];
     subst.
   - (* mcfg_step_call *)
@@ -269,40 +269,40 @@ Qed.
 Lemma mcfg_step_request_value_preserved
     (M_pre M_post : @meta_config hwq_model)
     (ts_step : list (positive*trace))
-    (τ : positive) (v : val) :
+    (τ : positive) (v : nat * val) :
   mcfg_step M_pre M_post ts_step →
   (* In M_pre, all configs with τ ∈ dom have π[τ].1 = v *)
   (∀ s π v_x v_resp, (s, π) ∈ M_pre → π !! τ = Some (v_x, v_resp) → v_x = v) →
   (* The step's trace contribution doesn't introduce a Call τ with different v *)
-  (∀ τ' v', (τ', Call v') ∈ ts_step → τ' = τ → v' = v) →
+  (∀ τ' n' v', (τ', Call n' v') ∈ ts_step → τ' = τ → (n', v') = v) →
   ∀ s π v_x v_resp, (s, π) ∈ M_post → π !! τ = Some (v_x, v_resp) → v_x = v.
 Proof.
   intros Hstep Hpre Hcall s π v_x v_resp Hin Hπτ.
   inversion Hstep as
-    [M τ_s v_s Hf Hvr
-    | M s_a π_a τ_s v_s s_b v' Hsa Hπaτ Hrr
+    [M τ_s n_s v_s Hf Hvr
+    | M s_a π_a τ_s n_s v_s s_b v' Hsa Hπaτ Hrr
     | M τ_s v'_s];
     subst.
-  - (* mcfg_step_call: M_post = (λ '(s, π), (s, <[τ_s:=(v_s, None)]> π)) <$> M_pre *)
+  - (* mcfg_step_call: M_post = (λ '(s, π), (s, <[τ_s:=(n_s, v_s, None)]> π)) <$> M_pre *)
     apply elem_of_PropSet in Hin as ([s' π'] & Heq & Hin_pre).
     simpl in Heq. injection Heq as -> ->.
     destruct (decide (τ_s = τ)) as [-> | Hne].
     + rewrite lookup_insert_eq in Hπτ.
       injection Hπτ as Hv_eq _.
       subst v_x.
-      apply (Hcall τ v_s); [|reflexivity].
+      apply (Hcall τ n_s v_s); [|reflexivity].
       apply list_elem_of_singleton. reflexivity.
     + rewrite lookup_insert_ne in Hπτ; last (intros ?; apply Hne; congruence).
       apply (Hpre s' π' v_x v_resp Hin_pre Hπτ).
-  - (* mcfg_step_interm: M_post = {[ (s_b, <[τ_s:=(v_s, Some v')]>π_a) ]} ∪ M_pre *)
+  - (* mcfg_step_interm: M_post = {[ (s_b, <[τ_s:=(n_s, v_s, Some v')]>π_a) ]} ∪ M_pre *)
     apply elem_of_union in Hin as [Hin_new | Hin_old].
     + apply elem_of_singleton in Hin_new. injection Hin_new as -> ->.
       destruct (decide (τ_s = τ)) as [-> | Hne].
       * rewrite lookup_insert_eq in Hπτ.
         injection Hπτ as Hv_eq _.
         subst v_x.
-        (* From Hπaτ: π_a !! τ = Some (v_s, None). Apply Hpre to extract v_s = v. *)
-        apply (Hpre s_a π_a v_s None Hsa Hπaτ).
+        (* From Hπaτ: π_a !! τ = Some (n_s, v_s, None). Apply Hpre to extract (n_s, v_s) = v. *)
+        apply (Hpre s_a π_a (n_s, v_s) None Hsa Hπaτ).
       * rewrite lookup_insert_ne in Hπτ; last (intros ?; apply Hne; congruence).
         apply (Hpre s_a π_a v_x v_resp Hsa Hπτ).
     + apply (Hpre s π v_x v_resp Hin_old Hπτ).
@@ -316,10 +316,10 @@ Qed.
 Lemma mcfg_steps_request_value_preserved
     (M_pre M_post : @meta_config hwq_model)
     (ts_step : list (positive*trace))
-    (τ : positive) (v : val) :
+    (τ : positive) (v : nat * val) :
   mcfg_steps M_pre M_post ts_step →
   (∀ s π v_x v_resp, (s, π) ∈ M_pre → π !! τ = Some (v_x, v_resp) → v_x = v) →
-  (∀ τ' v', (τ', Call v') ∈ ts_step → τ' = τ → v' = v) →
+  (∀ τ' n' v', (τ', Call n' v') ∈ ts_step → τ' = τ → (n', v') = v) →
   ∀ s π v_x v_resp, (s, π) ∈ M_post → π !! τ = Some (v_x, v_resp) → v_x = v.
 Proof.
   intros Hsteps. revert τ v.
@@ -329,11 +329,11 @@ Proof.
     + intros s' π' v_x' v_resp' Hin' Hπτ'.
       eapply mcfg_step_request_value_preserved; first exact Hstep.
       * exact Hpre.
-      * intros τ' v' Hin_ts Heq. apply (Hcall τ' v'); last exact Heq.
+      * intros τ' n' v' Hin_ts Heq. apply (Hcall τ' n' v'); last exact Heq.
         apply elem_of_app. left. exact Hin_ts.
       * exact Hin'.
       * exact Hπτ'.
-    + intros τ' v' Hin_ts Heq. apply (Hcall τ' v'); last exact Heq.
+    + intros τ' n' v' Hin_ts Heq. apply (Hcall τ' n' v'); last exact Heq.
       apply elem_of_app. right. exact Hin_ts.
 Qed.
 
@@ -343,10 +343,10 @@ Qed.
 Lemma mcfg_steps_request_value_from_filter
     (M_full : @meta_config hwq_model)
     (ts : list (positive*trace))
-    (τ : positive) (v : val) :
+    (τ : positive) (v : nat * val) :
   mcfg_steps mcfg_init M_full ts →
   (* The trace's τ-filter has Call v as the first event (typical for tracked ops). *)
-  (∀ τ' v', (τ', Call v') ∈ ts → τ' = τ → v' = v) →
+  (∀ τ' n' v', (τ', Call n' v') ∈ ts → τ' = τ → (n', v') = v) →
   ∀ s π v_x v_resp, (s, π) ∈ M_full → π !! τ = Some (v_x, v_resp) → v_x = v.
 Proof.
   intros Hsteps Hcall.
@@ -362,11 +362,11 @@ Qed.
 Lemma mcfg_steps_request_value_from_filter_eq
     (M_full : @meta_config hwq_model)
     (ts : list (positive*trace))
-    (τ : positive) (v : val) :
+    (τ : positive) (v : nat * val) :
   mcfg_steps mcfg_init M_full ts →
   (* filter τ ts has only (τ, Call v) as its sole Call event, possibly with Ret/Lin too *)
   (* Stronger form: all Call events in ts for τ use value v *)
-  (∀ τ' v', (τ', Call v') ∈ ts → τ' = τ → v' = v) →
+  (∀ τ' n' v', (τ', Call n' v') ∈ ts → τ' = τ → (n', v') = v) →
   set_Forall (λ '(_, π), ∀ v_x v_resp, π !! τ = Some (v_x, v_resp) → v_x = v) M_full.
 Proof.
   intros Hsteps Hcall [s π] Hin v_x v_resp Hπτ.
@@ -383,14 +383,14 @@ Qed.
 (* Map a config to its τ-LP'd version if τ is pending in it, else identity. *)
 Definition lp_or_keep_τ_push (τ : positive) (v : val)
                               (x : single_config_q) : single_config_q :=
-  if decide (x.2 !! τ = Some (encode_request (Push v), None)) then
-    (x.1 ++ [v], <[τ:=(encode_request (Push v), Some #())]>x.2)
+  if decide (x.2 !! τ = Some (Push, v, None)) then
+    (x.1 ++ [v], <[τ:=(Push, v, Some #())]>x.2)
   else x.
 
 Lemma lp_or_keep_τ_push_τ_lin (τ : positive) (v : val) (x : single_config_q)
-    (Hdisj : x.2 !! τ = Some (encode_request (Push v), None) ∨
-             x.2 !! τ = Some (encode_request (Push v), Some #())) :
-  (lp_or_keep_τ_push τ v x).2 !! τ = Some (encode_request (Push v), Some #()).
+    (Hdisj : x.2 !! τ = Some (Push, v, None) ∨
+             x.2 !! τ = Some (Push, v, Some #())) :
+  (lp_or_keep_τ_push τ v x).2 !! τ = Some (Push, v, Some #()).
 Proof.
   unfold lp_or_keep_τ_push. case_decide as Hxτ.
   - destruct x as [s π]. simpl. apply lookup_insert_eq.
@@ -425,19 +425,19 @@ Definition pending_stored_pushes_at_π
   map_fold (fun τ op acc =>
     match op with
     | OpEnqStored v _ =>
-      if decide (π !! τ = Some (encode_request (Push v), None))
+      if decide (π !! τ = Some (Push, v, None))
       then (τ, v) :: acc
       else acc
     | _ => acc
     end) [] stat.
 
 Lemma pending_stored_pushes_at_π_Forall stat π :
-  Forall (λ pv, π !! pv.1 = Some (encode_request (Push pv.2), None))
+  Forall (λ pv, π !! pv.1 = Some (Push, pv.2, None))
     (pending_stored_pushes_at_π stat π).
 Proof.
   unfold pending_stored_pushes_at_π.
   apply (map_fold_weak_ind
-    (λ acc _, Forall (λ pv, π !! pv.1 = Some (encode_request (Push pv.2), None)) acc)).
+    (λ acc _, Forall (λ pv, π !! pv.1 = Some (Push, pv.2, None)) acc)).
   - apply Forall_nil. trivial.
   - intros τ op m acc Hnone IH.
     destruct op as [v_x | v_x i_x | v_x i_x | v_x i_x | | v_x | v_x].
@@ -493,7 +493,7 @@ Qed.
 
 Lemma pending_stored_pushes_at_π_complete stat π τ_x v_x i_x :
   stat !! τ_x = Some (OpEnqStored v_x i_x) →
-  π !! τ_x = Some (encode_request (Push v_x), None) →
+  π !! τ_x = Some (Push, v_x, None) →
   (τ_x, v_x) ∈ pending_stored_pushes_at_π stat π.
 Proof.
   intros Hstat Hπ.
@@ -527,10 +527,10 @@ Lemma chained_config_destruct
     (pushes : list (positive * val))
     (s' : list val) (π' : gmap positive proc_status) :
   (s', π') ∈ (list_to_set (map (fun pv : positive * val =>
-    ((s_q ++ [pv.2])%list, <[pv.1:=(encode_request (Push pv.2), Some #())]>π_q))
+    ((s_q ++ [pv.2])%list, <[pv.1:=(Push, pv.2, Some #())]>π_q))
     pushes) : gset single_config_q) →
   ∃ τ_x v_x, s' = (s_q ++ [v_x])%list ∧
-             π' = <[τ_x:=(encode_request (Push v_x), Some #())]>π_q ∧
+             π' = <[τ_x:=(Push, v_x, Some #())]>π_q ∧
              (τ_x, v_x) ∈ pushes.
 Proof.
   intros Hin.
@@ -550,19 +550,19 @@ Lemma mcfg_steps_chain_lp_push_list
     (pushes : list (positive * val)) :
   (s_q, π_q) ∈ M_full →
   Forall (λ pv : positive * val,
-            π_q !! pv.1 = Some (encode_request (Push pv.2), None)) pushes →
+            π_q !! pv.1 = Some (Push, pv.2, None)) pushes →
   ∃ (M_full' : @meta_config hwq_model),
     mcfg_steps M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     Forall (λ pv : positive * val,
             ((s_q ++ [pv.2])%list,
-             <[pv.1:=(encode_request (Push pv.2), Some #())]>π_q) ∈ M_full') pushes ∧
+             <[pv.1:=(Push, pv.2, Some #())]>π_q) ∈ M_full') pushes ∧
     (* Upper bound: every y ∈ M_full' is either in M_full or is an LP'd image
        for some (τ, v) in pushes. *)
     (∀ y, y ∈ M_full' →
        y ∈ M_full ∨ ∃ pv : positive * val, pv ∈ pushes ∧
          y = ((s_q ++ [pv.2])%list,
-              <[pv.1:=(encode_request (Push pv.2), Some #())]>π_q)).
+              <[pv.1:=(Push, pv.2, Some #())]>π_q)).
 Proof.
   intros Hin Hpushes.
   induction pushes as [|[τ v] pushes' IH].
@@ -575,7 +575,7 @@ Proof.
     destruct (IH Hpushes') as (M_full' & Hsteps & Hsub & Hwit & Hupper).
     assert (Hin_in_M_full' : (s_q, π_q) ∈ M_full') by (apply Hsub; exact Hin).
     pose (new_config := ((s_q ++ [v])%list,
-                          <[τ:=(encode_request (Push v), Some #())]>π_q)).
+                          <[τ:=(Push, v, Some #())]>π_q)).
     exists ({[new_config]} ∪ M_full').
     split_and!.
     + replace ([] : list (positive * trace)) with
@@ -584,10 +584,10 @@ Proof.
       eapply mcfg_steps_app; first exact Hsteps.
       apply mcfg_steps_singleton.
       apply (mcfg_step_interm M_full' s_q π_q τ
-              (encode_request (Push v)) (s_q ++ [v])%list #()).
+              Push v (s_q ++ [v])%list #()).
       * exact Hin_in_M_full'.
       * exact Hπτ.
-      * exists (Push v). split; first reflexivity. split; reflexivity.
+      * split; reflexivity.
     + intros y Hy. apply elem_of_union. right. apply Hsub. exact Hy.
     + apply Forall_cons. split.
       * unfold new_config.
@@ -612,16 +612,16 @@ Lemma mcfg_steps_lp_push_one
     (s_q : list val) (π_q : gmap positive proc_status)
     (τ : positive) (v : val) :
   (s_q, π_q) ∈ M_full →
-  π_q !! τ = Some (encode_request (Push v), None) →
+  π_q !! τ = Some (Push, v, None) →
   let new_config := ((s_q ++ [v])%list,
-                      <[τ:=(encode_request (Push v), Some #())]>π_q) in
+                      <[τ:=(Push, v, Some #())]>π_q) in
   mcfg_steps M_full ({[new_config]} ∪ M_full) [].
 Proof.
   intros Hin Hπτ.
   apply mcfg_steps_singleton.
   apply (mcfg_step_interm M_full s_q π_q τ
-           (encode_request (Push v)) (s_q ++ [v])%list #()); try assumption.
-  exists (Push v). split; first reflexivity. split; reflexivity.
+           Push v (s_q ++ [v])%list #()); try assumption.
+  split; reflexivity.
 Qed.
 
 Lemma mcfg_steps_chain_lp_push_all
@@ -633,13 +633,13 @@ Lemma mcfg_steps_chain_lp_push_all
     mcfg_steps M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     (∀ x : single_config_q, x ∈ M_g →
-        x.2 !! τ = Some (encode_request (Push v), None) →
-        (x.1 ++ [v], <[τ:=(encode_request (Push v), Some #())]>x.2) ∈ M_full') ∧
+        x.2 !! τ = Some (Push, v, None) →
+        (x.1 ++ [v], <[τ:=(Push, v, Some #())]>x.2) ∈ M_full') ∧
     (* Upper bound: M_full' adds only LP'd images of pending M_g cfgs to M_full. *)
     (∀ y, y ∈ M_full' → y ∈ M_full ∨
        ∃ x : single_config_q, x ∈ M_g ∧
-         x.2 !! τ = Some (encode_request (Push v), None) ∧
-         y = (x.1 ++ [v], <[τ:=(encode_request (Push v), Some #())]>x.2)).
+         x.2 !! τ = Some (Push, v, None) ∧
+         y = (x.1 ++ [v], <[τ:=(Push, v, Some #())]>x.2)).
 Proof.
   intros Hsub.
   induction M_g as [|x M_g' Hnotin IH] using set_ind_L.
@@ -654,10 +654,10 @@ Proof.
       apply elem_of_set_to_propset in Hy.
       set_solver. }
     destruct (IH Hsub') as (M_full' & Hsteps & Hsubset & Hwitnesses & Hupper).
-    destruct (decide (x.2 !! τ = Some (encode_request (Push v), None))) as [Hxτ | Hxτ_no].
+    destruct (decide (x.2 !! τ = Some (Push, v, None))) as [Hxτ | Hxτ_no].
     + (* x has τ pending: add its LP'd version. *)
       pose (new_config := ((x.1 ++ [v])%list,
-                           <[τ:=(encode_request (Push v), Some #())]>x.2)).
+                           <[τ:=(Push, v, Some #())]>x.2)).
       exists ({[new_config]} ∪ M_full').
       assert (Hx_in_full : x ∈ M_full').
       { apply Hsubset. apply Hsub.
@@ -668,11 +668,10 @@ Proof.
         eapply mcfg_steps_app; first exact Hsteps.
         apply mcfg_steps_singleton.
         apply (mcfg_step_interm M_full' s π τ
-                 (encode_request (Push v)) (s ++ [v])%list #()).
+                 Push v (s ++ [v])%list #()).
         -- exact Hx_in_full.
         -- exact Hxτ.
-        -- exists (Push v). split; first reflexivity.
-           split; reflexivity.
+        -- split; reflexivity.
       * intros y Hy. apply elem_of_union. right. by apply Hsubset.
       * intros y Hy Hyτ.
         apply elem_of_union in Hy as [Hy_singleton | Hy_M_g'].
@@ -710,17 +709,16 @@ Lemma mcfg_steps_lp_pop_one
     (v : val) (s' : list val) (π_q : gmap positive proc_status)
     (τ : positive) :
   (v :: s', π_q) ∈ M_full →
-  π_q !! τ = Some (encode_request Pop, None) →
+  π_q !! τ = Some (Pop, #(), None) →
   let new_config :=
-    (s', <[τ:=(encode_request Pop,
+    (s', <[τ:=(Pop, #(),
                 Some (encode_response (NonEmpty v)))]>π_q) in
   mcfg_steps M_full ({[new_config]} ∪ M_full) [].
 Proof.
   intros Hin Hπτ.
   apply mcfg_steps_singleton.
   apply (mcfg_step_interm M_full (v :: s') π_q τ
-           (encode_request Pop) s' (encode_response (NonEmpty v))); try assumption.
-  exists Pop. split; first reflexivity.
+           Pop #() s' (encode_response (NonEmpty v))); try assumption.
   split; reflexivity.
 Qed.
 
@@ -732,11 +730,11 @@ Lemma mcfg_steps_chain_push_then_pop
     (π_init : gmap positive proc_status)
     (τ_e τ_d : positive) (v : val) :
   ([], π_init) ∈ M_full →
-  π_init !! τ_e = Some (encode_request (Push v), None) →
-  π_init !! τ_d = Some (encode_request Pop, None) →
+  π_init !! τ_e = Some (Push, v, None) →
+  π_init !! τ_d = Some (Pop, #(), None) →
   τ_e ≠ τ_d →
-  let π_step1 := <[τ_e:=(encode_request (Push v), Some #())]>π_init in
-  let π_step2 := <[τ_d:=(encode_request Pop,
+  let π_step1 := <[τ_e:=(Push, v, Some #())]>π_init in
+  let π_step2 := <[τ_d:=(Pop, #(),
                           Some (encode_response (NonEmpty v)))]>π_step1 in
   let M_full' := {[([], π_step2); ([v], π_step1)]} ∪ M_full in
   mcfg_steps M_full M_full' [] ∧
@@ -745,28 +743,28 @@ Lemma mcfg_steps_chain_push_then_pop
 Proof.
   intros Hin_empty Hπ_e Hπ_d Hne_ed.
   simpl.
-  set (π_step1 := <[τ_e:=(encode_request (Push v), Some #())]>π_init).
-  set (π_step2 := <[τ_d:=(encode_request Pop,
+  set (π_step1 := <[τ_e:=(Push, v, Some #())]>π_init).
+  set (π_step2 := <[τ_d:=(Pop, #(),
                           Some (encode_response (NonEmpty v)))]>π_step1).
   (* Step 1: LP τ_e push on ([], π_init) → add ([v], π_step1). *)
   set (M1 := {[([v], π_step1)]} ∪ M_full).
   assert (Hstep1 : mcfg_steps M_full M1 []).
   { apply mcfg_steps_singleton.
     apply (mcfg_step_interm M_full [] π_init τ_e
-             (encode_request (Push v)) [v] #()); try assumption.
-    exists (Push v). split; first reflexivity. split; reflexivity. }
+             Push v [v] #()); try assumption.
+    split; reflexivity. }
   (* Step 2: LP τ_d pop on ([v], π_step1) → add ([], π_step2). *)
   assert (Hin_step1 : ([v], π_step1) ∈ M1).
   { apply elem_of_union. left. apply elem_of_singleton. reflexivity. }
-  assert (Hπ_d_step1 : π_step1 !! τ_d = Some (encode_request Pop, None)).
+  assert (Hπ_d_step1 : π_step1 !! τ_d = Some (Pop, #(), None)).
   { unfold π_step1. rewrite lookup_insert_ne;
       last (intros ?; apply Hne_ed; congruence). exact Hπ_d. }
   set (M2 := {[([], π_step2)]} ∪ M1).
   assert (Hstep2 : mcfg_steps M1 M2 []).
   { apply mcfg_steps_singleton.
     apply (mcfg_step_interm M1 [v] π_step1 τ_d
-             (encode_request Pop) [] (encode_response (NonEmpty v))); try assumption.
-    exists Pop. split; first reflexivity. split; reflexivity. }
+             Pop #() [] (encode_response (NonEmpty v))); try assumption.
+    split; reflexivity. }
   (* Combine. *)
   assert (M2 = {[([], π_step2); ([v], π_step1)]} ∪ M_full) as -> by set_solver.
   split_and!.
@@ -810,7 +808,7 @@ Lemma mcfg_steps_chain_lp_push_cumulative
   (s_q, π_q) ∈ M_full →
   NoDup pushes.*1 →
   Forall (λ pv : positive * val,
-            π_q !! pv.1 = Some (encode_request (Push pv.2), None)) pushes →
+            π_q !! pv.1 = Some (Push, pv.2, None)) pushes →
   ∃ (M_full' : @meta_config hwq_model),
     mcfg_steps M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
@@ -848,9 +846,9 @@ Proof.
     rewrite Hpre_eq in Hin_lin'.
     pose (new_config :=
             ((s_pre ++ [v_x])%list,
-             <[τ_x:=(encode_request (Push v_x), Some #())]>π_pre)).
+             <[τ_x:=(Push, v_x, Some #())]>π_pre)).
     exists ({[new_config]} ∪ M_full').
-    assert (Hπ_pre_τx : π_pre !! τ_x = Some (encode_request (Push v_x), None)).
+    assert (Hπ_pre_τx : π_pre !! τ_x = Some (Push, v_x, None)).
     { unfold π_pre, lineraize_pending_push. simpl.
       rewrite map_lookup_imap Hπ_τx /=.
       rewrite bool_decide_eq_false_2; first reflexivity.
@@ -863,10 +861,10 @@ Proof.
       eapply mcfg_steps_app; first exact Hsteps.
       apply mcfg_steps_singleton.
       apply (mcfg_step_interm M_full' s_pre π_pre τ_x
-              (encode_request (Push v_x)) (s_pre ++ [v_x])%list #()).
+              Push v_x (s_pre ++ [v_x])%list #()).
       * exact Hin_lin'.
       * exact Hπ_pre_τx.
-      * exists (Push v_x). split; first reflexivity. split; reflexivity.
+      * split; reflexivity.
     + intros y Hy. apply elem_of_union. right. by apply Hsubset.
     + apply elem_of_union. left. apply elem_of_singleton.
       unfold new_config.
@@ -949,7 +947,7 @@ Lemma mcfg_steps_chain_lp_push_all_lists
   Forall (λ pushes,
             NoDup pushes.*1 ∧
             Forall (λ pv : positive * val,
-                      cfg.2 !! pv.1 = Some (encode_request (Push pv.2), None)) pushes)
+                      cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
          pushes_lists →
   ∃ (M_full' : @meta_config hwq_model),
     mcfg_steps M_full M_full' [] ∧
@@ -1012,7 +1010,7 @@ Lemma mcfg_steps_chain_lp_push_all_cfgs
   Forall (λ cfg, Forall (λ pushes,
             NoDup pushes.*1 ∧
             Forall (λ pv : positive * val,
-                      cfg.2 !! pv.1 = Some (encode_request (Push pv.2), None)) pushes)
+                      cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
           (push_lists_of cfg)) cfgs →
   ∃ (M_full' : @meta_config hwq_model),
     mcfg_steps M_full M_full' [] ∧
@@ -1084,7 +1082,7 @@ Lemma mcfg_steps_chain_lp_push_all_perm
   (* Phase 2 FAA: τ is at OpEnqPending pre-FAA, transitions to OpEnqReserved. *)
   stat !! τ = Some (OpEnqPending v_push) →
   (* In all configs, τ has Pending Push v_push (set by Phase 1 Call). *)
-  set_Forall (λ '(_, π), π !! τ = Some (encode_request (Push v_push), None)) M_full →
+  set_Forall (λ '(_, π), π !! τ = Some (Push, v_push, None)) M_full →
   let stat' := <[τ:=OpEnqReserved v_push i_τ]>stat in
   ∃ (M_full' : @meta_config hwq_model),
     mcfg_steps M_full M_full' [] ∧
@@ -1130,7 +1128,7 @@ Proof.
   assert (Hcfgs_pushes : Forall (λ cfg, Forall (λ pushes,
               NoDup pushes.*1 ∧
               Forall (λ pv : positive * val,
-                        cfg.2 !! pv.1 = Some (encode_request (Push pv.2), None)) pushes)
+                        cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
             (push_lists_of cfg)) (elements M_g)).
   { apply Forall_forall. intros cfg Hcfg_in_list.
     apply Forall_forall. intros pushes Hpushes_in_list.
@@ -1144,12 +1142,12 @@ Proof.
       eapply elem_of_submseteq; first exact Hpv_in. exact Hsub_in_pset. }
     assert (Hnd_pending_keys : NoDup (pending_push_of_config cfg).*1).
     { destruct cfg as [s_q π_q]. unfold pending_push_of_config. simpl.
-      assert (Hkeys_sub : (omap (λ '(τ', v), if v is (InjRV v, None) then Some (τ',v) else None)
+      assert (Hkeys_sub : (omap (λ '(τ', v), if v is (0, v, None) then Some (τ',v) else None)
                                  (map_to_list π_q)).*1 `sublist_of` (map_to_list π_q).*1).
-      { induction (map_to_list π_q) as [|[τ' [v' resp']] tl IH'].
+      { induction (map_to_list π_q) as [|[τ' [[n' v'] resp']] tl IH'].
         - apply sublist_nil.
         - simpl.
-          destruct v' as [| | v_inner | |];
+          destruct n' as [|n'];
             try (simpl; apply sublist_cons; exact IH').
           destruct resp' as [v_resp |];
             try (simpl; apply sublist_cons; exact IH').
@@ -1170,8 +1168,8 @@ Proof.
       assert (Hpv_in_pending : (τ_pv, v_pv) ∈ pending_push_of_config cfg)
         by (by apply Hpushes_subseteq).
       unfold pending_push_of_config in Hpv_in_pending.
-      apply list_elem_of_omap in Hpv_in_pending as ([τ_x [v_x resp]] & Hin_list & Hmatch).
-      destruct v_x as [| | v_y | |]; try discriminate.
+      apply list_elem_of_omap in Hpv_in_pending as ([τ_x [[n_x v_x] resp]] & Hin_list & Hmatch).
+      destruct n_x as [|n_x]; try discriminate.
       destruct resp as [v_resp |]; try discriminate.
       simpl in Hmatch. injection Hmatch as Heq1 Heq2. subst.
       apply elem_of_map_to_list in Hin_list.
@@ -1253,41 +1251,41 @@ Lemma mcfg_steps_chain_lp_pop_all
   set_to_propset M_g ⊆ M_full →
   set_Forall (λ '(_, π), τ ∉ dom π) M_full →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [(τ, Call (encode_request Pop))] ∧
+    mcfg_steps M_full M_full' [(τ, Call Pop #())] ∧
     (* For each (v_h :: s_t, π_x) ∈ M_g, the LP'd-Pop config (after Call
        mapping τ at Pop, None, then LP'd to NE v_h) is in M_full'. *)
     (∀ (v_h : val) (s_t : list val) (π_x : gmap positive proc_status),
         (v_h :: s_t, π_x) ∈ M_g →
-        (s_t, <[τ:=(encode_request Pop,
+        (s_t, <[τ:=(Pop, #(),
                      Some (encode_response (NonEmpty v_h)))]>
-                (<[τ:=(encode_request Pop, None)]>π_x)) ∈ M_full') ∧
+                (<[τ:=(Pop, #(), None)]>π_x)) ∈ M_full') ∧
     (* The Call-mapped configs (without LP) are also in M_full'. *)
     (∀ x, x ∈ M_g →
-        (x.1, <[τ:=(encode_request Pop, None)]>x.2) ∈ M_full') ∧
+        (x.1, <[τ:=(Pop, #(), None)]>x.2) ∈ M_full') ∧
     (* Upper bound: every y ∈ M_full' is either a Call-mapped image of
        something in M_full, or an LP'd-Pop image of (v_h :: s_t, π_x) ∈ M_g. *)
     (∀ y, y ∈ M_full' →
-       (∃ z, z ∈ M_full ∧ y = (z.1, <[τ:=(encode_request Pop, None)]>z.2))
+       (∃ z, z ∈ M_full ∧ y = (z.1, <[τ:=(Pop, #(), None)]>z.2))
        ∨ (∃ v_h s_t π_x, (v_h :: s_t, π_x) ∈ M_g ∧
-            y = (s_t, <[τ:=(encode_request Pop,
+            y = (s_t, <[τ:=(Pop, #(),
                              Some (encode_response (NonEmpty v_h)))]>
-                       (<[τ:=(encode_request Pop, None)]>π_x)))).
+                       (<[τ:=(Pop, #(), None)]>π_x)))).
 Proof.
   intros Hsub Hτ_fresh.
   (* Step 1: Apply mcfg_step_call for τ at Pop. *)
   set (M_full_after_call :=
-         ((λ '(s', π'), (s', <[τ:=(encode_request Pop, None)]> π'))
+         ((λ '(s', π'), (s', <[τ:=(Pop, #(), None)]> π'))
             <$> M_full) : @meta_config hwq_model).
   assert (Hstep_call : mcfg_steps M_full M_full_after_call
-                                  [(τ, Call (encode_request Pop))]).
+                                  [(τ, Call Pop #())]).
   { apply mcfg_steps_singleton.
-    apply (mcfg_step_call M_full τ (encode_request Pop)).
+    apply (mcfg_step_call M_full τ Pop #()).
     - exact Hτ_fresh.
-    - right. reflexivity. }
+    - reflexivity. }
   (* Helper: every Call-mapped element is in M_full_after_call. *)
   assert (Hcall_in : ∀ x : single_config_q,
              x ∈ M_g →
-             (x.1, <[τ:=(encode_request Pop, None)]>x.2) ∈ M_full_after_call).
+             (x.1, <[τ:=(Pop, #(), None)]>x.2) ∈ M_full_after_call).
   { intros x Hx_in_g.
     unfold M_full_after_call.
     apply elem_of_PropSet.
@@ -1295,7 +1293,7 @@ Proof.
     apply Hsub. apply elem_of_set_to_propset. exact Hx_in_g. }
   (* Helper: upper bound on M_full_after_call. *)
   assert (Hcall_upper : ∀ y, y ∈ M_full_after_call →
-             ∃ z, z ∈ M_full ∧ y = (z.1, <[τ:=(encode_request Pop, None)]>z.2)).
+             ∃ z, z ∈ M_full ∧ y = (z.1, <[τ:=(Pop, #(), None)]>z.2)).
   { intros y Hy. unfold M_full_after_call in Hy.
     apply elem_of_PropSet in Hy as ([s_z π_z] & Heq & Hz_in).
     exists (s_z, π_z). split; first exact Hz_in. simpl. exact Heq. }
@@ -1305,19 +1303,19 @@ Proof.
           M_full_after_call ⊆ M_full' ∧
           (∀ (v_h : val) (s_t : list val) (π_x : gmap positive proc_status),
               (v_h :: s_t, π_x) ∈ M_g →
-              (s_t, <[τ:=(encode_request Pop,
+              (s_t, <[τ:=(Pop, #(),
                            Some (encode_response (NonEmpty v_h)))]>
-                      (<[τ:=(encode_request Pop, None)]>π_x)) ∈ M_full') ∧
+                      (<[τ:=(Pop, #(), None)]>π_x)) ∈ M_full') ∧
           (∀ y, y ∈ M_full' →
              y ∈ M_full_after_call ∨
              (∃ v_h s_t π_x, (v_h :: s_t, π_x) ∈ M_g ∧
-                y = (s_t, <[τ:=(encode_request Pop,
+                y = (s_t, <[τ:=(Pop, #(),
                                  Some (encode_response (NonEmpty v_h)))]>
-                           (<[τ:=(encode_request Pop, None)]>π_x))))).
+                           (<[τ:=(Pop, #(), None)]>π_x))))).
   { intros (M_full' & Hsteps_lp & Hsubset_after & Hwitnesses & Hupper).
     exists M_full'. split_and!.
-    - replace [(τ, Call (encode_request Pop))]
-        with ([(τ, Call (encode_request Pop))] ++ ([] : list (positive*trace)))
+    - replace [(τ, Call Pop #())]
+        with ([(τ, Call Pop #())] ++ ([] : list (positive*trace)))
         by apply app_nil_r.
       eapply mcfg_steps_app; first exact Hstep_call. exact Hsteps_lp.
     - exact Hwitnesses.
@@ -1336,7 +1334,7 @@ Proof.
     + intros y Hy. left. exact Hy.
   - assert (Hcall_in' : ∀ y : single_config_q,
                y ∈ M_g' →
-               (y.1, <[τ:=(encode_request Pop, None)]>y.2) ∈ M_full_after_call).
+               (y.1, <[τ:=(Pop, #(), None)]>y.2) ∈ M_full_after_call).
     { intros y Hy. apply Hcall_in. set_solver. }
     destruct (IH Hcall_in') as (M_full' & Hsteps & Hsubset & Hwitnesses & Hupper).
     destruct x as [s π].
@@ -1352,17 +1350,17 @@ Proof.
         -- right. exists v_h', s_t', π_x'. split; last reflexivity.
            apply elem_of_union. right. exact Hin'.
     + (* x = (v_h :: s_t, π): LP this Pop. *)
-      pose (π_call := <[τ:=(encode_request Pop, None)]>π).
-      pose (π_lp := <[τ:=(encode_request Pop,
+      pose (π_call := <[τ:=(Pop, #(), None)]>π).
+      pose (π_lp := <[τ:=(Pop, #(),
                           Some (encode_response (NonEmpty v_h)))]>π_call).
       pose (new_config := (s_t, π_lp) : single_config_q).
       exists ({[new_config]} ∪ M_full').
       assert (Hx_call_in_full' : (v_h :: s_t, π_call) ∈ M_full').
       { apply Hsubset.
         change (v_h :: s_t, π_call)
-          with ((v_h :: s_t, π).1, <[τ:=(encode_request Pop, None)]>(v_h :: s_t, π).2).
+          with ((v_h :: s_t, π).1, <[τ:=(Pop, #(), None)]>(v_h :: s_t, π).2).
         apply Hcall_in. set_solver. }
-      assert (Hπ_call_τ : π_call !! τ = Some (encode_request Pop, None)).
+      assert (Hπ_call_τ : π_call !! τ = Some (Pop, #(), None)).
       { unfold π_call. apply lookup_insert_eq. }
       split_and!.
       * replace ([] : list (positive * trace)) with
@@ -1371,12 +1369,11 @@ Proof.
         eapply mcfg_steps_app; first exact Hsteps.
         apply mcfg_steps_singleton.
         apply (mcfg_step_interm M_full' (v_h :: s_t) π_call τ
-                 (encode_request Pop) s_t
+                 Pop #() s_t
                  (encode_response (NonEmpty v_h))).
         -- exact Hx_call_in_full'.
         -- exact Hπ_call_τ.
-        -- exists Pop. split; first reflexivity.
-           split; reflexivity.
+        -- split; reflexivity.
       * intros y Hy. apply elem_of_union. right. by apply Hsubset.
       * intros v_h' s_t' π_x' Hin.
         apply elem_of_union in Hin as [Hin_singleton | Hin_M_g'].
@@ -1414,15 +1411,15 @@ Lemma mcfg_steps_chain_lp_pop_at_head
     M_full ⊆ M_full' ∧
     (∀ s_t π,
         (v_h :: s_t, π) ∈ M_g →
-        π !! τ = Some (encode_request Pop, None) →
+        π !! τ = Some (Pop, #(), None) →
         (s_t,
-         <[τ:=(encode_request Pop,
+         <[τ:=(Pop, #(),
                 Some (encode_response (NonEmpty v_h)))]>π) ∈ M_full') ∧
     (∀ y, y ∈ M_full' → y ∈ M_full ∨
        ∃ s_t π, (v_h :: s_t, π) ∈ M_g ∧
-                π !! τ = Some (encode_request Pop, None) ∧
+                π !! τ = Some (Pop, #(), None) ∧
                 y = (s_t,
-                     <[τ:=(encode_request Pop,
+                     <[τ:=(Pop, #(),
                             Some (encode_response (NonEmpty v_h)))]>π)).
 Proof.
   intros Hsub.
@@ -1449,9 +1446,9 @@ Proof.
         -- right. exists s_t', π'. split_and!; try assumption.
            apply elem_of_union. right. exact Hin'.
     + destruct (decide (w = v_h)) as [-> | Hne_w].
-      * destruct (decide (π !! τ = Some (encode_request Pop, None))) as
+      * destruct (decide (π !! τ = Some (Pop, #(), None))) as
           [Hπτ_yes | Hπτ_no].
-        -- pose (π_lp := <[τ:=(encode_request Pop,
+        -- pose (π_lp := <[τ:=(Pop, #(),
                                Some (encode_response (NonEmpty v_h)))]>π).
           pose (new_config := (s_t, π_lp) : single_config_q).
           exists ({[new_config]} ∪ M_full').
@@ -1465,12 +1462,11 @@ Proof.
             eapply mcfg_steps_app; first exact Hsteps'.
             apply mcfg_steps_singleton.
             apply (mcfg_step_interm M_full' (v_h :: s_t) π τ
-                     (encode_request Pop) s_t
+                     Pop #() s_t
                      (encode_response (NonEmpty v_h))).
             ** exact Hx_in_M_full'.
             ** exact Hπτ_yes.
-            ** exists Pop. split; first reflexivity.
-              split; reflexivity.
+            ** split; reflexivity.
           ++ intros y Hy. apply elem_of_union. right.
             by apply Hsubset'.
           ++ intros s_t' π' Hin Hπτ'.
@@ -1528,13 +1524,13 @@ Qed.
 (* Helper: pending_push_of_config contains (τ, v) iff cfg.2[τ] = Pending Push v. *)
 Lemma pending_push_of_config_lookup
     (cfg : single_config_q) (τ : positive) (v : val) :
-  cfg.2 !! τ = Some (encode_request (Push v), None) →
+  cfg.2 !! τ = Some (Push, v, None) →
   (τ, v) ∈ pending_push_of_config cfg.
 Proof.
   intros Hπτ.
   unfold pending_push_of_config.
   apply list_elem_of_omap.
-  exists (τ, (encode_request (Push v), None)). split.
+  exists (τ, (Push, v, None)). split.
   - apply elem_of_map_to_list. exact Hπτ.
   - simpl. reflexivity.
 Qed.
@@ -1542,9 +1538,9 @@ Qed.
 (* Helper: lineraize_pending_push for a singleton list reduces to insert. *)
 Lemma lineraize_pending_push_singleton
     (cfg : single_config_q) (τ : positive) (v : val) :
-  cfg.2 !! τ = Some (encode_request (Push v), None) →
+  cfg.2 !! τ = Some (Push, v, None) →
   lineraize_pending_push [(τ, v)] cfg =
-  (cfg.1 ++ [v], <[τ:=(encode_request (Push v), Some #())]>cfg.2).
+  (cfg.1 ++ [v], <[τ:=(Push, v, Some #())]>cfg.2).
 Proof.
   intros Hπτ.
   unfold lineraize_pending_push. simpl.
@@ -1567,9 +1563,9 @@ Lemma closure_push_single
     (cfg : single_config_q) (τ : positive) (v : val) (i : nat) :
   closure_push M_g stat →
   cfg ∈ M_g →
-  cfg.2 !! τ = Some (encode_request (Push v), None) →
+  cfg.2 !! τ = Some (Push, v, None) →
   (stat !! τ = Some (OpEnqReserved v i) ∨ stat !! τ = Some (OpEnqStored v i)) →
-  (cfg.1 ++ [v], <[τ:=(encode_request (Push v), Some #())]>cfg.2) ∈ M_g.
+  (cfg.1 ++ [v], <[τ:=(Push, v, Some #())]>cfg.2) ∈ M_g.
 Proof.
   intros Hcl Hin Hπτ Hstat.
   rewrite -(lineraize_pending_push_singleton cfg τ v Hπτ).
@@ -1689,20 +1685,20 @@ Definition lin_witness
       (s, π) ∈ M_g ∧
       s = s' ++ [v] ∧
       (∀ τ_d v_d i_d, stat !! τ_d = Some (OpEnqDone v_d i_d) →
-        π !! τ_d = Some (encode_request (Push v_d), Some #())) ∧
+        π !! τ_d = Some (Push, v_d, Some #())) ∧
       (∀ τ_d v_d, stat !! τ_d = Some (OpDeqLinearized v_d) →
-        π !! τ_d = Some (encode_request Pop,
+        π !! τ_d = Some (Pop, #(),
                          Some (encode_response (NonEmpty v_d)))) ∧
       (∀ τ_d v_d, stat !! τ_d = Some (OpDeqDone v_d) →
-        π !! τ_d = Some (encode_request Pop,
+        π !! τ_d = Some (Pop, #(),
                          Some (encode_response (NonEmpty v_d)))) ∧
       (∀ τ_d, stat !! τ_d = Some OpDeqPending →
-        π !! τ_d = Some (encode_request Pop, None)) ∧
+        π !! τ_d = Some (Pop, #(), None)) ∧
       (∀ τ_e_s v_e_s i_e_s,
          stat !! τ_e_s = Some (OpEnqStored v_e_s i_e_s) →
          i_e_s ≠ i →
-         π !! τ_e_s = Some (encode_request (Push v_e_s), None) ∨
-         π !! τ_e_s = Some (encode_request (Push v_e_s), Some #())).
+         π !! τ_e_s = Some (Push, v_e_s, None) ∨
+         π !! τ_e_s = Some (Push, v_e_s, Some #())).
 
 (* lin_witness is the "v-at-tail" specialization of lin_witness_seq:
    apply lin_witness_seq with seq = sorted_others ++ [i].
@@ -1848,18 +1844,18 @@ Definition init_witness
   ∃ (s : list val) (π : gmap positive proc_status),
     (s, π) ∈ M_g ∧
     (∀ τ_d v_d i_d, stat !! τ_d = Some (OpEnqDone v_d i_d) →
-      π !! τ_d = Some (encode_request (Push v_d), Some #())) ∧
+      π !! τ_d = Some (Push, v_d, Some #())) ∧
     (∀ τ_d v_d, stat !! τ_d = Some (OpDeqLinearized v_d) →
-      π !! τ_d = Some (encode_request Pop,
+      π !! τ_d = Some (Pop, #(),
                        Some (encode_response (NonEmpty v_d)))) ∧
     (∀ τ_d v_d, stat !! τ_d = Some (OpDeqDone v_d) →
-      π !! τ_d = Some (encode_request Pop,
+      π !! τ_d = Some (Pop, #(),
                        Some (encode_response (NonEmpty v_d)))) ∧
     (∀ τ_d, stat !! τ_d = Some OpDeqPending →
-      π !! τ_d = Some (encode_request Pop, None)) ∧
+      π !! τ_d = Some (Pop, #(), None)) ∧
     (∀ τ_e v_e i_e, stat !! τ_e = Some (OpEnqStored v_e i_e) →
-      π !! τ_e = Some (encode_request (Push v_e), None) ∨
-      π !! τ_e = Some (encode_request (Push v_e), Some #())).
+      π !! τ_e = Some (Push, v_e, None) ∨
+      π !! τ_e = Some (Push, v_e, Some #())).
 
 (* init_witness from lin_witness_seq: apply lin_witness_seq with A = currently
    stored slots (sorted seq). JInvSeq holds vacuously (no inversions in sorted). *)
@@ -1934,9 +1930,9 @@ Definition pop_universal_witness
     (stat : gmap positive op_status_t) : Prop :=
   ∃ s π, (s, π) ∈ M_g ∧
     (∀ τ v, stat !! τ = Some (OpDeqLinearized v) →
-       π !! τ = Some (encode_request Pop, Some (encode_response (NonEmpty v)))) ∧
+       π !! τ = Some (Pop, #(), Some (encode_response (NonEmpty v)))) ∧
     (∀ τ v, stat !! τ = Some (OpDeqDone v) →
-       π !! τ = Some (encode_request Pop, Some (encode_response (NonEmpty v)))).
+       π !! τ = Some (Pop, #(), Some (encode_response (NonEmpty v)))).
 
 (* pop_universal_witness from lin_witness_seq + slots_consistent: choose
    A = currently stored slots, seq = sorted. JInvSeq holds (no inversions). *)
@@ -1972,21 +1968,21 @@ Definition pop_universal_v_at_head
     (j < l)%nat →
     ∃ s_rest π,
       (v :: s_rest, π) ∈ M_g ∧
-      π !! τ_p = Some (encode_request Pop, None) ∧
+      π !! τ_p = Some (Pop, #(), None) ∧
       (∀ τ_d v_d i_d, stat !! τ_d = Some (OpEnqDone v_d i_d) →
-         π !! τ_d = Some (encode_request (Push v_d), Some #())) ∧
+         π !! τ_d = Some (Push, v_d, Some #())) ∧
       (∀ τ_d v_d, stat !! τ_d = Some (OpDeqLinearized v_d) →
-         π !! τ_d = Some (encode_request Pop,
+         π !! τ_d = Some (Pop, #(),
                           Some (encode_response (NonEmpty v_d)))) ∧
       (∀ τ_d v_d, stat !! τ_d = Some (OpDeqDone v_d) →
-         π !! τ_d = Some (encode_request Pop,
+         π !! τ_d = Some (Pop, #(),
                           Some (encode_response (NonEmpty v_d)))) ∧
       (∀ τ_d, stat !! τ_d = Some OpDeqPending →
-         π !! τ_d = Some (encode_request Pop, None)) ∧
+         π !! τ_d = Some (Pop, #(), None)) ∧
       (∀ τ_e v_e i_e, stat !! τ_e = Some (OpEnqStored v_e i_e) →
          i_e ≠ j →
-         π !! τ_e = Some (encode_request (Push v_e), None) ∨
-         π !! τ_e = Some (encode_request (Push v_e), Some #())).
+         π !! τ_e = Some (Push, v_e, None) ∨
+         π !! τ_e = Some (Push, v_e, Some #())).
 
 (* pop_universal_v_at_head from lin_witness_seq: apply with seq = j :: sorted_rest,
    where sorted_rest includes ALL stored slots ≠ j (sorted in increasing order).
@@ -2116,7 +2112,7 @@ Definition stat_M_full_pending
   ∀ τ v,
     stat !! τ = Some (OpEnqPending v) →
     ∀ s π, (s, π) ∈ M_full →
-      π !! τ = Some (encode_request (Push v), None).
+      π !! τ = Some (Push, v, None).
 
 (* With hwq_inv_body folding M_full := set_to_propset M_g,
    `stat_M_full_pending` follows directly from `stat_consistent`. *)

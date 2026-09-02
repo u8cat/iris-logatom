@@ -10,8 +10,9 @@ From iris_logatom.pure_logic Require Import linear.
 From iris_logatom.heap_lang Require Import patch.
 From iris.heap_lang Require Import notation.
 
-(* .1 is the value of request; .2 is the value of response *)
-Definition proc_status: Set := val * option val.
+(* .1.1 is the index of operation; .1.2 is the value of request;
+  .2 is the value of response *)
+Definition proc_status: Set := nat * val * option val.
 
 Definition single_config {M: model}: Set := S * gmap positive proc_status.
 Definition meta_config {M: model} := propset single_config.
@@ -24,15 +25,15 @@ Section def.
   Definition mcfg_init: meta_config := {[ (s_init, ∅) ]}.
 
   Inductive mcfg_step: meta_config → meta_config → list (positive*trace) → Prop :=
-    | mcfg_step_call mcfg τ v :
+    | mcfg_step_call mcfg τ n v :
       set_Forall (λ '(_, π), τ ∉ dom π) mcfg →
-      valid_request v →
-      mcfg_step mcfg ((λ '(s, π), (s, <[τ:=(v, None)]> π)) <$> mcfg) [(τ, Call v)]
-    | mcfg_step_interm mcfg s π τ v s' v' :
+      default default_vr (valid_requests!!n) v →
+      mcfg_step mcfg ((λ '(s, π), (s, <[τ:=(n, v, None)]> π)) <$> mcfg) [(τ, Call n v)]
+    | mcfg_step_interm mcfg s π τ n v s' v' :
       (s,π) ∈ mcfg →
-      π !! τ = Some (v, None) →
-      request_response s v s' v' →
-      mcfg_step mcfg ({[ (s',<[τ:=(v, Some v')]> π) ]} ∪ mcfg) []
+      π !! τ = Some (n, v, None) →
+      default default_rr (request_responses!!n) s v s' v' →
+      mcfg_step mcfg ({[ (s',<[τ:=(n, v, Some v')]> π) ]} ∪ mcfg) []
     | mcfg_step_ret mcfg τ v' :
       mcfg_step mcfg (mcfg ∩ {[ (_,π) | snd <$> (π !! τ) = Some (Some v') ]}) [(τ, Ret v')].
 
@@ -89,20 +90,20 @@ Section lemmas.
   Definition proc_status_of_trace (ts : list (positive*trace)) : gmap positive proc_status :=
     foldl (λ p e,
       match e with
-      | (τ, Call v) => <[τ:=(v, None)]> p
-      | (τ, Lin v v') => <[τ:=(v, Some v')]> p
+      | (τ, Call n v) => <[τ:=(n, v, None)]> p
+      | (τ, Lin n v v') => <[τ:=(n, v, Some v')]> p
       | (τ, Ret _) => p
       end) ∅ ts.
 
   Lemma proc_status_of_trace_nil : proc_status_of_trace [] = ∅.
   Proof. done. Qed.
 
-  Lemma proc_status_of_trace_snoc_call ts τ v :
-    proc_status_of_trace (ts ++ [(τ, Call v)]) = <[τ:=(v, None)]> (proc_status_of_trace ts).
+  Lemma proc_status_of_trace_snoc_call ts τ n v :
+    proc_status_of_trace (ts ++ [(τ, Call n v)]) = <[τ:=(n, v, None)]> (proc_status_of_trace ts).
   Proof. rewrite /proc_status_of_trace foldl_app //. Qed.
 
-  Lemma proc_status_of_trace_snoc_lin ts τ v v' :
-    proc_status_of_trace (ts ++ [(τ, Lin v v')]) = <[τ:=(v, Some v')]> (proc_status_of_trace ts).
+  Lemma proc_status_of_trace_snoc_lin ts τ n v v' :
+    proc_status_of_trace (ts ++ [(τ, Lin n v v')]) = <[τ:=(n, v, Some v')]> (proc_status_of_trace ts).
   Proof. rewrite /proc_status_of_trace foldl_app //. Qed.
 
   Lemma proc_status_of_trace_snoc_ret ts τ v' :
@@ -130,12 +131,12 @@ Section lemmas.
 
   (** Snoc analysis for per_tag_linearized via length + position. *)
 
-  Lemma per_tag_linearized_snoc_call_inv ts τ v :
-    per_tag_linearized (ts ++ [(τ, Call v)]) →
+  Lemma per_tag_linearized_snoc_call_inv ts τ n v :
+    per_tag_linearized (ts ++ [(τ, Call n v)]) →
     filter (λ t, t.1 = τ) ts = [].
   Proof.
     intros Hpt.
-    destruct (Hpt τ) as (v_x & v_y & Hprefix).
+    destruct (Hpt τ) as (i & v_x & v_y & Hprefix).
     rewrite filter_app filter_cons_True // filter_nil /= in Hprefix.
     pose proof (prefix_length _ _ Hprefix) as Hlen.
     rewrite length_app /= in Hlen.
@@ -147,12 +148,12 @@ Section lemmas.
       apply (f_equal (lookup 2)) in Hk. simpl in Hk. inversion Hk.
   Qed.
 
-  Lemma per_tag_linearized_snoc_lin_inv ts τ v v' :
-    per_tag_linearized (ts ++ [(τ, Lin v v')]) →
-    filter (λ t, t.1 = τ) ts = [(τ, Call v)].
+  Lemma per_tag_linearized_snoc_lin_inv ts τ n v v' :
+    per_tag_linearized (ts ++ [(τ, Lin n v v')]) →
+    filter (λ t, t.1 = τ) ts = [(τ, Call n v)].
   Proof.
     intros Hpt.
-    destruct (Hpt τ) as (v_x & v_y & Hprefix).
+    destruct (Hpt τ) as (i & v_x & v_y & Hprefix).
     rewrite filter_app filter_cons_True // filter_nil /= in Hprefix.
     pose proof (prefix_length _ _ Hprefix) as Hlen.
     rewrite length_app /= in Hlen.
@@ -163,17 +164,17 @@ Section lemmas.
     - destruct Hprefix as [k Hk]. simpl in Hk.
       apply (f_equal (lookup 0)) in Hk as Hk0. simpl in Hk0.
       apply (f_equal (lookup 1)) in Hk as Hk1. simpl in Hk1.
-      injection Hk0 as <-. injection Hk1 as <-. done.
+      injection Hk0 as <-. injection Hk1 as <- <-. done.
     - exfalso. destruct Hprefix as [k Hk]. simpl in Hk.
       apply (f_equal (lookup 2)) in Hk. simpl in Hk. inversion Hk.
   Qed.
 
   Lemma per_tag_linearized_snoc_ret_inv ts τ v' :
     per_tag_linearized (ts ++ [(τ, Ret v')]) →
-    ∃ v, filter (λ t, t.1 = τ) ts = [(τ, Call v); (τ, Lin v v')].
+    ∃ n v, filter (λ t, t.1 = τ) ts = [(τ, Call n v); (τ, Lin n v v')].
   Proof.
     intros Hpt.
-    destruct (Hpt τ) as (v_x & v_y & Hprefix).
+    destruct (Hpt τ) as (n & v_x & v_y & Hprefix).
     rewrite filter_app filter_cons_True // filter_nil /= in Hprefix.
     pose proof (prefix_length _ _ Hprefix) as Hlen.
     rewrite length_app /= in Hlen.
@@ -210,10 +211,11 @@ Section lemmas.
         * rewrite proc_status_of_trace_snoc_ret. by apply IH.
   Qed.
 
-  (** After a (τ, Call v) event with no later τ events, proc_status_of_trace[τ] = Pending v. *)
-  Lemma proc_status_of_trace_lookup_pending ts τ v :
-    filter (λ t, t.1 = τ) ts = [(τ, Call v)] →
-    proc_status_of_trace ts !! τ = Some (v, None).
+  (** After a (τ, Call n v) event with no later τ events,
+    proc_status_of_trace[τ] = Some (n, v, None). *)
+  Lemma proc_status_of_trace_lookup_pending ts τ n v :
+    filter (λ t, t.1 = τ) ts = [(τ, Call n v)] →
+    proc_status_of_trace ts !! τ = Some (n, v, None).
   Proof.
     induction ts as [|t ts IH] using rev_ind; intros Hfilter.
     - simpl in Hfilter. discriminate.
@@ -223,7 +225,7 @@ Section lemmas.
       + rewrite filter_cons_True // filter_nil /= in Hfilter.
         destruct (filter (λ t, t.1 = τ) ts) as [|h ft] eqn:Hf_ts.
         * simpl in Hfilter.
-          assert (tr = Call v) as -> by (inversion Hfilter; reflexivity).
+          assert (tr = Call n v) as -> by (inversion Hfilter; reflexivity).
           rewrite proc_status_of_trace_snoc_call.
           rewrite lookup_insert_eq.
           reflexivity.
@@ -239,10 +241,11 @@ Section lemmas.
         * rewrite proc_status_of_trace_snoc_ret. by apply IH.
   Qed.
 
-  (** After Call+Lin events with no later τ events, proc_status_of_trace[τ] = Linearized. *)
-  Lemma proc_status_of_trace_lookup_linearized ts τ v v' :
-    filter (λ t, t.1 = τ) ts = [(τ, Call v); (τ, Lin v v')] →
-    proc_status_of_trace ts !! τ = Some (v, Some v').
+  (** After Call+Lin events with no later τ events,
+    proc_status_of_trace[τ] = Some (n, v, Some v'). *)
+  Lemma proc_status_of_trace_lookup_linearized ts τ n v v' :
+    filter (λ t, t.1 = τ) ts = [(τ, Call n v); (τ, Lin n v v')] →
+    proc_status_of_trace ts !! τ = Some (n, v, Some v').
   Proof.
     induction ts as [|t ts IH] using rev_ind; intros Hfilter.
     - simpl in Hfilter. discriminate.
@@ -250,13 +253,13 @@ Section lemmas.
       destruct t as [τ' tr].
       destruct (decide (τ' = τ)) as [-> | Hne].
       + rewrite filter_cons_True // filter_nil /= in Hfilter.
-        (* filter τ ts ++ [(τ, tr)] = [(τ, Call v); (τ, Lin v v')] *)
+        (* filter τ ts ++ [(τ, tr)] = [(τ, Call n v); (τ, Lin n v v')] *)
         destruct (filter (λ t, t.1 = τ) ts) as [|h [|h2 ft]] eqn:Hf_ts.
         * (* filter ts = [], so [(τ, tr)] = 2-element list. Length mismatch. *)
           exfalso. apply (f_equal length) in Hfilter. simpl in Hfilter. lia.
-        * (* filter ts = [h], so [h; (τ, tr)] = [(τ, Call v); (τ, Lin v v')]. tr = Lin v v'. *)
+        * (* filter ts = [h], so [h; (τ, tr)] = [(τ, Call n v); (τ, Lin n v v')]. tr = Lin n v v'. *)
           simpl in Hfilter.
-          assert (tr = Lin v v') as -> by (inversion Hfilter; reflexivity).
+          assert (tr = Lin n v v') as -> by (inversion Hfilter; reflexivity).
           rewrite proc_status_of_trace_snoc_lin.
           rewrite lookup_insert_eq.
           reflexivity.
@@ -286,7 +289,7 @@ Section lemmas.
     intros Hstep Hpre Hin.
     inversion Hstep as
       [M' τ v Hf Hvr Heq1 Heq2 Heq3
-      | M' s_a π_a τ v s_b v' Hin_a Hπ_a Hrr Heq1 Heq2 Heq3
+      | M' s_a π_a τ n v s_b v' Hin_a Hπ_a Hrr Heq1 Heq2 Heq3
       | M' τ v' Heq1 Heq2 Heq3]; subst.
     - (* Call *)
       apply elem_of_PropSet in Hin as ([s_x π_x] & Heq & Hin_old).
@@ -363,8 +366,8 @@ Section lemmas.
       split; first apply mcfg_steps_nil.
       apply elem_of_singleton. reflexivity.
     - destruct t as [τ tr].
-      destruct tr as [v|v v'|v'].
-      + (* (τ, Call v) event *)
+      destruct tr as [n v|n v v'|v'].
+      + (* (τ, Call n v) event *)
         rewrite filter_app filter_cons_True in Hcv; last by intros [].
         rewrite filter_nil in Hcv.
         rewrite filter_app filter_cons_False in Hls; last by intros [].
@@ -379,10 +382,10 @@ Section lemmas.
         destruct (IH s Hcv_pre Hpt_pre Hls) as (M_pre & Hsteps_pre & Hin_pre).
         rewrite filter_app filter_cons_True; last by intros [].
         rewrite filter_nil.
-        exists ((λ '(s_x, π_x), (s_x, <[τ:=(v, None)]> π_x)) <$> M_pre).
+        exists ((λ '(s_x, π_x), (s_x, <[τ:=(n, v, None)]> π_x)) <$> M_pre).
         split.
         * eapply mcfg_steps_snoc; first exact Hsteps_pre.
-          apply (mcfg_step_call _ τ v); last done.
+          apply (mcfg_step_call _ τ n v); last done.
           (* dom-fresh: every config in M_pre has τ ∉ dom π. Follows
              from [filter (λ t, t.1 = τ) ts' = []] and the domain bound. *)
           intros [s_x π_x] Hin_x.
@@ -400,7 +403,7 @@ Section lemmas.
         * rewrite proc_status_of_trace_snoc_call.
           apply elem_of_PropSet. exists (s, proc_status_of_trace ts').
           split; first reflexivity. exact Hin_pre.
-      + (* (τ, Lin v v') event *)
+      + (* (τ, Lin n v v') event *)
         rewrite filter_app filter_cons_False in Hcv;
           last by intros HLin; apply HLin; done.
         rewrite filter_nil app_nil_r in Hcv.
@@ -409,7 +412,7 @@ Section lemmas.
         apply linearized_sound_snoc_inv in Hls as (s_mid & Hls_pre & Hvr & Hrr).
         assert (Hpt_pre : per_tag_linearized ts')
           by (by eapply per_tag_linearized_snoc).
-        assert (Hτ_call : filter (λ t, t.1 = τ) ts' = [(τ, Call v)])
+        assert (Hτ_call : filter (λ t, t.1 = τ) ts' = [(τ, Call n v)])
           by (by eapply per_tag_linearized_snoc_lin_inv).
         destruct (IH s_mid Hcv Hpt_pre Hls_pre) as (M_pre & Hsteps_pre & Hin_pre).
         rewrite filter_app filter_cons_False;
@@ -418,10 +421,10 @@ Section lemmas.
         replace (filter (not ∘ is_lin ∘ snd) ts')
           with ((filter (not ∘ is_lin ∘ snd) ts') ++ ([] : list (positive*trace)))
           by apply app_nil_r.
-        exists ({[ (s, <[τ:=(v, Some v')]> (proc_status_of_trace ts')) ]} ∪ M_pre).
+        exists ({[ (s, <[τ:=(n, v, Some v')]> (proc_status_of_trace ts')) ]} ∪ M_pre).
         split.
         * eapply mcfg_steps_snoc; first exact Hsteps_pre.
-          apply (mcfg_step_interm _ s_mid (proc_status_of_trace ts') τ v s v').
+          apply (mcfg_step_interm _ s_mid (proc_status_of_trace ts') τ n v s v').
           -- exact Hin_pre.
           -- by apply proc_status_of_trace_lookup_pending.
           -- done.
@@ -436,8 +439,8 @@ Section lemmas.
         rewrite filter_nil app_nil_r in Hls.
         assert (Hpt_pre : per_tag_linearized ts')
           by (by eapply per_tag_linearized_snoc).
-        destruct (per_tag_linearized_snoc_ret_inv _ _ _ Hpt) as (v_call & Hf_τ).
-        assert (Hcanon : proc_status_of_trace ts' !! τ = Some (v_call, Some v'))
+        destruct (per_tag_linearized_snoc_ret_inv _ _ _ Hpt) as (n_call & v_call & Hf_τ).
+        assert (Hcanon : proc_status_of_trace ts' !! τ = Some (n_call, v_call, Some v'))
           by (by apply proc_status_of_trace_lookup_linearized).
         destruct (IH s Hcv_pre Hpt_pre Hls) as (M_pre & Hsteps_pre & Hin_pre).
         rewrite filter_app filter_cons_True; last by intros [].
@@ -472,10 +475,10 @@ Section lemmas.
                                 (ts' : list (positive*trace)) : Prop :=
     ∀ τ, match π !! τ with
          | None => filter (λ t, t.1 = τ) ts' = []
-         | Some (v, None) => filter (λ t, t.1 = τ) ts' = [(τ, Call v)]
-         | Some (v, Some v') =>
-             filter (λ t, t.1 = τ) ts' = [(τ, Call v); (τ, Lin v v')]
-           ∨ filter (λ t, t.1 = τ) ts' = [(τ, Call v); (τ, Lin v v'); (τ, Ret v')]
+         | Some (n, v, None) => filter (λ t, t.1 = τ) ts' = [(τ, Call n v)]
+         | Some (n, v, Some v') =>
+             filter (λ t, t.1 = τ) ts' = [(τ, Call n v); (τ, Lin n v v')]
+           ∨ filter (λ t, t.1 = τ) ts' = [(τ, Call n v); (τ, Lin n v v'); (τ, Ret v')]
          end.
 
   (** Every config in mcfg has a witness ts'. *)
@@ -492,8 +495,8 @@ Section lemmas.
     per_tag_wellformed (ts1 ++ ts2) → per_tag_wellformed ts1.
   Proof.
     intros H τ.
-    destruct (H τ) as (v & v' & Hprefix).
-    exists v, v'.
+    destruct (H τ) as (n & v & v' & Hprefix).
+    exists n, v, v'.
     rewrite filter_app in Hprefix.
     by apply prefix_app_l in Hprefix.
   Qed.
@@ -513,32 +516,32 @@ Section lemmas.
   Qed.
 
   (** Preservation of has_witness under mcfg_step_call. *)
-  Lemma has_witness_step_call mcfg ts τ v :
+  Lemma has_witness_step_call mcfg ts τ n v :
     has_witness mcfg ts →
     set_Forall (λ '(_, π), τ ∉ dom π) mcfg →
-    valid_request v →
-    has_witness ((λ '(s, π), (s, <[τ:=(v, None)]> π)) <$> mcfg) (ts ++ [(τ, Call v)]).
+    default default_vr (valid_requests!!n) v →
+    has_witness ((λ '(s, π), (s, <[τ:=(n, v, None)]> π)) <$> mcfg) (ts ++ [(τ, Call n v)]).
   Proof.
     intros HW Hfresh Hvr s π_new Hin.
     apply elem_of_PropSet in Hin as (a & Heq & Hain).
     destruct a as [s' π']. simpl in Heq. injection Heq as -> ->.
     pose proof (Hfresh _ Hain) as Hτfresh.
     destruct (HW s' π' Hain) as (ts'_old & Heq_ts & Hcv & Hpt & Hls & Hcc).
-    exists (ts'_old ++ [(τ, Call v)]). split_and!.
+    exists (ts'_old ++ [(τ, Call n v)]). split_and!.
     - rewrite filter_app filter_cons_True; last by intros [].
       rewrite filter_nil. rewrite -Heq_ts //.
     - rewrite /call_valid Forall_app. split.
       + done.
       + by repeat constructor.
-    - intros τ_x. destruct (Hpt τ_x) as (v_x & v_y & Hprefix).
+    - intros τ_x. destruct (Hpt τ_x) as (i & v_x & v_y & Hprefix).
       rewrite filter_app filter_cons. case_decide as Heq.
       + simpl in Heq. subst τ_x.
         pose proof (Hcc τ) as Hcc_τ.
         rewrite not_elem_of_dom in Hτfresh.
         rewrite Hτfresh in Hcc_τ. simpl in Hcc_τ.
-        rewrite Hcc_τ. exists v, v.
+        rewrite Hcc_τ. exists n, v, v.
         rewrite filter_nil /=. apply prefix_cons. apply prefix_nil.
-      + exists v_x, v_y. by rewrite filter_nil app_nil_r.
+      + exists i, v_x, v_y. by rewrite filter_nil app_nil_r.
     - rewrite filter_app filter_cons_False; last by intros [].
       by rewrite filter_nil app_nil_r.
     - intros τ_x. destruct (decide (τ = τ_x)) as [-> | Hne].
@@ -556,18 +559,19 @@ Section lemmas.
           apply (Hcc τ_x).
   Qed.
 
-  (** A (τ, Call v) event in a trace ts with call_valid ts gives valid_request v. *)
-  Lemma call_valid_elem_of ts τ v :
+  (** A (τ, Call n v) event in a trace ts with call_valid ts gives that v
+    satisfies operation n's request predicate. *)
+  Lemma call_valid_elem_of ts τ n v :
     call_valid ts →
-    (τ, Call v) ∈ ts →
-    valid_request v.
+    (τ, Call n v) ∈ ts →
+    default default_vr (valid_requests!!n) v.
   Proof.
     intros Hcv Hin.
     rewrite /call_valid Forall_forall in Hcv.
-    by apply (Hcv (τ, Call v) Hin).
+    by apply (Hcv (τ, Call n v) Hin).
   Qed.
 
-  (** If filter τ ts' = [(τ, Call v)], then (τ, Call v) ∈ ts'. *)
+  (** If filter P l = [x], then x ∈ l. *)
   Lemma filter_eq_singleton_elem_of {A} (P : A → Prop) `{!∀ x, Decision (P x)} (x : A) l :
     filter P l = [x] → x ∈ l.
   Proof.
@@ -579,25 +583,25 @@ Section lemmas.
 
   (** Preservation under mcfg_step_interm: trace unchanged. The new
       linearized config is added alongside the original. *)
-  Lemma has_witness_step_interm mcfg s π τ v s' v' ts :
+  Lemma has_witness_step_interm mcfg s π τ n v s' v' ts :
     has_witness mcfg ts →
     (s, π) ∈ mcfg →
-    π !! τ = Some (v, None) →
-    request_response s v s' v' →
-    has_witness ({[ (s', <[τ:=(v, Some v')]> π) ]} ∪ mcfg) ts.
+    π !! τ = Some (n, v, None) →
+    default default_rr (request_responses!!n) s v s' v' →
+    has_witness ({[ (s', <[τ:=(n, v, Some v')]> π) ]} ∪ mcfg) ts.
   Proof.
     intros HW Hsπ Hπτ Hrr s_x π_x Hin.
     apply elem_of_union in Hin as [Hin | Hin].
     - (* (s_x, π_x) is the newly linearized config. *)
       apply elem_of_singleton in Hin. injection Hin as -> ->.
       destruct (HW _ _ Hsπ) as (ts'_old & Heq_ts & Hcv & Hpt & Hls & Hcc).
-      (* Extract that (τ, Call v) ∈ ts, hence valid_request v. *)
+      (* Extract that (τ, Call n v) ∈ ts, hence v is a valid request for n. *)
       pose proof (Hcc τ) as Hcc_τ. rewrite Hπτ in Hcc_τ. simpl in Hcc_τ.
-      assert (Hvr : valid_request v).
+      assert (Hvr : default default_vr (valid_requests!!n) v).
       { eapply call_valid_elem_of; first exact Hcv.
         rewrite Heq_ts. apply list_elem_of_filter. split; first by intros [].
         apply (filter_eq_singleton_elem_of _ _ _ Hcc_τ). }
-      exists (ts'_old ++ [(τ, Lin v v')]). split_and!.
+      exists (ts'_old ++ [(τ, Lin n v v')]). split_and!.
       + rewrite filter_app filter_cons_False;
           last by intros HLin; apply HLin; done.
         rewrite filter_nil app_nil_r. exact Heq_ts.
@@ -606,7 +610,7 @@ Section lemmas.
         destruct (Hpt τ_x) as (v_a & v_b & Hprefix).
         destruct (decide (τ = τ_x)) as [-> | Hne].
         * rewrite filter_app filter_cons. case_decide as Hd; last by exfalso.
-          rewrite filter_nil /= Hcc_τ. exists v, v'.
+          rewrite filter_nil /= Hcc_τ. exists n, v, v'.
           apply prefix_cons, prefix_cons, prefix_nil.
         * rewrite filter_app filter_cons. case_decide as Hd.
           { simpl in Hd. exfalso. by apply Hne. }
@@ -638,17 +642,17 @@ Section lemmas.
     rewrite elem_of_PropSet in Hfilter_in.
     destruct (HW _ _ Hin) as (ts'_old & -> & Hcv & Hpt & Hls & Hcc).
     pose proof (Hcc τ) as Hcc_τ.
-    destruct (π_x !! τ) as [[v_x [v_x'|]]|] eqn:Hπτ;
+    destruct (π_x !! τ) as [[[n_x v_x] [v_x'|]]|] eqn:Hπτ;
       simpl in Hfilter_in; simplify_eq.
     (* π_x !! τ = Some (v_x, Some v'). Hcc_τ has filter τ ts'_old as one of two cases. *)
-    assert (Hno_ret : filter (λ t, t.1 = τ) ts'_old = [(τ, Call v_x); (τ, Lin v_x v')]).
+    assert (Hno_ret : filter (λ t, t.1 = τ) ts'_old = [(τ, Call n_x v_x); (τ, Lin n_x v_x v')]).
     { destruct Hcc_τ as [Hcc1 | Hcc2]; first exact Hcc1.
       exfalso.
-      (* Hcc2: filter τ ts'_old = [Call v_x; Lin v_x v'; Ret v'].
+      (* Hcc2: filter τ ts'_old = [Call n_x v_x; Lin n_x v_x v'; Ret v'].
          Compute filter τ (filter not_is_lin ts'_old). *)
       assert (Hfilter_double :
               filter (λ t : positive * trace, t.1 = τ)
-                (filter (not ∘ is_lin ∘ snd) ts'_old) = [(τ, Call v_x); (τ, Ret v')]).
+                (filter (not ∘ is_lin ∘ snd) ts'_old) = [(τ, Call n_x v_x); (τ, Ret v')]).
       { rewrite list_filter_filter.
         transitivity (filter (λ a : positive * trace, (not ∘ is_lin ∘ snd) a ∧ a.1 = τ) ts'_old).
         { apply list_filter_iff. intros []. tauto. }
@@ -659,10 +663,10 @@ Section lemmas.
         rewrite filter_cons_True; last by intros [].
         rewrite filter_nil. reflexivity. }
       (* Now Hpw gives prefix constraint on filter τ (ts ++ [Ret v']). *)
-      destruct (Hpw τ) as (v_a & v_b & [k Hk]).
+      destruct (Hpw τ) as (n & v_a & v_b & [k Hk]).
       rewrite filter_app filter_cons_True // filter_nil /= in Hk.
       rewrite Hfilter_double in Hk.
-      (* Hk: [(τ, Call v_a); (τ, Ret v_b)] = [(τ, Call v_x); (τ, Ret v'); (τ, Ret v')] ++ k. *)
+      (* Hk: [(τ, Call n v_a); (τ, Ret v_b)] = [(τ, Call n_x v_x); (τ, Ret v'); (τ, Ret v')] ++ k. *)
       apply (f_equal length) in Hk.
       simpl in Hk. lia.
     }
@@ -673,7 +677,7 @@ Section lemmas.
       done.
     - intros τ_y. destruct (decide (τ = τ_y)) as [-> | Hne].
       + rewrite filter_app filter_cons. case_decide as Hd; last (exfalso; by apply Hd).
-        rewrite filter_nil /= Hno_ret. exists v_x, v'.
+        rewrite filter_nil /= Hno_ret. exists n_x, v_x, v'.
         repeat (apply prefix_cons). apply prefix_nil.
       + rewrite filter_app filter_cons. case_decide as Hd.
         { exfalso. simpl in Hd. by apply Hne. }

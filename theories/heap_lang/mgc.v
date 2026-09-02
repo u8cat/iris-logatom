@@ -1,18 +1,18 @@
 From iris_logatom.lib Require Import list.
 From iris.proofmode Require Import proofmode.
 From iris_logatom.pure_logic Require Export state_set linear.
-From iris_logatom.pure_logic Require Import steps step_laws tactics not_stuck_restrict.
+From iris_logatom.pure_logic Require Import encodable steps step_laws tactics not_stuck_restrict.
 From iris.algebra Require Import agree.
 From iris.base_logic Require Import invariants ghost_map.
 From iris.program_logic Require Export atomic.
 From iris_logatom.program_logic Require Import weakestpre.
 From iris.heap_lang Require Import adequacy primitive_laws notation proofmode.
 From iris_logatom.heap_lang Require Import completeness fork_free.
-From iris_logatom.heap_lang.lib Require Export nondet_int_prealloc trace.
+From iris_logatom.heap_lang.lib Require Export list nondet_int_prealloc trace.
 
 (* Call ≡ InjL, Ret ≡ InjR *)
-Definition call_ret_wrapper (l : loc) : val := λ: "op" "obj" "req",
-  let: "τ" := trace_fresh #l (InjL "req") in
+Definition call_ret_wrapper (l : loc) (n : nat) : val := λ: "op" "obj" "req",
+  let: "τ" := trace_fresh #l (InjL (#n, "req")) in
   let: "res" := "op" "obj" "req" in
   trace_emit #l "τ" (InjR "res");;
   "res".
@@ -22,26 +22,26 @@ Section impl.
     it must fresh wrt the final state. *)
   Context (tracer : loc).
 
-  Definition concurrent_call (request : val) (op obj : expr) : expr :=
-    Fork (call_ret_wrapper tracer op obj request;; #()).
+  Definition concurrent_call (opid : nat) (request : val) (ops obj : expr) : expr :=
+    Fork (call_ret_wrapper tracer opid (list_nth #opid ops) obj request;; #()).
 
-  Fixpoint concurrent_calls calls (op obj : expr) : expr :=
+  Fixpoint concurrent_calls calls (ops obj : expr) : expr :=
     match calls with
     | [] => trace_peak #tracer
-    | request::calls =>
-      concurrent_call request op obj;;
-      concurrent_calls calls op obj
+    | (opid,request)::calls =>
+      concurrent_call opid request ops obj;;
+      concurrent_calls calls ops obj
     end.
 
   Definition extract_calls (ts : list (positive*trace)) :=
-    omap (λ t, if t.2 is Call v then Some v else None) ts.
+    omap (λ t, if t.2 is Call n v then Some (n, v) else None) ts.
 
-  Definition mgc_of_trace ts : val := λ: "op" "obj",
-    concurrent_calls (extract_calls ts) "op" "obj".
+  Definition mgc_of_trace ts : val := λ: "ops" "obj",
+    concurrent_calls (extract_calls ts) "ops" "obj".
 
-  Lemma concurrent_call_subst ts op obj :
-    subst "obj" obj (subst "op" op (concurrent_calls (extract_calls ts) "op" "obj")) =
-    concurrent_calls (extract_calls ts) op obj.
+  Lemma concurrent_call_subst ts ops obj :
+    subst "obj" obj (subst "ops" ops (concurrent_calls (extract_calls ts) "ops" "obj")) =
+    concurrent_calls (extract_calls ts) ops obj.
   Proof.
     induction ts as [|[τ [req| |]] ts IH]; simpl;
       [| rewrite IH..]; done.
@@ -60,26 +60,26 @@ Section spec.
   Context `{!heapGS Σ, !traceG Σ}.
   Context (P_init : iProp Σ).
   Context (R : mgc_repr Σ) (s : stuckness).
-  Context (valid_req : val → Prop).
-  Context (init op : val).
+  Context (valid_reqs : list (val → Prop)).
+  Context (init : expr) (ops : list val).
 
   Definition init_spec_type_gen : Prop :=
     {{{ P_init }}}
-      init #() @ s; ⊤
+      init @ s; ⊤
     {{{ γ obj, RET obj; (∀ l : loc, trace_is l ([] : list (positive*trace)) ={⊤}=∗ mgc_inv R l γ obj) }}}.
 
   Definition call_ret_wrapper_spec_type : Prop :=
-    ∀ γ l (obj req : val), valid_req req →
+    ∀ n γ l (obj req : val), default default_vr (valid_reqs!!n) req →
       {{{ trace_inv l (I_lang R) ∗ mgc_inv R l γ obj }}}
-        call_ret_wrapper l op obj req @ s; ⊤
+        call_ret_wrapper l n (ops!!!n : val) obj req @ s; ⊤
       {{{ v, RET v; True }}}.
 
   Lemma mgc_spec_gen tracer ts :
-    Forall (λ x, if x.2 is Call req then valid_req req else True) ts →
+    Forall (λ x, if x.2 is Call n req then default default_vr (valid_reqs!!n) req else True) ts →
     init_spec_type_gen → call_ret_wrapper_spec_type →
     ⊢ inv_heap_inv -∗ trace_inv tracer (I_lang R) -∗ trace_is tracer ([] : list (positive*trace)) -∗
     P_init -∗
-    WP mgc_of_trace tracer ts op (init #()) @ s; ⊤ {{ v, ⌜∃ ts, v = encode_trace ts ∧ I_lang R ts⌝ }}.
+    WP mgc_of_trace tracer ts (encode_val ops) init @ s; ⊤ {{ v, ⌜∃ ts, v = encode_trace ts ∧ I_lang R ts⌝ }}.
   Proof.
     intros Hvalid_trace init_spec op_spec.
     iIntros "#Hhi #Hti Ht HP_init".
@@ -87,16 +87,17 @@ Section spec.
     iMod ("His_P_wand" with "[$]") as "#His_P".
     wp_pures. wp_rec. wp_pure. wp_lam.
     rewrite concurrent_call_subst.
-    iInduction ts as [|[τ [req| |]] ts IH] "IH".
+    iInduction ts as [|[τ [opid req| |]] ts IH] "IH".
     - rewrite /mgc_of_trace /extract_calls omap_nil /concurrent_calls.
       iApply (wp_stuck_mono NotStuck); first done.
       wp_apply (trace_peak_spec with "Hti") as (ts) "%HI_lang".
       iPureIntro. by exists ts.
-    - rewrite /mgc_of_trace /extract_calls (omap_cons_Some _ _ req) //=.
+    - rewrite /mgc_of_trace /extract_calls (omap_cons_Some _ _ (opid,req)) //=.
       rewrite Forall_cons in Hvalid_trace.
       destruct Hvalid_trace as [Hvalid_req_hd Hvalid_trace].
       wp_apply wp_fork.
-      + wp_apply (op_spec with "[$Hti $His_P]"); first done.
+      + wp_apply list_nth_spec.
+        wp_apply (op_spec with "[$Hti $His_P]"); first done.
         iIntros (v) "_". by wp_pures.
       + wp_pures. iApply "IH". done.
     - rewrite /mgc_of_trace /extract_calls omap_cons_None //.
@@ -114,11 +115,11 @@ Definition init_spec_type `{!heapGS Σ, !traceG Σ} := init_spec_type_gen True.
 Definition mgc_spec `{!heapGS Σ, !traceG Σ} := mgc_spec_gen True.
 
 Section adequacy.
-  Context (op obj : val).
-  Context (valid_request : val → Prop).
+  Context (ops : list val) (obj : val).
+  Context (valid_requests : list (val → Prop)).
 
-  Notation adv_step := (adv_step op obj valid_request).
-  Notation adv_steps := (adv_steps op obj valid_request).
+  Notation adv_step := (adv_step ops obj valid_requests).
+  Notation adv_steps := (adv_steps ops obj valid_requests).
 
   (* Simulated steps.
     Thread pool:
@@ -145,8 +146,8 @@ Section adequacy.
     Definition composable_state σ :=
       {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom σ.(heap).
 
-    Definition simulatedOp_idle (req : val) : expr :=
-      call_ret_wrapper tracer op obj req;; #().
+    Definition simulatedOp_idle '(n, req) : expr :=
+      call_ret_wrapper tracer n (list_nth #n (encode_val ops)) obj (req : val);; #().
 
     Definition simulatedOp_pending_ctx τ :=
       [AppRCtx (λ: "res", trace_emit #tracer #(Z.pos τ) (InjR "res");; "res"); AppRCtx (λ: <>, #())].
@@ -280,40 +281,41 @@ Section adequacy.
       theorem is not strong enough to prove the concrete form of child threads. *)
 
     (* mgc -->* [simulatedOp_idle]s, with the fixed background thread kept at index 1. *)
-    Lemma simulate_create (calls : list val) σ :
-      rtc erased_step ([concurrent_calls tracer calls op obj;
+    Lemma simulate_create (calls : list (nat*val)) σ :
+      rtc erased_step ([concurrent_calls tracer calls (encode_val ops) obj;
                         nondet_bool_prealloc_bg #(tracer +ₗ 2)], σ)
                       (trace_peak #tracer :: nondet_bool_prealloc_bg #(tracer +ₗ 2)
                                           :: (simulatedOp_idle <$> calls), σ).
     Proof.
-      induction calls as [|request calls IH]; first reflexivity.
-      change (request :: calls) with ([request] ++ calls).
+      induction calls as [|[opid request] calls IH]; first reflexivity.
+      change ((opid,request) :: calls) with ([(opid,request)] ++ calls).
       rewrite fmap_app.
       simpl.
       etrans; last first.
       { change ([trace_peak #tracer; nondet_bool_prealloc_bg #(tracer +ₗ 2);
-                  simulatedOp_idle request] ++ (simulatedOp_idle <$> calls))
+                  simulatedOp_idle (opid,request)] ++ (simulatedOp_idle <$> calls))
           with ([trace_peak #tracer; nondet_bool_prealloc_bg #(tracer +ₗ 2)]
-                  ++ [simulatedOp_idle request] ++ (simulatedOp_idle <$> calls)).
-        change ([concurrent_calls tracer calls op obj;
+                  ++ [simulatedOp_idle (opid,request)] ++ (simulatedOp_idle <$> calls)).
+        change ([concurrent_calls tracer calls (encode_val ops) obj;
                  nondet_bool_prealloc_bg #(tracer +ₗ 2);
-                 simulatedOp_idle request])
-          with ([concurrent_calls tracer calls op obj;
+                 simulatedOp_idle (opid,request)])
+          with ([concurrent_calls tracer calls (encode_val ops) obj;
                  nondet_bool_prealloc_bg #(tracer +ₗ 2)]
-                  ++ [simulatedOp_idle request]).
+                  ++ [simulatedOp_idle (opid,request)]).
         apply (erased_steps_app_r
-                 [concurrent_calls tracer calls op obj;
+                 [concurrent_calls tracer calls (encode_val ops) obj;
                   nondet_bool_prealloc_bg #(tracer +ₗ 2)] σ
                  [trace_peak #tracer; nondet_bool_prealloc_bg #(tracer +ₗ 2)]
                  (simulatedOp_idle <$> calls) σ
-                 [simulatedOp_idle request]); [reflexivity|exact IH]. }
-      apply (rtc_l _ _ ([(#();;concurrent_calls tracer calls op obj)%E;
+                 [simulatedOp_idle (opid,request)]); [reflexivity|exact IH]. }
+      apply (rtc_l _ _ ([(#();;concurrent_calls tracer calls (encode_val ops) obj)%E;
                           nondet_bool_prealloc_bg #(tracer +ₗ 2);
-                          simulatedOp_idle request], σ)).
-      - set (K:=[AppRCtx (λ: <>, concurrent_calls tracer calls op obj)]).
-        change (concurrent_call tracer request op obj;; concurrent_calls tracer calls op obj)%E
-          with (fill K (concurrent_call tracer request op obj)).
-        change (#();; concurrent_calls tracer calls op obj)%E
+                          simulatedOp_idle (opid,request)], σ)).
+      - set (K:=[AppRCtx (λ: <>, concurrent_calls tracer calls (encode_val ops) obj)]).
+        change (concurrent_call tracer opid request (encode_val ops) obj;;
+                  concurrent_calls tracer calls (encode_val ops) obj)%E
+          with (fill K (concurrent_call tracer opid request (encode_val ops) obj)).
+        change (#();; concurrent_calls tracer calls (encode_val ops) obj)%E
           with (fill K #()).
         apply (fill_erased_step K _ σ _ σ [] _ [] _); first reflexivity.
         rewrite /concurrent_call.
@@ -420,20 +422,20 @@ Section adequacy.
     Proof. rewrite /compose_state /union /state_union /=. set_solver. Qed.
 
     (* idle --> pending.  The background thread sits at the head of the pool. *)
-    Lemma simulate_call τ req t1 t2 σ ts :
+    Lemma simulate_call n τ req t1 t2 σ ts :
       τ ∉ ts.*1 →
       composable_state σ →
       rtc erased_step
-        (nondet_bool_prealloc_bg #(tracer +ₗ 2) :: t1 ++ simulatedOp_idle req :: t2,
+        (nondet_bool_prealloc_bg #(tracer +ₗ 2) :: t1 ++ simulatedOp_idle (n,req) :: t2,
          compose_state σ ts)
         (nondet_bool_prealloc_bg #(tracer +ₗ 2) :: t1 ++
-           fill (simulatedOp_pending_ctx τ) (op obj req) :: t2,
-         compose_state σ (ts ++ [(τ, Call req)])).
+           fill (simulatedOp_pending_ctx τ) ((ops!!!n: val) obj req) :: t2,
+         compose_state σ (ts ++ [(τ, Call n req)])).
     Proof.
       intros Hfresh Hcompose.
       pose proof tracer_neq_1. pose proof tracer_neq_2. pose proof tracer_neq_12.
-      opose proof (erased_steps_trace_fresh τ _ (InjLV req) tracer
-        ts (compose_state σ ts) eq_refl Hfresh _ _ _)
+      opose proof (erased_steps_trace_fresh τ (Call n req) (InjLV (#n,req)) tracer
+        ts (compose_state σ ts) (decode_encode_val (Call n req)) Hfresh _ _ _)
         as Hprim_steps.
       { by apply compose_state_lookup_trace0. }
       { by apply compose_state_lookup_trace1. }
@@ -441,11 +443,12 @@ Section adequacy.
       rewrite /simulatedOp_idle /call_ret_wrapper /simulatedOp_pending_ctx.
       (* Step pure on the [simulatedOp_idle] thread, with the bg thread at the head. *)
       apply (erased_steps_cons_r_cons_nofork _ _ t1 t2).
+      erased_steps_apply2 erased_steps_list_nth.
       repeat erased_steps_pure2.
       erased_steps_2apply Hprim_steps.
       repeat erased_steps_pure2.
       evar (σ' : state).
-      replace (compose_state σ (ts ++ [(τ,Call req)])) with ?σ';
+      replace (compose_state σ (ts ++ [(τ,Call n req)])) with ?σ';
         first apply reflexivity.
       clear σ'.
       rewrite /compose_state /trace_to_state.
@@ -645,17 +648,17 @@ Section adequacy.
       { rewrite right_id_L. reflexivity. }
       destruct config2 as [pendingOp_final childThread_final σ_final].
       destruct Hadv_step as [
-          req τ π efs σ Hfreshτ Hvalid_req
+          n req τ π efs σ Hfreshτ Hvalid_req
         | τ π₁ π₂ efs e e' σ σ' κ ef Hprim_step
         | π efs1 efs2 e e' σ σ' κ ef Hprim_step
         | τ π₁ π₂ efs res σ ]; simpl in *.
       - (* call *)
-        opose proof (simulate_call τ req
+        opose proof (simulate_call n τ req
           (pending_to_simulated <$> π) ((simulatedOp_idle <$> extract_calls ts2) ++ efs)
           σ ts0 _ _) as Hstep.
         { by rewrite -(not_elem_of_list_to_set (C:=gset positive)) -Hsame_tag not_elem_of_list_to_set. }
         { by eapply adv_steps_composable_state. }
-        opose proof (IH (ts0++[(τ,Call req)]) _ Hcompose) as Hsteps.
+        opose proof (IH (ts0++[(τ,Call n req)]) _ Hcompose) as Hsteps.
         { rewrite !fmap_app. rewrite !list_to_set_app_L. f_equal. done. }
         apply (erased_steps_cons_l (trace_peak #tracer)) in Hstep.
         rewrite fmap_app /= -!app_assoc /= in Hsteps.
@@ -703,7 +706,7 @@ Section adequacy.
     {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (config'.(config_state).(heap)) →
     adv_steps (Config [] [] σ) config' ts →
     rtc erased_step
-      ([mgc_of_trace tracer ts op obj;
+      ([mgc_of_trace tracer ts (encode_val ops) obj;
         nondet_bool_prealloc_bg #(tracer +ₗ 2)],
        compose_state tracer σ [])
       (Val (encode_trace ts) :: nondet_bool_prealloc_bg #(tracer +ₗ 2)
@@ -745,14 +748,14 @@ Proof. solve_inG. Qed.
 
 Section requisteness.
   Let Σ := #[heapΣ; traceΣ; adv_mgcΣ; completenessΣ heap_lang].
-  Context (valid_req : val → Prop).
-  Context (init op : val).
+  Context (valid_reqs : list (val → Prop)).
+  Context (init : expr) (ops : list val).
   Context (σ₀ : state).
 
   Definition I_adv ts :=
     ∃ obj efs σ config',
-      rtc erased_step ([init #()],σ₀) (Val obj::efs,σ)
-    ∧ adv_steps op obj valid_req (Config [] [] σ) config' ts.
+      rtc erased_step ([init],σ₀) (Val obj::efs,σ)
+    ∧ adv_steps ops obj valid_reqs (Config [] [] σ) config' ts.
 
   Definition advN := nroot .@ "iris_logatom.heap_lang.mgc.adv".
 
@@ -1056,8 +1059,8 @@ Section requisteness.
         own γ (to_agree (γ_pending, γ_child)) ∗
         trace_is tracer ts ∗
         own_state config'.(config_state) ∗
-        ⌜rtc erased_step ([init #()], σ₀) (Val obj :: efs, σ)⌝ ∗
-        ⌜adv_steps op obj valid_req (Config [] [] σ) config' ts⌝ ∗
+        ⌜rtc erased_step ([init], σ₀) (Val obj :: efs, σ)⌝ ∗
+        ⌜adv_steps ops obj valid_reqs (Config [] [] σ) config' ts⌝ ∗
         ghost_map_auth γ_pending 1
           (list_to_map (pendingOp_active config'.(config_pendingOp)) : gmap positive expr) ∗
         ghost_map_auth γ_child 1
@@ -1075,7 +1078,7 @@ Section requisteness.
   (** Tag-set inclusion: any τ in [config_pendingOp]'s tag list is also
       in the trace's tag list. Proved by induction on [adv_steps]. *)
   Local Lemma adv_step_pendingOp_tag_in_trace obj π efs σ π' efs' σ' ts :
-    adv_step op obj valid_req (Config π efs σ) (Config π' efs' σ') ts →
+    adv_step ops obj valid_reqs (Config π efs σ) (Config π' efs' σ') ts →
     list_to_set π'.*1 ⊆@{gset positive} list_to_set π.*1 ∪ list_to_set ts.*1.
   Proof.
     intros Hstep. inversion Hstep; subst; clear Hstep; cbn;
@@ -1085,7 +1088,7 @@ Section requisteness.
 
   Local Lemma adv_steps_pendingOp_tag_in_trace
         obj (config0 config' : configuration) ts :
-    adv_steps op obj valid_req config0 config' ts →
+    adv_steps ops obj valid_reqs config0 config' ts →
     list_to_set config'.(config_pendingOp).*1 ⊆@{gset positive}
       list_to_set config0.(config_pendingOp).*1 ∪ list_to_set ts.*1.
   Proof.
@@ -1126,7 +1129,7 @@ Section requisteness.
 
   (** [adv_step] preserves [NoDup] of pending-op tags. *)
   Local Lemma adv_step_nodup obj config0 config1 ts :
-    adv_step op obj valid_req config0 config1 ts →
+    adv_step ops obj valid_reqs config0 config1 ts →
     NoDup (config0.(config_pendingOp)).*1 →
     NoDup (config1.(config_pendingOp)).*1.
   Proof.
@@ -1142,7 +1145,7 @@ Section requisteness.
   Qed.
 
   Local Lemma adv_steps_nodup obj config0 config' ts :
-    adv_steps op obj valid_req config0 config' ts →
+    adv_steps ops obj valid_reqs config0 config' ts →
     NoDup config0.(config_pendingOp).*1 →
     NoDup config'.(config_pendingOp).*1.
   Proof.
@@ -1156,13 +1159,14 @@ Section requisteness.
 
     (** [init_spec_type] for [adv_repr], proved using [hoare_compleness_nofork]
         with [own_state ∅] (free via [own_state_empty]) and [Hadq_init] at σ := ∅.
-        After [init #()] returns, we allocate the ghost names and the invariant. *)
+        After [init] returns, we allocate the ghost names and the invariant. *)
     Local Lemma adv_init_spec :
-      (∀ σ, adequate NotStuck (init #()) σ (λ _ _, True)) →
-      (∀ σ, sequential (init #()) σ) →
+      to_val init = None →
+      (∀ σ, adequate NotStuck init σ (λ _ _, True)) →
+      (∀ σ, sequential init σ) →
       init_spec_type_gen (own_state σ₀) adv_repr MaybeStuck init.
     Proof.
-      iIntros (Hadq_init Hseq_init Φ) "HS◯ HΦ".
+      iIntros (Hinit_nv Hadq_init Hseq_init Φ) "HS◯ HΦ".
       (* Allocate the ghost names up front, while the goal is still a
          WP (which supports fupd). *)
       iMod (ghost_map_alloc_empty (V:=expr) (K:=positive)) as (γ_pending) "Hp●".
@@ -1170,11 +1174,11 @@ Section requisteness.
       iMod (own_alloc (to_agree (γ_pending, γ_child))) as (γ) "#Hmeta"; first done.
       iApply (wp_stuck_mono NotStuck); first done.
       (* Strengthen [Hadq_init] at σ := σ₀ so its postcondition exposes
-         the [rtc erased_step ([init #()], σ₀) ...] witness, then lift
+         the [rtc erased_step ([init], σ₀) ...] witness, then lift
          to a WP via [hoare_completeness_nofork]. *)
       pose (Q := λ (v : val) (σ_post : state),
-        ∃ efs, rtc erased_step ([init #()], σ₀) (Val v :: efs, σ_post)).
-      wp_apply (hoare_completeness_nofork (init #()) σ₀ Q with "[HS◯]").
+        ∃ efs, rtc erased_step ([init], σ₀) (Val v :: efs, σ_post)).
+      wp_apply (hoare_completeness_nofork init σ₀ Q with "[HS◯]").
       { done. }
       { eapply adequate_weaken;
             last apply (adequate_strengthen_reach _ _ _ _ (Hadq_init σ₀)).
@@ -1263,11 +1267,11 @@ Section requisteness.
         allocate fresh [γ_child] receipts for forked threads via
         [ghost_map_insert_big]. *)
     Local Lemma wp_adv_child :
-      (∀ σ, adequate NotStuck (init #()) σ (λ _ _, True)) →
-      (∀ σ, sequential (init #()) σ) →
+      (∀ σ, adequate NotStuck init σ (λ _ _, True)) →
+      (∀ σ, sequential init σ) →
       (∀ obj' σ_init σ config' ts,
-        rtc erased_step ([init #()], σ_init) ([Val obj'], σ) →
-        adv_steps op obj' valid_req (Config [] [] σ) config' ts →
+        rtc erased_step ([init], σ_init) ([Val obj'], σ) →
+        adv_steps ops obj' valid_reqs (Config [] [] σ) config' ts →
         config_not_stuck config') →
       ∀ γ γ_pending γ_child obj l (i : nat) e,
         adv_inv l γ obj -∗
@@ -1414,14 +1418,14 @@ Section requisteness.
 
     (** [call_ret_wrapper_spec_type] for [adv_repr].
 
-        Phase 1 — [trace_fresh #l (InjL req)]: at the linearization point,
+        Phase 1 — [trace_fresh #l (InjL (#n, req))]: at the linearization point,
         open [adv_inv γ obj l] to access [trace_is l ts] and the abstract
         [config']. Pick a fresh [τ ∉ ts.*1] and use [adv_step_call] (with
-        [Hvalid_req req]) to extend [adv_steps] to [ts ++ [(τ, Call req)]],
-        producing the new pending op [(τ, Some (op obj req))].
-        Allocate [τ ↪[γ_pending] (op obj req)] and re-close.
+        [Hvalid_req req]) to extend [adv_steps] to [ts ++ [(τ, Call n req)]],
+        producing the new pending op [(τ, Some (ops!!!n obj req))].
+        Allocate [τ ↪[γ_pending] (ops!!!n obj req)] and re-close.
 
-        Phase 2 — [op obj req]: a Löb induction (in [wp_phase2]) over the
+        Phase 2 — [ops!!!n obj req]: a Löb induction (in [wp_phase2]) over the
         expression. At each WP prim-step, open [adv_inv], derive
         reducibility from [Hadq_op]+[config_not_stuck], take the step via
         [prim_step_subset]+[prim_step_state_update], replay as
@@ -1435,21 +1439,21 @@ Section requisteness.
         to update the trace and turn the pending entry into [None]; delete
         the [γ_pending] receipt; re-close. *)
     Local Lemma adv_call_ret_wrapper_spec :
-      (∀ σ, adequate NotStuck (init #()) σ (λ _ _, True)) →
-      (∀ σ, sequential (init #()) σ) →
+      (∀ σ, adequate NotStuck init σ (λ _ _, True)) →
+      (∀ σ, sequential init σ) →
       (∀ obj' σ_init σ config' ts,
-        rtc erased_step ([init #()], σ_init) ([Val obj'], σ) →
-        adv_steps op obj' valid_req (Config [] [] σ) config' ts →
+        rtc erased_step ([init], σ_init) ([Val obj'], σ) →
+        adv_steps ops obj' valid_reqs (Config [] [] σ) config' ts →
         config_not_stuck config') →
-      call_ret_wrapper_spec_type adv_repr MaybeStuck valid_req op.
+      call_ret_wrapper_spec_type adv_repr MaybeStuck valid_reqs ops.
     Proof.
-      iIntros (Hadq_init Hseq_init Hadq_op γ l obj req Hvalid_req Φ).
+      iIntros (Hadq_init Hseq_init Hadq_op n γ l obj req Hvalid_req Φ).
       iIntros "[#Hti #Hinv] HΦ".
       iApply (wp_stuck_mono NotStuck MaybeStuck); first done.
       rewrite /call_ret_wrapper. wp_pures.
       wp_bind (trace_fresh _ _).
-      awp_apply (trace_fresh_spec _ (Call req) (InjLV req) I_adv with "Hti").
-      { reflexivity. }
+      awp_apply (trace_fresh_spec _ (Call n req) (InjLV (#n,req)) I_adv with "Hti").
+      { exact (decode_encode_val (Call n req)). }
       rewrite /atomic_acc /=.
       iInv "Hinv" as ">Hadv" "Hclose".
       iDestruct "Hadv" as (γ_pending γ_child efs σ config' ts)
@@ -1468,14 +1472,14 @@ Section requisteness.
         apply (elem_of_list_to_set (C := gset positive)) in Hin_π.
         clear -Hsub Hin_π. set_solver. }
       iFrame "Htrace". iSplit.
-      { (* Verify [I_adv (ts ++ [(τ, Call req)])] for any fresh τ. *)
+      { (* Verify [I_adv (ts ++ [(τ, Call n req)])] for any fresh τ. *)
         iPureIntro. intros τ Hfresh.
         rewrite /I_adv.
         exists obj, efs, σ,
-          (Config (π_old ++ [(τ, Some (op obj req))]) child_old σ_old).
+          (Config (π_old ++ [(τ, Some ((ops!!!n: val) obj req))]) child_old σ_old).
         split; first exact Hrtc.
         eapply adv_steps_app; first exact Hadv_steps.
-        rewrite -[ [(τ, Call req)] ]app_nil_r.
+        rewrite -[ [(τ, Call n req)] ]app_nil_r.
         eapply adv_steps_cons; last apply adv_steps_nil.
         apply adv_step_call; last exact Hvalid_req.
         intros Hin_π. by apply Hfresh, Htag_in_ts. }
@@ -1491,19 +1495,19 @@ Section requisteness.
       assert (Hτ_notin_πold : τ ∉ π_old.*1).
       { intros Hin. by apply Hfresh, Htag_in_ts. }
       (* Allocate the pending-op ghost map fragment for the new τ. *)
-      iMod (ghost_map_insert τ (op obj req) with "Hp●") as "[Hp● Hτ_pending]".
+      iMod (ghost_map_insert τ ((ops!!!n: val) obj req) with "Hp●") as "[Hp● Hτ_pending]".
       { by apply not_elem_of_list_to_map_1, not_elem_of_pendingOp_active_fmap. }
       iMod ("Hclose" with "[Htrace_new Hown_state Hp● Hc●]") as "_".
       { iNext.
         iExists γ_pending, γ_child, efs, σ,
-                (Config (π_old ++ [(τ, Some (op obj req))]) child_old σ_old),
-                (ts ++ [(τ, Call req)]).
+                (Config (π_old ++ [(τ, Some ((ops!!!n: val) obj req))]) child_old σ_old),
+                (ts ++ [(τ, Call n req)]).
         cbn [config_state config_pendingOp config_childThread].
         iFrame "Hmeta_in Htrace_new Hown_state".
         iSplit; first done.
         iSplit.
         { iPureIntro. eapply adv_steps_app; first exact Hadv_steps.
-          rewrite -[ [(τ, Call req)] ]app_nil_r.
+          rewrite -[ [(τ, Call n req)] ]app_nil_r.
           eapply adv_steps_cons; last apply adv_steps_nil.
           apply adv_step_call; last exact Hvalid_req. exact Hτ_notin_πold. }
         rewrite pendingOp_active_snoc_Some list_to_map_snoc;
@@ -1516,8 +1520,8 @@ Section requisteness.
          [adv_step_intermediate], update [γ_pending]'s entry from
          [(τ, Some e)] to [(τ, Some e')], allocate fresh [γ_child] receipts
          for forked threads, and continue. *)
-      wp_bind (op _ _).
-      remember (op obj req) as e0 eqn:He0.
+      wp_bind ((ops!!!n: val) _ _).
+      remember ((ops!!!n: val) obj req) as e0 eqn:He0.
       clear He0.
       iAssert (∀ e, τ ↪[γ_pending] e -∗
                 WP e @ NotStuck; ⊤ {{ v, τ ↪[γ_pending] (Val v) }})%I as "wp_phase2".
@@ -2086,40 +2090,41 @@ Section requisteness.
   Qed.
 
   Lemma adv_match_mgc_steps ts₀ (tracer : loc) v other_ts' σ' :
-    (∀ σ, sequential (init #()) σ) →
-    (∀ σ, adequate NotStuck (init #()) σ (λ _ _, True)) →
+    to_val init = None →
+    (∀ σ, sequential init σ) →
+    (∀ σ, adequate NotStuck init σ (λ _ _, True)) →
     (∀ obj σ₀ σ config' ts,
-      rtc erased_step ([init #()], σ₀) ([Val obj], σ) →
-      adv_steps op obj valid_req (Config [] [] σ) config' ts →
+      rtc erased_step ([init], σ₀) ([Val obj], σ) →
+      adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
       config_not_stuck config') →
-    Forall (λ x, if x.2 is Call req then valid_req req else True) ts₀ →
+    Forall (λ x, if x.2 is Call n req then default default_vr (valid_reqs!!n) req else True) ts₀ →
     {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (σ₀.(heap)) →
-    rtc erased_step ([mgc_of_trace tracer ts₀ op (init #())%E;
+    rtc erased_step ([mgc_of_trace tracer ts₀ (encode_val ops) init;
                       nondet_bool_prealloc_bg #(tracer +ₗ 2)],
                       (compose_state tracer σ₀ []))
                     (Val v::other_ts', σ') →
     ∃ ts, v = encode_trace ts ∧ ∃ obj efs σ config',
-        rtc erased_step ([init #()],σ₀) (Val obj::efs,σ)
-      ∧ adv_steps op obj valid_req (Config [] [] σ) config' ts.
+        rtc erased_step ([init],σ₀) (Val obj::efs,σ)
+      ∧ adv_steps ops obj valid_reqs (Config [] [] σ) config' ts.
   Proof.
-    intros Hseq_init Hadq_init Hadq_op Hvalid_req Hfresh Hsteps.
+    intros Hinit_nv Hseq_init Hadq_init Hadq_op Hvalid_req Hfresh Hsteps.
     set (φ := λ v, ∃ ts, v = encode_trace ts ∧ I_adv ts).
     opose proof (trace_adequacy (Σ:=Σ) tracer
-        (mgc_of_trace tracer ts₀ op (init #()))%E
+        (mgc_of_trace tracer ts₀ (encode_val ops) init)%E
         (compose_state tracer σ₀ []) MaybeStuck I_adv φ
         _ (* I [] *) _ (* ... -∗ WP ... *)
         v other_ts' σ' false
         _ _ _ Hsteps) as [(ts & Heqv & Hadv) _].
     1: {
-      (* [I_adv []]: from [Hsteps] we extract that [init #()] terminates
+      (* [I_adv []]: from [Hsteps] we extract that [init] terminates
          from [compose_state σ₀ []] (via the 2-thread [bind_inv]); the
          2-thread reverse-simulation lemma then gives termination from σ₀. *)
-      change (mgc_of_trace tracer ts₀ op (init #()))%E
-        with (fill [AppRCtx (mgc_of_trace tracer ts₀ op)] (init #())) in Hsteps.
+      change (mgc_of_trace tracer ts₀ (encode_val ops) init)%E
+        with (fill [AppRCtx (mgc_of_trace tracer ts₀ (encode_val ops))] init) in Hsteps.
       apply (erased_steps_bind_inv_two _ _ _ _ v _ _) in Hsteps
         as (v_init & t2_init & σ_mid & Hsteps_init & _).
       assert (Hcomp_σ₀ : composable_state tracer σ₀) by exact Hfresh.
-      pose proof (erased_steps_compose_uncompose_init_terminates tracer (init #())
+      pose proof (erased_steps_compose_uncompose_init_terminates tracer init
                     (nondet_bool_prealloc_bg #(tracer +ₗ 2))
                     σ₀ [] v_init t2_init σ_mid
                     Hcomp_σ₀ (Hadq_init _) (Hseq_init _)
@@ -2130,9 +2135,9 @@ Section requisteness.
       exists v_init, [], σ_post, (Config [] [] σ_post).
       split; [exact Hinit_σ₀ | apply adv_steps_nil]. }
     { iIntros (?) "Hhi Hti Ht Hls Hps".
-      iApply (mgc_spec_gen (own_state σ₀) adv_repr MaybeStuck valid_req
-              init op tracer ts₀ Hvalid_req
-              (adv_init_spec Hadq_init Hseq_init)
+      iApply (mgc_spec_gen (own_state σ₀) adv_repr MaybeStuck valid_reqs
+              init ops tracer ts₀ Hvalid_req
+              (adv_init_spec Hinit_nv Hadq_init Hseq_init)
               (adv_call_ret_wrapper_spec Hadq_init Hseq_init Hadq_op)
             with "Hhi Hti Ht").
       rewrite /compose_state /trace_to_state /=.
@@ -2161,8 +2166,8 @@ End requisteness.
 Section free.
   Context `{!heapGpreS Σ, !traceG Σ}.
   Context (R : mgc_repr Σ).
-  Context (valid_req : val → Prop).
-  Context (init op : val).
+  Context (valid_reqs : list (val → Prop)).
+  Context (init : expr) (ops : list val).
 
   (* Per-thread [not_stuck] in the composed state, at the granularity of
     the wrapped thread pool. The pool has the shape
@@ -2176,10 +2181,10 @@ Section free.
   Lemma bdgjst_free_pool σ₀ obj efs σ config' ts (tracer : loc) :
     {[tracer; tracer+ₗ1; tracer+ₗ2]} ## dom (heap (config_state config')) →
     (∀ `(!heapGS Σ), init_spec_type R NotStuck init) →
-    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_req op) →
+    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
-    rtc erased_step ([init #()],σ₀) (Val obj::efs,σ) →
-    adv_steps op obj valid_req (Config [] [] σ) config' ts →
+    rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
+    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
     I_lang R ts ∧
     ∀ e2, e2 ∈ Val (encode_trace ts) ::
                 nondet_bool_prealloc_bg #(tracer +ₗ 2) ::
@@ -2196,15 +2201,15 @@ Section free.
     { pose proof (Hsubdom := erased_steps_heap_subdom _ _ _ _ Hinit_steps).
       set_solver. }
 
-    pose proof (mgc_match_adv_steps op obj valid_req σ config' ts tracer
+    pose proof (mgc_match_adv_steps ops obj valid_reqs σ config' ts tracer
                  Htracer_disj' Hop_steps)
       as Hop_steps'.
 
-    opose proof (simulate_erased_steps obj valid_req tracer _ _ _ _ [] Hinit_steps _)
+    opose proof (simulate_erased_steps tracer _ _ _ _ [] Hinit_steps _)
       as Hinit_steps'.
     { exact Htracer_disj. }
 
-    opose proof (trace_adequacy tracer (mgc_of_trace tracer ts op (init #()))
+    opose proof (trace_adequacy tracer (mgc_of_trace tracer ts (encode_val ops) init)
       (compose_state tracer σ₀ []) NotStuck
       (I_lang R) (λ v, ∃ ts0, v = encode_trace ts0 ∧ I_lang R ts0)
       HIinit _ (encode_trace ts)
@@ -2221,20 +2226,20 @@ Section free.
     { by (eapply (compose_state_lookup_trace2)). }
     { (* Source-level init steps lifted to compose_state, then the
          wrapper steps, with the bg thread sitting at index 1. *)
-      apply (erased_steps_app_r [init #()] _ [Val obj] _ _
+      apply (erased_steps_app_r [init] _ [Val obj] _ _
                [nondet_bool_prealloc_bg #(tracer +ₗ 2)] eq_refl) in Hinit_steps'.
       simpl in Hinit_steps'.
       assert (Hwrapped :
         rtc erased_step
-          ([mgc_of_trace tracer ts op (init #());
+          ([mgc_of_trace tracer ts (encode_val ops) init;
             nondet_bool_prealloc_bg #(tracer +ₗ 2)], compose_state tracer σ₀ [])
-          (mgc_of_trace tracer ts op (Val obj)
+          (mgc_of_trace tracer ts (encode_val ops) (Val obj)
             :: nondet_bool_prealloc_bg #(tracer +ₗ 2) :: efs, compose_state tracer σ [])).
       { apply (fill_erased_steps [AppRCtx _] _ _ _ _ [] _ [] _ eq_refl).
         simpl. exact Hinit_steps'. }
       etrans; [exact Hwrapped|].
       apply (erased_steps_app_r
-              [mgc_of_trace tracer ts op obj; nondet_bool_prealloc_bg #(tracer +ₗ 2)] _
+              [mgc_of_trace tracer ts (encode_val ops) obj; nondet_bool_prealloc_bg #(tracer +ₗ 2)] _
               [Val (encode_trace ts); nondet_bool_prealloc_bg #(tracer +ₗ 2)] _ _ efs
               eq_refl) in Hop_steps'.
       simpl in Hop_steps'.
@@ -2261,10 +2266,10 @@ Section free.
   Lemma bdgjst_free_composed σ₀ obj efs σ config' ts (tracer : loc) :
     {[tracer; tracer+ₗ1; tracer+ₗ2]} ## dom (heap (config_state config')) →
     (∀ `(!heapGS Σ), init_spec_type R NotStuck init) →
-    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_req op) →
+    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
-    rtc erased_step ([init #()],σ₀) (Val obj::efs,σ) →
-    adv_steps op obj valid_req (Config [] [] σ) config' ts →
+    rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
+    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
     I_lang R ts ∧
     let composed := compose_state tracer (config_state config') ts in
     Forall (λ '(_, oe), match oe with Some e => not_stuck e composed | None => True end)
@@ -2322,7 +2327,7 @@ Section free.
   (* An end-to-end result in the style of Birkedal et al.'s Free
     Theorem (2021), phrased in terms of most adversarial steps.
 
-    If [init] and [op] satisfy the trace-indexed call-return specifications
+    If [init] and [ops] satisfy the trace-indexed call-return specifications
     for the representation [R], then for any adversarial run ending at
     [config'], the source-level trace is in [I_lang R] and every source
     thread of [config'] is [not_stuck] at [config_state config']. The proof
@@ -2330,10 +2335,10 @@ Section free.
     frames out the three trace cells via [not_stuck_heap_restrict]. *)
   Theorem bdgjst_free σ₀ obj efs σ config' ts :
     (∀ `(!heapGS Σ), init_spec_type R NotStuck init) →
-    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_req op) →
+    (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
-    rtc erased_step ([init #()],σ₀) (Val obj::efs,σ) →
-    adv_steps op obj valid_req (Config [] [] σ) config' ts →
+    rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
+    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ I_lang R ts.
   Proof.
     intros Hinit_spec Hop_spec HIinit Hinit_steps Hop_steps.

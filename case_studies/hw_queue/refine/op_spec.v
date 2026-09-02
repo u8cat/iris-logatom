@@ -1,6 +1,6 @@
 (* refine_op_spec.v: proof of [op_spec] — the
-  [call_ret_wrapper]-level Hoare triple for [op] that
-  [bdgjst_free] consumes.  Handles the CALL commit
+  [call_ret_wrapper]-level Hoare triple for the entries of [impl.ops]
+  that [bdgjst_free] consumes.  Handles the CALL commit
   via [trace_fresh] and delegates the bulk of the body to
   [op_spec_enq_cont] / [op_spec_deq_cont]. *)
 
@@ -11,7 +11,7 @@ From iris_logatom.program_logic Require Import atomic_complete.
 From iris.heap_lang Require Import adequacy primitive_laws notation proofmode.
 From iris_logatom.heap_lang Require Import mgc fork_free.
 From iris_logatom.heap_lang.lib Require Import trace.
-From iris_logatom.pure_logic Require Import linear adequacy.
+From iris_logatom.pure_logic Require Import encodable linear adequacy.
 From iris_logatom.pure_logic.models Require Import bag_like.
 From iris_logatom.pure_logic.refine Require Import absq absq_refines_absq0
                                                     absq0_linearizable
@@ -37,26 +37,30 @@ Section hwq_skeleton_op_spec.
 
   Lemma op_spec :
     ∀ `(!heapGS Σ), call_ret_wrapper_spec_type
-      hwq_repr NotStuck (queue_model NeverEmpty valid_value).(valid_request) op.
+      hwq_repr NotStuck (queue_model NeverEmpty valid_value).(valid_requests) ops.
   Proof.
-    iIntros (Hheap γ l obj req Hvalid Φ) "[#Htrace_inv #Hq] HΦ".
+    iIntros (Hheap n γ l obj req Hvalid Φ) "[#Htrace_inv #Hq] HΦ".
     iDestruct "Hq" as (ar back γ_sv γ_dq) "[%Heq #Hinv]". subst obj.
+    (* [queue_model] declares exactly the two operations [Push] and [Pop]. *)
+    assert (Hop : (n = Push ∧ valid_value req) ∨ (n = Pop ∧ req = #())).
+    { destruct n as [|[|n]]; simpl in Hvalid;
+        [by left|by right|by destruct Hvalid]. }
     rewrite /call_ret_wrapper. wp_pures.
     wp_bind (trace_fresh _ _).
-    awp_apply (trace_fresh_spec _ (Call req) (InjLV req) (I_lang_hwq)
+    awp_apply (trace_fresh_spec _ (Call n req) (InjLV (#n, req)%V) (I_lang_hwq)
                 with "Htrace_inv").
-    { done. }
+    { exact (decode_encode_val (Call n req)). }
     iInv Nhwq as (items back_val ts s ls op_map stored_at cell_val_map dq_map)
       "(>Hback & >Har & >Htrace & >Hauth & >Hauth_sv & Hfrag_sv & >Hauth_dq & Hfrag_dq & >%Hsteps & >%Hts_eq & >%Hsim & >%Hcvi & >%Hdqi)".
     destruct s as [O_s lt_s l_s rv_s cp_s].
     iAssert (trace_is l ts ∗
       ⌜∀ τ, τ ∉ ts.*1 →
-            I_lang_hwq (ts ++ [(τ, Call req)])⌝)%I
+            I_lang_hwq (ts ++ [(τ, Call n req)])⌝)%I
       with "[$Htrace]" as "Halpha".
     { iPureIntro. intros τ Hτ_fresh.
       assert (τ ∉ dom cp_s) as Hτ_notin_cp.
       { destruct Hsim as (_ & _ & _ & Hcp_in_ts & _). simpl in *. set_solver. }
-      destruct Hvalid as [(d & Hd_valid & ->) | ->].
+      destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
       - eexists _, (ls ++ [(τ, ACallEnq d)]).
         split.
         + eapply lts_steps_app; [exact Hsteps|].
@@ -85,7 +89,7 @@ Section hwq_skeleton_op_spec.
     assert (op_map !! τ = None) as Hτ_notin_opmap.
     { destruct Hsim as (_ & _ & _ & _ & Hdomsub & _). simpl in *.
       apply not_elem_of_dom. set_solver. }
-    destruct Hvalid as [(d & Hd_valid & ->) | ->].
+    destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
     - (* Enqueue case: CALL-ENQ commit. *)
       pose proof (valid_value_unbox _ Hd_valid) as Hd_unboxed.
       set (new_info := {| op_info_kind := OpEnq d;
@@ -102,7 +106,7 @@ Section hwq_skeleton_op_spec.
       iModIntro.
       iSplitL "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
       { iNext.
-        iExists items, back_val, (ts ++ [(τ, Call (encode_request (Push d)))]),
+        iExists items, back_val, (ts ++ [(τ, Call Push d)]),
           {| absq_O := O_s ∪ {[τ]};
              absq_lt := lt_s ∪ set_map (λ k', (k', τ)) (absq_COMP O_s l_s);
              absq_l := <[τ := (d, PEND)]> l_s;
@@ -438,7 +442,7 @@ Section hwq_skeleton_op_spec.
       iModIntro.
       iSplitL "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
       { iNext.
-        iExists items, back_val, (ts ++ [(τ, Call (encode_request Pop))]),
+        iExists items, back_val, (ts ++ [(τ, Call Pop #())]),
           {| absq_O := O_s;
              absq_lt := lt_s;
              absq_l := l_s;

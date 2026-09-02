@@ -44,13 +44,12 @@ Section hwq_skeleton_deq_cont.
                             op_info_stored := false |}]}) -∗
     (∀ v : val, True -∗ Φ v) -∗
     WP (let: "τ" := #(Z.pos τ) in
-        let: "res" := op (#sz, #ar, #back)%V NONEV in
+        let: "res" := (λ: "q" <>, SOME (dequeue "q"))%V (#sz, #ar, #back)%V #() in
         trace_emit #l "τ" (InjR "res");; "res")
     {{ Φ }}.
   Proof.
     iIntros "#Hinv #Htrace_inv Hfrag HΦ".
     wp_pures.
-    rewrite /op. wp_pures.
     wp_bind (dequeue _)%E.
     iAssert (∀ (obs : list (Z * option positive)) (rng_τ : Z),
       own γ (◯ {[τ := Excl {| op_info_kind := OpDeq obs rng_τ;

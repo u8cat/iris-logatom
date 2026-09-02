@@ -719,17 +719,41 @@ Section steps_ectx_lang.
     rewrite !left_id_L in H. done.
   Qed.
 
-  Lemma erased_steps_pure φ n e1 e2 K σ1 σ2 ts0 ts1 ts2 :
-    PureExec φ n e1 e2 →
-    φ →
+  Lemma fill_erased_step_head_nofork K e1 σ1 e2 σ2 ts1 :
+    erased_step ([e1], σ1) ([e2], σ2) →
+    erased_step (fill K e1::ts1, σ1) (fill K e2 :: ts1, σ2).
+  Proof.
+    intros ?.
+    apply fill_erased_step_head.
+    by apply erased_step_cons_r_nofork.
+  Qed.
+
+  Lemma fill_erased_nsteps_head_nofork K n e1 σ1 e2 σ2 ts1 :
+    relations.nsteps erased_step n ([e1], σ1) ([e2], σ2) →
+    relations.nsteps erased_step n (fill K e1::ts1, σ1) (fill K e2 :: ts1, σ2).
+  Proof.
+    intros ?.
+    apply fill_erased_nsteps_head.
+    by apply erased_nsteps_cons_r_nofork.
+  Qed.
+
+  Lemma fill_erased_steps_head_nofork K e1 σ1 e2 σ2 ts1 :
+    rtc erased_step ([e1], σ1) ([e2], σ2) →
+    rtc erased_step (fill K e1::ts1, σ1) (fill K e2 :: ts1, σ2).
+  Proof.
+    intros ?.
+    apply fill_erased_steps_head.
+    by apply erased_steps_cons_r_nofork.
+  Qed.
+
+  Lemma erased_steps_pure_steps e1 e2 K σ1 σ2 ts0 ts1 ts2 :
+    rtc pure_step e1 e2 →
     rtc erased_step (ts0++fill K e2::ts1, σ1) (ts2,σ2) →
     rtc erased_step (ts0++fill K e1::ts1, σ1) (ts2,σ2).
   Proof.
-    intros Hpures Hφ Hsteps.
+    intros [n Hnsteps]%rtc_nsteps_1 Hsteps.
     etrans; last exact Hsteps.
     apply fill_erased_steps; first reflexivity.
-    rewrite /PureExec in Hpures.
-    apply Hpures in Hφ as Hnsteps.
     clear -Hnsteps. induction Hnsteps as [|n e1 e2 e3 Hstep Hnsteps IH].
     { reflexivity. }
     eapply rtc_l; last exact IH.
@@ -741,26 +765,25 @@ Section steps_ectx_lang.
     done.
   Qed.
 
-  Lemma erased_steps_pure_head φ n e1 e2 K σ1 σ2 ts1 ts2 :
+  Lemma erased_steps_pure_exec φ n e1 e2 K σ1 σ2 ts0 ts1 ts2 :
+    PureExec φ n e1 e2 →
+    φ →
+    rtc erased_step (ts0++fill K e2::ts1, σ1) (ts2,σ2) →
+    rtc erased_step (ts0++fill K e1::ts1, σ1) (ts2,σ2).
+  Proof.
+    intros Hpures Hφ.
+    rewrite /PureExec in Hpures.
+    apply Hpures,rtc_nsteps_2 in Hφ as Hsteps.
+    by apply erased_steps_pure_steps.
+  Qed.
+
+  Lemma erased_steps_pure_exec_head φ n e1 e2 K σ1 σ2 ts1 ts2 :
     PureExec φ n e1 e2 →
     φ →
     rtc erased_step (fill K e2::ts1, σ1) (ts2,σ2) →
     rtc erased_step (fill K e1::ts1, σ1) (ts2,σ2).
   Proof.
-    intros Hpures Hφ Hsteps.
-    etrans; last exact Hsteps.
-    apply fill_erased_steps_head.
-    rewrite /PureExec in Hpures.
-    apply Hpures in Hφ as Hnsteps.
-    clear -Hnsteps. induction Hnsteps as [|n e1 e2 e3 Hstep Hnsteps IH].
-    { reflexivity. }
-    eapply rtc_l; last exact IH.
-    destruct Hstep as [Hstep Hdet].
-    destruct (Hstep σ1) as (e2' & σ' & efs' & Hprim_step).
-    destruct (Hdet _ _ _ _ _ Hprim_step) as (_ & -> & -> & ->).
-    exists [].
-    eapply (step_atomic e1 σ1 e2 σ1 [] [] ts1); rewrite ?left_id_L ?right_id_L; [reflexivity..|].
-    done.
+    exact (erased_steps_pure_exec φ n e1 e2 K σ1 σ2 [] ts1 ts2).
   Qed.
 
   Lemma erased_steps_apply K ts1 e1 σ1 efs1 ts2 e2 σ2 efs2 t3 σ3 :
@@ -784,6 +807,16 @@ Section steps_ectx_lang.
     by apply fill_erased_steps_head.
   Qed.
 
+  Lemma erased_steps_apply_head_nofork K e1 σ1 efs1 e2 σ2 t3 σ3 :
+    rtc erased_step ([e1],σ1) ([e2],σ2) →
+    rtc erased_step (fill K e2::efs1,σ2) (t3,σ3) →
+    rtc erased_step (fill K e1::efs1,σ1) (t3,σ3).
+  Proof.
+    intros Hs1 Hs2.
+    etrans; last exact Hs2.
+    by apply fill_erased_steps_head_nofork.
+  Qed.
+
   Lemma erased_steps_apply_once K ts1 e1 σ1 efs1 ts2 e2 σ2 efs2 t3 σ3 :
     length ts1 = length ts2 →
     erased_step (ts1++e1::efs1,σ1) (ts2++e2::efs2,σ2) →
@@ -805,14 +838,23 @@ Section steps_ectx_lang.
     by apply fill_erased_step_head.
   Qed.
 
+  Lemma erased_steps_apply_once_head_nofork K e1 σ1 efs1 e2 σ2 t3 σ3 :
+    erased_step ([e1],σ1) ([e2],σ2) →
+    rtc erased_step (fill K e2::efs1,σ2) (t3,σ3) →
+    rtc erased_step (fill K e1::efs1,σ1) (t3,σ3).
+  Proof.
+    intros Hs1 Hs2.
+    eapply rtc_l; last exact Hs2.
+    by apply fill_erased_step_head_nofork.
+  Qed.
+
   (*************** Begin LLM-generated code. ****************)
   (* Claude Opus 4.7 (1M context, xhigh effort, v2.1.111) *)
   Local Lemma nsteps_O_eq {A} (R : relation A) (x y : A) :
     relations.nsteps R 0 x y → x = y.
   Proof. by inversion 1. Qed.
 
-  (* Generalized version: also handles extra threads in the initial config. *)
-  Local Lemma erased_nsteps_bind_inv_aux n K e1 σ1 v3 t3a t3 σ3 :
+  Lemma erased_nsteps_bind_inv n K e1 σ1 v3 t3a t3 σ3 :
     relations.nsteps erased_step n (fill K e1 :: t3a, σ1) (of_val v3 :: t3, σ3) →
     ∃ v2 t2 σ2,
       rtc erased_step (e1 :: t3a, σ1) (of_val v2 :: t2, σ2)
@@ -883,14 +925,14 @@ Section steps_ectx_lang.
         apply (step_atomic eA σ1 eA' σmid efsV (e1 :: t1Vrest) t2V); done.
   Qed.
 
-  Lemma erased_steps_bind_inv K e1 σ1 v3 t3 σ3 :
-    rtc erased_step ([fill K e1],σ1) (of_val v3::t3,σ3) →
+  Lemma erased_steps_bind_inv K e1 σ1 v3 t3a t3 σ3 :
+    rtc erased_step (fill K e1::t3a,σ1) (of_val v3::t3,σ3) →
     ∃ v2 t2 σ2,
-      rtc erased_step ([e1], σ1) (of_val v2::t2, σ2)
+      rtc erased_step (e1::t3a, σ1) (of_val v2::t2, σ2)
     ∧ rtc erased_step (fill K (of_val v2)::t2, σ2) (of_val v3::t3, σ3).
   Proof.
     intros [n Hsteps]%rtc_nsteps_1.
-    by apply (erased_nsteps_bind_inv_aux n K e1 σ1 v3 []).
+    by apply (erased_nsteps_bind_inv n K e1 σ1 v3 t3a).
   Qed.
   (**************** End LLM-generated code. *****************)
 
@@ -906,6 +948,6 @@ Section steps_ectx_lang.
     ∧ rtc erased_step (fill K (of_val v2) :: t2, σ2) (of_val v3 :: t3, σ3).
   Proof.
     intros [n Hsteps]%rtc_nsteps_1.
-    by apply (erased_nsteps_bind_inv_aux n K e1 σ1 v3 [e_bg]).
+    by apply (erased_nsteps_bind_inv n K e1 σ1 v3 [e_bg]).
   Qed.
 End steps_ectx_lang.

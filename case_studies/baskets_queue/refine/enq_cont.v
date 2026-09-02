@@ -68,7 +68,7 @@ Section bq_skeleton_enq_cont.
                             op_info_linked := false |}]}) -∗
     (∀ v : val, True -∗ Φ v) -∗
     WP (let: "τ" := #(Z.pos τ) in
-        let: "res" := op (#head, #tail)%V (SOMEV d) in
+        let: "res" := enqueue (#head, #tail)%V d in
         trace_emit #l "τ" (InjR "res");; "res")
     {{ Φ }}.
   Proof.
@@ -82,7 +82,6 @@ Section bq_skeleton_enq_cont.
          - [Hnd_n] : [(nd +ₗ 1) ↦ InjLV #()] (next cell, unmarked-null);
          - [Hfrag] : the [op_info] fragment for [τ], still pre-link. *)
     wp_pures.
-    rewrite /op. wp_pures.
     rewrite /enqueue. wp_pures.
     rewrite /new_node. wp_pures.
     wp_alloc nd as "Hnd"; first lia.

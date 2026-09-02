@@ -132,16 +132,16 @@ Proof.
   simpl in Hpi, Hpj.
   destruct Hpi as [vi Hvi]. subst ti. destruct Hpj as [vj Hvj]. subst tj.
   (* Both in ts0 *)
-  assert (Hin_i : (τ, Call (encode_request (Push vi))) ∈ ts0)
+  assert (Hin_i : (τ, Call Push vi) ∈ ts0)
     by (eapply list_filter_lookup_orig; eassumption).
-  assert (Hin_j : (τ, Call (encode_request (Push vj))) ∈ ts0)
+  assert (Hin_j : (τ, Call Push vj) ∈ ts0)
     by (eapply list_filter_lookup_orig; eassumption).
   (* By wellformedness *)
   destruct (Hwf0 τ) as [(vpush & _ & Hprefix)|(rpop & _ & Hprefix)].
   - (* Push pattern *)
-    assert (Hfi' : (τ, Call (encode_request (Push vi))) ∈ filter (λ x, x.1 = τ) ts0).
+    assert (Hfi' : (τ, Call Push vi) ∈ filter (λ x, x.1 = τ) ts0).
     { apply list_elem_of_filter_2; done. }
-    assert (Hfj' : (τ, Call (encode_request (Push vj))) ∈ filter (λ x, x.1 = τ) ts0).
+    assert (Hfj' : (τ, Call Push vj) ∈ filter (λ x, x.1 = τ) ts0).
     { apply list_elem_of_filter_2; done. }
     pose proof (elem_of_prefix _ _ _ Hfi' Hprefix) as Hpi'.
     pose proof (elem_of_prefix _ _ _ Hfj' Hprefix) as Hpj'.
@@ -151,10 +151,10 @@ Proof.
     simplify_eq.
     (* Step 1: (τ, Call Push vpush) appears at most once in ts0 *)
     assert (Honce_ts : ∀ i' j',
-      ts0 !! i' = Some (τ, Call (encode_request (Push vpush))) →
-      ts0 !! j' = Some (τ, Call (encode_request (Push vpush))) → i' = j').
+      ts0 !! i' = Some (τ, Call Push vpush) →
+      ts0 !! j' = Some (τ, Call Push vpush) → i' = j').
     { apply (filter_at_most_once (λ x : positive * trace, x.1 = τ) ts0
-        (τ, Call (encode_request (Push vpush))) eq_refl).
+        (τ, Call Push vpush) eq_refl).
       intros k1 k2 Hk1 Hk2.
       assert (Hk1_0 : k1 = 0).
       { pose proof (prefix_lookup_Some _ _ _ _ Hk1 Hprefix) as Hk1'.
@@ -165,11 +165,11 @@ Proof.
       congruence. }
     (* Step 2: uniqueness in ts0 → uniqueness in filter(is_call_push) *)
     eapply (filter_NoDup_at (is_call_push ∘ snd) ts0
-      (τ, Call (encode_request (Push vpush))) i j Hfi Hfj).
+      (τ, Call Push vpush) i j Hfi Hfj).
     { simpl. eexists. done. }
     exact Honce_ts.
   - exfalso.
-    assert (Hfi' : (τ, Call (encode_request (Push vi))) ∈ filter (λ x, x.1 = τ) ts0)
+    assert (Hfi' : (τ, Call Push vi) ∈ filter (λ x, x.1 = τ) ts0)
       by (apply list_elem_of_filter_2; done).
     pose proof (elem_of_prefix _ _ _ Hfi' Hprefix) as Hp.
     rewrite !elem_of_cons elem_of_nil in Hp.
@@ -227,7 +227,7 @@ Proof.
       { apply list_elem_of_filter_2; [exact Hret_tag|].
         eapply list_elem_of_lookup_2. exact Hret_lookup. }
       (* (e1, Call Push v1) ∈ filter (tag=e1) ts0 *)
-      assert (Hcall1_filt : (e1, Call (encode_request (Push v1))) ∈ filter (λ x, x.1 = e1) ts0).
+      assert (Hcall1_filt : (e1, Call Push v1) ∈ filter (λ x, x.1 = e1) ts0).
       { apply list_elem_of_filter_2; [done|]. eapply list_elem_of_lookup_2. exact Hi1. }
       destruct (Hwf0 e1) as [(vpush & _ & Hprefix)|(rpop & _ & Hprefix)].
       - (* push pattern: filter = prefix of [Call Push vpush; Ret #()] *)
@@ -279,7 +279,7 @@ Proof.
   (* Split ts0 at position i1 using take_drop_middle *)
   pose proof (take_drop_middle _ _ _ Hi1) as Hts_split.
   (* e2's Call Push is at position i2 > i1, so it's in drop (S i1) ts0 *)
-  assert (He2_drop : (e2, Call (encode_request (Push v2))) ∈ drop (Datatypes.S i1) ts0).
+  assert (He2_drop : (e2, Call Push v2) ∈ drop (Datatypes.S i1) ts0).
   { eapply list_elem_of_lookup_2 with (i := i2 - Datatypes.S i1).
     rewrite lookup_drop. replace (Datatypes.S i1 + (i2 - Datatypes.S i1)) with i2 by lia.
     exact Hi2. }
@@ -287,7 +287,7 @@ Proof.
   rewrite /push_of_trace -Hts_split !filter_app !fmap_app.
   rewrite filter_cons_True; last by (simpl; eexists; done). simpl.
   eexists _, _. split; [done|].
-  apply (list_elem_of_fmap_2 fst _ (e2, Call (encode_request (Push v2)))).
+  apply (list_elem_of_fmap_2 fst _ (e2, Call Push v2)).
   apply list_elem_of_filter_2; [simpl; eexists; done | exact He2_drop].
 Qed.
 
@@ -517,13 +517,13 @@ Qed.
 
 (* d's Call is in close_trace_add_pop calls [(e,d)] *)
 Local Lemma close_trace_add_pop_call_in calls0 (e_tag d_tag : positive) :
-  (d_tag, Call (encode_request Pop)) ∈ bag.close.close_trace_add_pop calls0 [(e_tag, d_tag)].
+  (d_tag, Call Pop #()) ∈ bag.close.close_trace_add_pop calls0 [(e_tag, d_tag)].
 Proof.
   rewrite /bag.close.close_trace_add_pop /=. set_solver.
 Qed.
 
 Local Lemma close_trace_add_pop_ordered
-    (prefix : list (positive * trace)) (calls : gmap positive val)
+    (prefix : list (positive * trace)) (calls : gmap positive (nat*val))
     (nm : list (positive * positive))
     (e1 d1 e2 d2 : positive) :
   (∀ ev : trace, (d1, ev) ∉ prefix) →
@@ -556,11 +556,11 @@ Proof.
   pose proof (bag.close.close_trace_add_pop_lookup_ret calls nm i2 e2 d2 Hnm_lkp_d2) as Hd2_ret.
   pose proof (bag.close.close_trace_add_pop_length calls nm) as Hlen.
   assert (Hd1_call_close : ts_close !! (length prefix + i1)
-                          = Some (d1, Call (encode_request Pop))).
+                          = Some (d1, Call Pop #())).
   { subst ts_close. rewrite lookup_app_r; last lia.
     replace (length prefix + i1 - length prefix) with i1 by lia. exact Hd1_call. }
   assert (Hd2_ret_close : ts_close !! (length prefix + length nm + i2)
-                         = Some (d2, Ret (calls !!! e2))).
+                         = Some (d2, Ret (bag.close.ret_val_of_call (calls !!! e2)))).
   { subst ts_close. rewrite lookup_app_r; last lia.
     replace (length prefix + length nm + i2 - length prefix)
       with (length nm + i2) by lia.
@@ -735,7 +735,7 @@ Qed.
 
 (* TODO: uses bag.pre_of_trace_app_not *)
 Local Lemma pre_of_trace_app_not_queue ts0 rest τ1 τ2 :
-  (∃ v, (τ1, Call v) ∈ ts0) →
+  (∃ nc v, (τ1, Call nc v) ∈ ts0) →
   ¬ pre_of_trace ts0 τ2 τ1 →
   ¬ pre_of_trace (ts0 ++ rest) τ2 τ1.
 Proof. apply not_pre_of_trace_app. Qed.
@@ -751,8 +751,8 @@ Qed.
 
 (* For τ with a Call event in ts0 (sublist of close_trace), call_of_tag close
    returns position in ts0 with index < length ts0. *)
-Local Lemma call_in_prefix_lt ts0 rest τ ev :
-  (τ, Call ev) ∈ ts0 →
+Local Lemma call_in_prefix_lt ts0 rest τ nev ev :
+  (τ, Call nev ev) ∈ ts0 →
   ∃ i x, call_of_tag (ts0 ++ rest) τ = Some (i, x) ∧ i < length ts0.
 Proof.
   intros Hin.
@@ -790,49 +790,49 @@ Proof.
 Qed.
 
 (* Lift pre from close_trace = filter ts ++ rest to ts. Convention: pre ts τ1 τ2 = ret(τ1) < call(τ2). *)
-Local Lemma pre_close_to_pre_ts (U : list positive) ts rest τ1 τ2 v_call :
+Local Lemma pre_close_to_pre_ts (U : list positive) ts rest τ1 τ2 nv_call v_call :
   τ1 ∉ U →
   τ2 ∉ U →
-  (τ2, Call v_call) ∈ ts →
+  (τ2, Call nv_call v_call) ∈ ts →
   pre_of_trace (filter (λ x : positive * trace, x.1 ∉ U) ts ++ rest) τ1 τ2 →
   pre_of_trace ts τ1 τ2.
 Proof.
   intros HU1 HU2 Hcall Hpre.
   apply pre_of_trace_app_inv in Hpre.
   - by apply (bag.close.pre_of_trace_filter_iff U ts τ2 τ1 HU2 HU1).
-  - exists v_call. apply list_elem_of_filter_2; done.
+  - do 2 eexists. apply list_elem_of_filter_2; done.
 Qed.
 
 (* Lift ¬pre from ts to close_trace. *)
-Local Lemma not_pre_ts_to_not_pre_close (U : list positive) ts rest τ1 τ2 v_call :
+Local Lemma not_pre_ts_to_not_pre_close (U : list positive) ts rest τ1 τ2 nv_call v_call :
   τ1 ∉ U →
   τ2 ∉ U →
-  (τ2, Call v_call) ∈ ts →
+  (τ2, Call nv_call v_call) ∈ ts →
   ¬ pre_of_trace ts τ1 τ2 →
   ¬ pre_of_trace (filter (λ x : positive * trace, x.1 ∉ U) ts ++ rest) τ1 τ2.
 Proof.
   intros HU1 HU2 Hcall Hno.
   rewrite <-(bag.close.pre_of_trace_filter_iff U ts τ2 τ1 HU2 HU1) in Hno.
   apply not_pre_of_trace_app; last exact Hno.
-  exists v_call. apply list_elem_of_filter_2; done.
+  do 2 eexists. apply list_elem_of_filter_2; done.
 Qed.
 
 (* Helper 1: Call Push position is unique per τ in well-formed ts. *)
 Local Lemma push_call_pos_unique rme valid_value ts τ p1 p2 v1 v2 :
   per_tag_wellformed_bag rme valid_value ts →
-  ts !! p1 = Some (τ, Call (encode_request (Push v1))) →
-  ts !! p2 = Some (τ, Call (encode_request (Push v2))) →
+  ts !! p1 = Some (τ, Call Push v1) →
+  ts !! p2 = Some (τ, Call Push v2) →
   p1 = p2.
 Proof.
   intros Hwf Hp1 Hp2.
   assert (Hsym : ∀ q1 q2 w1 w2,
-    ts !! q1 = Some (τ, Call (encode_request (Push w1))) →
-    ts !! q2 = Some (τ, Call (encode_request (Push w2))) →
+    ts !! q1 = Some (τ, Call Push w1) →
+    ts !! q2 = Some (τ, Call Push w2) →
     q1 < q2 → False).
   { intros q1 q2 w1 w2 Hq1 Hq2 Hlt.
     destruct (Hwf τ) as [(v' & _ & Hpfx)|(r' & _ & Hpfx)]; cycle 1.
     - apply list_elem_of_lookup_2 in Hq1 as Hin_q1.
-      assert (Hin : (τ, Call (encode_request (Push w1))) ∈ filter (λ x : positive * trace, x.1 = τ) ts).
+      assert (Hin : (τ, Call Push w1) ∈ filter (λ x : positive * trace, x.1 = τ) ts).
       { apply list_elem_of_filter; done. }
       eapply elem_of_prefix in Hin; last exact Hpfx.
       apply elem_of_cons in Hin as [Habs|Hin].
@@ -840,11 +840,11 @@ Proof.
       + apply elem_of_cons in Hin as [Habs|?]; [discriminate|by set_solver].
     - assert (Hfilt_eq : filter (λ x : positive * trace, x.1 = τ) ts =
         filter (λ x : positive * trace, x.1 = τ) (take q1 ts) ++
-        [(τ, Call (encode_request (Push w1)))] ++
+        [(τ, Call Push w1)] ++
         filter (λ x : positive * trace, x.1 = τ) (drop (Datatypes.S q1) ts)).
       { rewrite -{1}(take_drop_middle ts q1 _ Hq1).
         rewrite filter_app filter_cons_True //. }
-      assert (Hin_drop : (τ, Call (encode_request (Push w2))) ∈
+      assert (Hin_drop : (τ, Call Push w2) ∈
                 filter (λ x : positive * trace, x.1 = τ) (drop (Datatypes.S q1) ts)).
       { apply list_elem_of_filter; split; [done|].
         apply list_elem_of_lookup_2 with (i := q2 - Datatypes.S q1).
@@ -859,10 +859,10 @@ Proof.
       assert (Hk_zero : k = 0) by lia. subst k.
       apply length_zero_iff_nil in Hlen_take_zero.
       assert (Hfilt_lookup : filter (λ x : positive * trace, x.1 = τ) ts !! 1 =
-        Some (τ, Call (encode_request (Push w2)))).
+        Some (τ, Call Push w2)).
       { rewrite Hfilt_eq Hlen_take_zero /=. exact Hk_drop. }
-      assert (Hpfx_lookup : [(τ, Call (encode_request (Push v'))); (τ, Ret #())] !! 1 =
-        Some (τ, Call (encode_request (Push w2)))).
+      assert (Hpfx_lookup : [(τ, Call Push v'); (τ, Ret #())] !! 1 =
+        Some (τ, Call Push w2)).
       { eapply prefix_lookup_Some; [exact Hfilt_lookup|exact Hpfx]. }
       simpl in Hpfx_lookup. inversion Hpfx_lookup. }
   destruct (Nat.lt_total p1 p2) as [Hlt|[->|Hgt]]; [|done|].
@@ -901,8 +901,8 @@ Local Lemma push_of_trace_order_sorted rme valid_value ts τ_a τ_b va vb i_a i_
   per_tag_wellformed_bag rme valid_value ts →
   push_of_trace ts !! i_a = Some τ_a →
   push_of_trace ts !! i_b = Some τ_b →
-  ts !! p_a = Some (τ_a, Call (encode_request (Push va))) →
-  ts !! p_b = Some (τ_b, Call (encode_request (Push vb))) →
+  ts !! p_a = Some (τ_a, Call Push va) →
+  ts !! p_b = Some (τ_b, Call Push vb) →
   i_a < i_b →
   p_a < p_b.
 Proof.
@@ -939,8 +939,8 @@ Local Lemma push_of_trace_index_lt rme valid_value ts τ_a τ_b va vb i_a i_b p_
   τ_a ≠ τ_b →
   push_of_trace ts !! i_a = Some τ_a →
   push_of_trace ts !! i_b = Some τ_b →
-  ts !! p_a = Some (τ_a, Call (encode_request (Push va))) →
-  ts !! p_b = Some (τ_b, Call (encode_request (Push vb))) →
+  ts !! p_a = Some (τ_a, Call Push va) →
+  ts !! p_b = Some (τ_b, Call Push vb) →
   p_a < p_b →
   i_a < i_b.
 Proof.
@@ -956,10 +956,10 @@ Qed.
 Local Lemma pre_of_trace_push_call_lt rme valid_value ts e1 e2 v1 v2 :
   per_tag_wellformed_bag rme valid_value ts →
   pre_of_trace ts e1 e2 →
-  (e1, Call (encode_request (Push v1))) ∈ ts →
-  (e2, Call (encode_request (Push v2))) ∈ ts →
-  ∃ p1 p2, ts !! p1 = Some (e1, Call (encode_request (Push v1))) ∧
-           ts !! p2 = Some (e2, Call (encode_request (Push v2))) ∧
+  (e1, Call Push v1) ∈ ts →
+  (e2, Call Push v2) ∈ ts →
+  ∃ p1 p2, ts !! p1 = Some (e1, Call Push v1) ∧
+           ts !! p2 = Some (e2, Call Push v2) ∧
            p1 < p2.
 Proof.
   intros Hwf Hpre He1c He2c.
@@ -977,7 +977,7 @@ Proof.
   (* From Hwf at e1, push branch: filter τ=e1 ts contains both Call (Push v1) and Ret r1. *)
   destruct (Hwf e1) as [(v1' & _ & Hpfx_e1)|(r1' & _ & Hpfx_e1)]; cycle 1.
   { exfalso.
-    assert (Hin : (e1, Call (encode_request (Push v1))) ∈ filter (λ x : positive * trace, x.1 = e1) ts).
+    assert (Hin : (e1, Call Push v1) ∈ filter (λ x : positive * trace, x.1 = e1) ts).
     { apply list_elem_of_filter; done. }
     eapply elem_of_prefix in Hin; last exact Hpfx_e1.
     apply elem_of_cons in Hin as [Habs|Hin].
@@ -1002,7 +1002,7 @@ Proof.
         filter (λ x : positive * trace, x.1 = e1) (drop (Datatypes.S p_e1r) ts)).
       { rewrite -{1}(take_drop_middle ts p_e1r _ Hlk_e1r).
         rewrite filter_app filter_cons_True //. }
-      assert (Hin_drop : (e1, Call (encode_request (Push v1))) ∈
+      assert (Hin_drop : (e1, Call Push v1) ∈
                 filter (λ x : positive * trace, x.1 = e1) (drop (Datatypes.S p_e1r) ts)).
       { apply list_elem_of_filter; split; [done|].
         apply list_elem_of_lookup_2 with (i := p_e1c - Datatypes.S p_e1r).
@@ -1017,10 +1017,10 @@ Proof.
       apply length_zero_iff_nil in Hlen_take_z.
       assert (Hk_z : k = 0) by lia. subst k.
       assert (Hfilt_lookup : filter (λ x : positive * trace, x.1 = e1) ts !! 1 =
-        Some (e1, Call (encode_request (Push v1)))).
+        Some (e1, Call Push v1)).
       { rewrite Hfilt_eq Hlen_take_z /=. exact Hk. }
-      assert (Hpfx_lookup : [(e1, Call (encode_request (Push v1'))); (e1, Ret #())] !! 1 =
-        Some (e1, Call (encode_request (Push v1)))).
+      assert (Hpfx_lookup : [(e1, Call Push v1'); (e1, Ret #())] !! 1 =
+        Some (e1, Call Push v1)).
       { eapply prefix_lookup_Some; [exact Hfilt_lookup|exact Hpfx_e1]. }
       simpl in Hpfx_lookup. inversion Hpfx_lookup. }
   (* Now p_e1r < p_e2c (from Hpre). Need p_e2c ≤ p_e2c'. *)
@@ -1028,7 +1028,7 @@ Proof.
   (* Either p_e2c = p_e2c' (good), or p_e2c < p_e2c' or p_e2c > p_e2c'. *)
   destruct (Nat.lt_total p_e2c p_e2c') as [Hlt|[<-|Hgt]]; first lia.
   - lia.
-  - exfalso. apply (Hbef_e2c p_e2c' (e2, Call (encode_request (Push v2))) Hlk_e2c' Hgt).
+  - exfalso. apply (Hbef_e2c p_e2c' (e2, Call Push v2) Hlk_e2c' Hgt).
     split; [done|by eexists].
 Qed.
 
@@ -1037,8 +1037,8 @@ Qed.
 Local Lemma ump_init_index_lt_call_pos_lt rme valid_value ts (excluded : list positive)
     e1 e2 p1 p2 v1 v2 j1 j2 :
   per_tag_wellformed_bag rme valid_value ts →
-  ts !! p1 = Some (e1, Call (encode_request (Push v1))) →
-  ts !! p2 = Some (e2, Call (encode_request (Push v2))) →
+  ts !! p1 = Some (e1, Call Push v1) →
+  ts !! p2 = Some (e2, Call Push v2) →
   list_difference (push_of_trace ts) excluded !! j1 = Some e1 →
   list_difference (push_of_trace ts) excluded !! j2 = Some e2 →
   j1 < j2 →
@@ -1068,8 +1068,8 @@ Qed.
 Local Lemma ump_init_call_pos_lt_index_lt rme valid_value ts (excluded : list positive)
     e1 e2 p1 p2 v1 v2 j1 j2 :
   per_tag_wellformed_bag rme valid_value ts →
-  ts !! p1 = Some (e1, Call (encode_request (Push v1))) →
-  ts !! p2 = Some (e2, Call (encode_request (Push v2))) →
+  ts !! p1 = Some (e1, Call Push v1) →
+  ts !! p2 = Some (e2, Call Push v2) →
   list_difference (push_of_trace ts) excluded !! j1 = Some e1 →
   list_difference (push_of_trace ts) excluded !! j2 = Some e2 →
   p1 < p2 →
@@ -1123,7 +1123,7 @@ Proof.
     by (rewrite Hnm1_eq; apply bag.close.complete_trace_add_match_snd_sub).
   (* Key: e1, e2 are push tags in ts; they have Call Push in ts. *)
   assert (Hpush_in_ts : ∀ e d, (e, d) ∈ m ∨ (e, d) ∈ nm1 ∨ (e, d) ∈ nm2 →
-    ∃ v, (e, Call (encode_request (Push v))) ∈ ts).
+    ∃ v, (e, Call Push v) ∈ ts).
   { intros e d [Hin | [Hin | Hin]].
     - destruct (valid_match_call_push _ _ _ _ Hvalid' Hin) as [v ?]. by exists v.
     - assert (Hin' : e ∈ nm1.*1).
@@ -1176,7 +1176,7 @@ Proof.
     - apply (Hump_init_disj_m1 e); last exact Hin_m1.
       apply Hump'_sub.
       rewrite /nm2 close_trace_add_match_fst_eq in Hin. exact Hin. }
-  assert (Hd_in_m_or_nm1_call_pop : ∀ d, d ∈ m.*2 ∨ d ∈ nm1.*2 → (d, Call (encode_request Pop)) ∈ ts).
+  assert (Hd_in_m_or_nm1_call_pop : ∀ d, d ∈ m.*2 ∨ d ∈ nm1.*2 → (d, Call Pop #()) ∈ ts).
   { intros d [Hin|Hin].
     - apply list_elem_of_fmap_1 in Hin as ([τ1' τ2'] & -> & Hin).
       exact (valid_match_call_pop _ _ _ _ Hvalid' Hin).
@@ -1187,10 +1187,10 @@ Proof.
   destruct (Hpush_in_ts e2 d2) as [v2 He2_in_ts].
   { rewrite !elem_of_app in He2d2. by destruct He2d2 as [|[|]]; tauto. }
   assert (He1_push : e1 ∈ push_of_trace ts).
-  { apply (list_elem_of_fmap_2 fst _ (e1, Call (encode_request (Push v1)))).
+  { apply (list_elem_of_fmap_2 fst _ (e1, Call Push v1)).
     apply list_elem_of_filter; split; [eexists; reflexivity|exact He1_in_ts]. }
   assert (He2_push : e2 ∈ push_of_trace ts).
-  { apply (list_elem_of_fmap_2 fst _ (e2, Call (encode_request (Push v2)))).
+  { apply (list_elem_of_fmap_2 fst _ (e2, Call Push v2)).
     apply list_elem_of_filter; split; [eexists; reflexivity|exact He2_in_ts]. }
   assert (He1_not_U : e1 ∉ U) by exact (Hpush_not_U _ He1_push).
   assert (He2_not_U : e2 ∉ U) by exact (Hpush_not_U _ He2_push).
@@ -1202,11 +1202,11 @@ Proof.
     assert (Hd2_in_m2 : d2 ∈ m.*2).
     { apply (list_elem_of_fmap_2 snd _ (e2, d2)). exact He2d2_m. }
     assert (Hd2_not_U : d2 ∉ U) by exact (Hd_in_m_or_nm1_not_U _ (or_introl Hd2_in_m2)).
-    assert (Hd2_call_pop_ts : (d2, Call (encode_request Pop)) ∈ ts)
+    assert (Hd2_call_pop_ts : (d2, Call Pop #()) ∈ ts)
       by exact (Hd_in_m_or_nm1_call_pop _ (or_introl Hd2_in_m2)).
     (* Lift pre_close e1 e2 to pre_ts e1 e2. *)
     assert (Hpre_ts : pre_of_trace ts e1 e2).
-    { exact (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) e1 e2 _
+    { exact (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) e1 e2 _ _
               He1_not_U He2_not_U He2_in_ts Hpre_close). }
     (* Apply Hocum to get e1 ∈ m.*1. *)
     assert (He1_in_m1 : e1 ∈ m.*1) by exact (Hocum _ _ Hpre_ts He1_push He2_in_m1).
@@ -1225,14 +1225,14 @@ Proof.
     assert (Hd1_in_m2 : d1 ∈ m.*2).
     { apply (list_elem_of_fmap_2 snd _ (e1, d1)). exact He1d1_m. }
     assert (Hd1_not_U : d1 ∉ U) by exact (Hd_in_m_or_nm1_not_U _ (or_introl Hd1_in_m2)).
-    assert (Hd1_call_pop_ts : (d1, Call (encode_request Pop)) ∈ ts)
+    assert (Hd1_call_pop_ts : (d1, Call Pop #()) ∈ ts)
       by exact (Hd_in_m_or_nm1_call_pop _ (or_introl Hd1_in_m2)).
     (* Apply Hocm: ¬pre_ts d2 d1. *)
     assert (Hno_pre_ts : ¬ pre_of_trace ts d2 d1)
       by exact (Hocm _ _ _ _ Hpre_ts He1d1_m He2d2_m).
     (* Lift back to ¬pre_close d2 d1. *)
     revert Hpre_close_d.
-    apply (not_pre_ts_to_not_pre_close U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _
+    apply (not_pre_ts_to_not_pre_close U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _ _
             Hd2_not_U Hd1_not_U Hd1_call_pop_ts Hno_pre_ts).
   - (* Cases B and C: d2 has no Ret in ts (d2 ∈ nm1.*2 ⊆ upop or d2 ∈ nm2.*2 fresh).
        In all such cases, d2's first Ret in close is at position ≥ length ts'.
@@ -1254,7 +1254,7 @@ Proof.
         apply list_find_Some in Hret as (Hlk_ret & [Hτ Hev] & _).
         simpl in Hτ, Hev. subst τ_x.
         destruct ev_x as [|? ?|w]; simpl in Hev; try done.
-        assert (Hd2_call_pop : (d2, Call (encode_request Pop)) ∈ ts).
+        assert (Hd2_call_pop : (d2, Call Pop #()) ∈ ts).
         { apply Hd_in_m_or_nm1_call_pop. right.
           apply (list_elem_of_fmap_2 snd _ (e2, d2)). exact Hin_nm1. }
         apply list_elem_of_lookup_2 in Hlk_ret as Hin_ts_ret.
@@ -1263,7 +1263,7 @@ Proof.
         (* Hwf says w = encode_response r for some r (d2 is pop tag). *)
         destruct (Hwf d2) as [(v' & _ & Hpfx)|(r' & _ & Hpfx)].
         + exfalso.
-          assert (Hin_call : (d2, Call (encode_request Pop)) ∈ filter (λ x, x.1 = d2) ts).
+          assert (Hin_call : (d2, Call Pop #()) ∈ filter (λ x, x.1 = d2) ts).
           { apply list_elem_of_filter; done. }
           eapply elem_of_prefix in Hin_call; last exact Hpfx.
           apply elem_of_cons in Hin_call as [Habs|Hin_call].
@@ -1328,13 +1328,13 @@ Proof.
         by (apply (list_elem_of_fmap_2 snd _ (e1, d1)); exact He1d1_m).
       assert (Hd1_not_U : d1 ∉ U)
         by exact (Hd_in_m_or_nm1_not_U _ (or_introl Hd1_in_m2)).
-      assert (Hd1_call_pop_ts : (d1, Call (encode_request Pop)) ∈ ts)
+      assert (Hd1_call_pop_ts : (d1, Call Pop #()) ∈ ts)
         by exact (Hd_in_m_or_nm1_call_pop _ (or_introl Hd1_in_m2)).
-      assert (Hd1_call_in_ts' : (d1, Call (encode_request Pop)) ∈ ts')
+      assert (Hd1_call_in_ts' : (d1, Call Pop #()) ∈ ts')
         by (apply list_elem_of_filter_2; done).
-      destruct (call_in_prefix_lt ts' (np ++ npop2_calls ++ npop1 ++ npop2_rets) d1 _ Hd1_call_in_ts')
+      destruct (call_in_prefix_lt ts' (np ++ npop2_calls ++ npop1 ++ npop2_rets) d1 _ _ Hd1_call_in_ts')
         as (i_c & x_c & Hcall_close & Hi_c_lt).
-      apply (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _
+      apply (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _ _
               Hd2_not_U Hd1_not_U Hd1_call_pop_ts) in Hpre_close_d.
       apply (pre_of_trace_no_ret ts d2 d1 Hd2_no_ret_in_ts Hpre_close_d).
     + (* Sub-case: (e1, d1) ∈ nm1. d1 ∈ nm1.*2, has Call in ts'. *)
@@ -1342,11 +1342,11 @@ Proof.
         by (apply (list_elem_of_fmap_2 snd _ (e1, d1)); exact He1d1_nm1).
       assert (Hd1_not_U : d1 ∉ U)
         by exact (Hd_in_m_or_nm1_not_U _ (or_intror Hd1_in_nm1_2)).
-      assert (Hd1_call_pop_ts : (d1, Call (encode_request Pop)) ∈ ts)
+      assert (Hd1_call_pop_ts : (d1, Call Pop #()) ∈ ts)
         by exact (Hd_in_m_or_nm1_call_pop _ (or_intror Hd1_in_nm1_2)).
-      assert (Hd1_call_in_ts' : (d1, Call (encode_request Pop)) ∈ ts')
+      assert (Hd1_call_in_ts' : (d1, Call Pop #()) ∈ ts')
         by (apply list_elem_of_filter_2; done).
-      apply (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _
+      apply (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) d2 d1 _ _
               Hd2_not_U Hd1_not_U Hd1_call_pop_ts) in Hpre_close_d.
       apply (pre_of_trace_no_ret ts d2 d1 Hd2_no_ret_in_ts Hpre_close_d).
     + (* Sub-case: (e1, d1) ∈ nm2. *)
@@ -1374,13 +1374,13 @@ Proof.
           apply list_find_None in He1_no_ret_in_ts.
           rewrite Forall_forall in He1_no_ret_in_ts.
           apply (He1_no_ret_in_ts (e1, Ret r) Hin_ts). split; [done|by eexists]. }
-        assert (He2_call_in_ts' : (e2, Call (encode_request (Push v2))) ∈ ts')
+        assert (He2_call_in_ts' : (e2, Call Push v2) ∈ ts')
           by (apply list_elem_of_filter_2; done).
         rewrite /pre_of_trace in Hpre_close.
         destruct (ret_of_tag (ts' ++ np ++ npop2_calls ++ npop1 ++ npop2_rets) e1)
           as [[i_ret x_ret]|] eqn:Hret_close; last done.
         pose proof (ret_after_prefix _ _ _ _ _ He1_no_ret_in_ts' Hret_close) as Hret_ge.
-        destruct (call_in_prefix_lt ts' (np ++ npop2_calls ++ npop1 ++ npop2_rets) e2 _ He2_call_in_ts')
+        destruct (call_in_prefix_lt ts' (np ++ npop2_calls ++ npop1 ++ npop2_rets) e2 _ _ He2_call_in_ts')
           as (i_call & x_call & Hcall_close & Hi_call_lt).
         rewrite Hcall_close /= in Hpre_close. lia.
       * (* e1 has Ret in ts. Lift Hpre_close to Hpre_ts. *)
@@ -1388,7 +1388,7 @@ Proof.
         simpl in Hτ_e1r, Hev_e1r. subst τ_e1r.
         destruct ev_e1r as [?|? ?|r1]; try done.
         assert (Hpre_ts : pre_of_trace ts e1 e2).
-        { exact (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) e1 e2 _
+        { exact (pre_close_to_pre_ts U ts (np ++ npop2_calls ++ npop1 ++ npop2_rets) e1 e2 _ _
                   He1_not_U He2_not_U He2_in_ts Hpre_close). }
         destruct (pre_of_trace_push_call_lt _ _ _ _ _ _ _ Hwf Hpre_ts He1_in_ts He2_in_ts)
           as (p_e1c & p_e2c & Hp_e1c & Hp_e2c & Hp_lt).
@@ -1462,7 +1462,7 @@ Proof.
            set (offset_calls := length ts' + length np).
            set (offset_rets := length ts' + length np + length npop2_calls + length npop1).
            assert (Hd1_call_close : (ts' ++ np ++ npop2_calls ++ npop1 ++ npop2_rets) !!
-                                    (offset_calls + k1) = Some (d1, Call (encode_request Pop))).
+                                    (offset_calls + k1) = Some (d1, Call Pop #())).
            { rewrite /offset_calls.
              rewrite (lookup_app_r ts'); last lia.
              replace (length ts' + length np + k1 - length ts')
@@ -1473,7 +1473,7 @@ Proof.
              rewrite /npop2_calls /bag.close.close_trace_add_pop_calls list_lookup_fmap.
              rewrite Hk1'_nm2 //. }
            assert (Hd2_ret_close : (ts' ++ np ++ npop2_calls ++ npop1 ++ npop2_rets) !!
-                                   (offset_rets + k2) = Some (d2, Ret (calls !!! e2))).
+                                   (offset_rets + k2) = Some (d2, Ret (bag.close.ret_val_of_call (calls !!! e2)))).
            { rewrite /offset_rets.
              rewrite (lookup_app_r ts'); last lia.
              replace (length ts' + length np + length npop2_calls + length npop1 + k2 - length ts')

@@ -261,3 +261,19 @@ Section omap.
     omap f (a::l) = omap f l.
   Proof. intros Hf. rewrite omap_cons Hf //. Qed.
 End omap.
+
+Section total_lookup.
+  Context `{!Inhabited A}.
+  Implicit Types x y z : A.
+  Implicit Types l k : list A.
+
+  Lemma lookup_total_cons x l i :
+    (x::l)!!!i = match i with
+                 | 0 => x
+                 | S i => l!!!i
+                 end.
+  Proof.
+    destruct i; first done.
+    rewrite lookup_total_cons_ne_0 //.
+  Qed.
+End total_lookup.

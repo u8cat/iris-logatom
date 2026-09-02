@@ -1,7 +1,7 @@
 (* enq.v — Enqueue wrapper spec. *)
 
 From stdpp Require Import base list gmap propset.
-From iris_logatom.pure_logic Require Import linear.
+From iris_logatom.pure_logic Require Import encodable linear.
 From iris_logatom.pure_logic.models Require Import bag_like.
 From iris_logatom.pure_logic.metaconfig Require Import tracking.
 From iris.proofmode Require Import proofmode.
@@ -21,17 +21,17 @@ Section proof.
     val_is_unboxed (SOMEV v_push) →
     τ ∉ ts.*1 →
     I_lang_hwq ts →
-    I_lang_hwq (ts ++ [(τ, Call (encode_request (Push v_push)))]).
+    I_lang_hwq (ts ++ [(τ, Call Push v_push)]).
   Proof.
     intros Hunb Hfresh [(M' & s & π & Hsteps & Hin) Hwf].
     split; last by apply per_tag_wellformed_snoc_call_push.
     set (M'_new := ((λ x : single_config_q,
-                       (x.1, <[τ:=(encode_request (Push v_push), None)]> x.2))
+                       (x.1, <[τ:=(Push, v_push, None)]> x.2))
                       <$> M' : @meta_config hwq_model)).
-    exists M'_new, s, (<[τ:=(encode_request (Push v_push), None)]> π).
+    exists M'_new, s, (<[τ:=(Push, v_push, None)]> π).
     split.
     - eapply mcfg_steps_snoc; first exact Hsteps.
-      replace M'_new with ((λ '(s', π'), (s', <[τ:=(encode_request (Push v_push), None)]> π'))
+      replace M'_new with ((λ '(s', π'), (s', <[τ:=(Push, v_push, None)]> π'))
                             <$> M').
       2: { unfold M'_new. apply leibniz_equiv. intros [s_x π_x].
            rewrite !elem_of_PropSet. split.
@@ -39,21 +39,21 @@ Section proof.
              eexists (_, _). simpl. split; first exact Heq. exact Hin_y.
            - intros ([s_y π_y] & Heq & Hin_y). simpl in Heq.
              eexists (_, _). simpl. split; first exact Heq. exact Hin_y. }
-      apply (mcfg_step_call M' τ).
+      apply (mcfg_step_call M' τ Push v_push).
       + intros [s' π'] Hin_pre. simpl.
         pose proof (mcfg_steps_dom_in_trace _ _ _ _ Hsteps Hin_pre) as Hdom_sub.
         intros Hin_dom. apply Hdom_sub in Hin_dom.
         apply elem_of_list_to_set in Hin_dom. contradiction.
-      + left. exists v_push. done.
+      + exact Hunb.
     - apply elem_of_PropSet. eexists (s, π). split; [done | exact Hin].
   Qed.
 
   Lemma phase4_ret_preserves_I_lang ts τ v_push :
     I_lang_hwq ts →
-    filter (λ t, t.1 = τ) ts = [(τ, Call (encode_request (Push v_push)))] →
+    filter (λ t, t.1 = τ) ts = [(τ, Call Push v_push)] →
     (∃ (M_full : @meta_config hwq_model) s π,
         mcfg_steps mcfg_init M_full ts ∧ (s, π) ∈ M_full ∧
-        π !! τ = Some (encode_request (Push v_push), Some #())) →
+        π !! τ = Some (Push, v_push, Some #())) →
     I_lang_hwq (ts ++ [(τ, Ret #())]).
   Proof.
     intros [_ Hwf] Hfilter (M_full & s & π & Hsteps & Hin & Hπτ).
@@ -74,7 +74,7 @@ Section proof.
   Lemma push_wrapper_spec γ tracer (q v_push : val) :
     val_is_unboxed (SOMEV v_push) →
     {{{ trace_inv tracer I_lang_hwq ∗ is_hwq tracer γ q }}}
-      call_ret_wrapper tracer op q (encode_request (Push v_push))
+      call_ret_wrapper tracer Push enqueue q v_push
     {{{ v, RET v; True }}}.
   Proof.
     iIntros (Hunb Φ) "[#Itrace #Ihwq] HΦ".
@@ -86,9 +86,9 @@ Section proof.
        Phase 1 — trace_fresh: emit (τ, Call (Push v_push)).
        ──────────────────────────────────────────────────────────────── *)
     wp_bind (trace_fresh _ _).
-    awp_apply (trace_fresh_spec _ (Call (encode_request (Push v_push)))
-                (InjLV (encode_request (Push v_push))) I_lang_hwq with "Itrace");
-      first reflexivity.
+    awp_apply (trace_fresh_spec _ (Call Push v_push)
+                (InjLV (#Push, v_push)%V) I_lang_hwq with "Itrace");
+      first exact (decode_encode_val (Call Push v_push)).
     iInv "Hinv" as (items back_val ts M_g stat slots scan_map)
       "(>Hback & >Har & >Hts & >%Hlen & >%Hbpos & >HγM & >Hstat & >Hslots & >Hscan & #Hslots_persist1 &
          >%Hmcfg_steps & >%Hne & >%Hpw & >%Hsc & >%Hsc_slots & >%Hwell & >%Htrst & >%Hlinw_seq & >%Hbnd & >%Hssi & >%Hcl_push & >%Hscan_dom & >%Hscan_lb)".
@@ -115,7 +115,7 @@ Section proof.
     (* Update M_g via gset insert on each element. *)
     pose (M_g_new :=
       (set_map (λ x : single_config_q,
-                  (x.1, <[τ:=(encode_request (Push v_push), None)]> x.2))
+                  (x.1, <[τ:=(Push, v_push, None)]> x.2))
               M_g : gset single_config_q)).
     iMod (ghost_var_update M_g_new with "HγM") as "HγM".
     (* Insert τ into stat as OpEnqPending v_push. *)
@@ -200,7 +200,7 @@ Section proof.
     iModIntro.
     iSplitR "HΦ Hstat_τ".
     { iNext.
-      iExists items, back_val, (ts ++ [(τ, Call (encode_request (Push v_push)))]),
+      iExists items, back_val, (ts ++ [(τ, Call Push v_push)]),
               M_g_new, (<[τ:=OpEnqPending v_push]> stat), slots, scan_map.
       iFrame "Hback Har Hts HγM Hstat Hslots Hscan Hslots_persist1".
       iPureIntro. split_and!.
@@ -218,8 +218,8 @@ Section proof.
         eapply mcfg_steps_snoc; first exact Hmcfg_steps.
         unfold M_g_new.
         rewrite <- gset_to_propset_set_map_call.
-        apply (mcfg_step_call (set_to_propset M_g) τ);
-          last by left; exists v_push.
+        apply (mcfg_step_call (set_to_propset M_g) τ Push v_push);
+          last exact Hunb.
         intros [s' π'] Hin_pre.
         pose proof (mcfg_steps_dom_in_trace _ _ _ _ Hmcfg_steps Hin_pre) as Hdom_sub.
         intros Hin_dom. apply Hdom_sub in Hin_dom.
@@ -227,7 +227,7 @@ Section proof.
       - intros Hempty. apply Hne.
         apply set_choose_L in Hne as [x Hx_in].
         exfalso.
-        assert ((x.1, <[τ:=(encode_request (Push v_push), None)]> x.2) ∈
+        assert ((x.1, <[τ:=(Push, v_push, None)]> x.2) ∈
                 (M_g_new : gset single_config_q)) as Hin_map.
         { unfold M_g_new. apply elem_of_map.
           exists x. destruct x as [s' π']. split; [done | exact Hx_in]. }
@@ -247,7 +247,7 @@ Section proof.
                      (s', π') ∈ (M_g_new : gset single_config_q) →
                      ∃ s'' π'', (s'', π'') ∈ M_g ∧
                                 s' = s'' ∧
-                                π' = <[τ:=(encode_request (Push v_push), None)]> π'').
+                                π' = <[τ:=(Push, v_push, None)]> π'').
           { intros s' π' Hin_new.
             apply elem_of_map in Hin_new as ([s'' π''] & Heq & Hin_old).
             exists s'', π''. split; first exact Hin_old.
@@ -269,7 +269,7 @@ Section proof.
                    last (intros ?; apply Hne_τ; congruence).
                  apply (Hsc_all s'' π'' Hin_old). }
                destruct Hsc_ex as (s_v & π_v & Hin_v & Hπ_v).
-               exists s_v, (<[τ:=(encode_request (Push v_push), None)]> π_v).
+               exists s_v, (<[τ:=(Push, v_push, None)]> π_v).
                split.
                { unfold M_g_new. apply elem_of_map.
                  exists (s_v, π_v). split; first reflexivity. exact Hin_v. }
@@ -285,7 +285,7 @@ Section proof.
                    last (intros ?; apply Hne_τ; congruence).
                  apply (Hsc_all s'' π'' Hin_old). }
                destruct Hsc_ex as (s_v & π_v & Hin_v & Hπ_v).
-               exists s_v, (<[τ:=(encode_request (Push v_push), None)]> π_v).
+               exists s_v, (<[τ:=(Push, v_push, None)]> π_v).
                split.
                { unfold M_g_new. apply elem_of_map.
                  exists (s_v, π_v). split; first reflexivity. exact Hin_v. }
@@ -304,7 +304,7 @@ Section proof.
                by apply (Hsc_τ' s'' π'' Hin_old).
             -- (* OpDeqLinearized v0: ∃-form. Lift witness through M_g_new. *)
                destruct Hsc_τ' as (s_v & π_v & Hin_v & Hπ_v).
-               pose (π_v_new := <[τ:=(encode_request (Push v_push), None)]> π_v).
+               pose (π_v_new := <[τ:=(Push, v_push, None)]> π_v).
                exists s_v, π_v_new. split.
                ++ unfold M_g_new. apply elem_of_map.
                   exists (s_v, π_v). split; first reflexivity. exact Hin_v.
@@ -362,7 +362,7 @@ Section proof.
           as (s & π & Hin_g & Hlen_s & Hsmatch & Hsmatch_case & Henq_d & Hlin_d
               & Hdone_d & Hpending_d & Hstored_d & Hres_d).
         (* Step 3: lift to M_g_new. *)
-        pose (π_new := <[τ:=(encode_request (Push v_push), None)]> π).
+        pose (π_new := <[τ:=(Push, v_push, None)]> π).
         exists s, π_new. split_and!.
         + unfold M_g_new. apply elem_of_map.
           exists (s, π). split; first reflexivity. exact Hin_g.
@@ -520,7 +520,7 @@ Section proof.
         assert (Hsubset' : pushes ⊆ pending_push_of_config cfg_x).
         { intros pv Hpv_in.
           assert (Hpv_cfg : pv ∈ pending_push_of_config
-                              (cfg_x.1, <[τ:=(encode_request (Push v_push), None)]>cfg_x.2)).
+                              (cfg_x.1, <[τ:=(Push, v_push, None)]>cfg_x.2)).
           { apply Hsubset. exact Hpv_in. }
           unfold pending_push_of_config in Hpv_cfg |- *.
           apply list_elem_of_omap in Hpv_cfg as ([τ' [req resp]] & Hin_list & Heq).
@@ -529,7 +529,7 @@ Section proof.
           - subst τ'. rewrite lookup_insert_eq in Hin_list.
             injection Hin_list as Hreq Hresp. subst req. subst resp.
             simpl in Heq.
-            unfold encode_request in Heq. simpl in Heq.
+            unfold Push in Heq. simpl in Heq.
             injection Heq as Heq_pv. subst pv.
             exfalso. apply Hτ_notin.
             apply (list_elem_of_fmap_2 fst _ (τ, v_push)); exact Hpv_in.
@@ -556,8 +556,8 @@ Section proof.
         unfold M_g_new. apply elem_of_map.
         exists (lineraize_pending_push pushes cfg_x). split; last exact Hcl_x.
         unfold lineraize_pending_push. simpl. f_equal.
-        (* Need: <[τ:=(Push v_push, None)]>(map_imap ... cfg_x.2)
-                = map_imap ... <[τ:=(Push v_push, None)]>cfg_x.2 *)
+        (* Need: <[τ:=(Push, v_push, None)]>(map_imap ... cfg_x.2)
+                = map_imap ... <[τ:=(Push, v_push, None)]>cfg_x.2 *)
         apply map_eq. intros τ'.
         destruct (decide (τ' = τ)) as [-> | Hne_τ'].
         + rewrite lookup_insert_eq map_lookup_imap lookup_insert_eq /=.
@@ -579,14 +579,9 @@ Section proof.
         exact Hscan_lb. }
     (* ──────────────────────────────────────────────────────────────────
        After Phase 1, the residual program is:
-         let "res" := op q (SOMEV v_push) in
+         let "res" := enqueue q v_push in
          trace_emit #l #τ (InjR "res");; "res"
-       Stepping through [op] dispatches to [enqueue q v_push].
        ──────────────────────────────────────────────────────────────── *)
-    wp_pures.
-    rewrite /op.
-    wp_pures.
-    rewrite /encode_request /=.
     wp_pures.
     (* Now executing [enqueue q v_push]. *)
     rewrite /enqueue.
@@ -649,7 +644,7 @@ Section proof.
     assert (Hcfgs_pushes : Forall (λ cfg, Forall (λ pushes,
                 NoDup pushes.*1 ∧
                 Forall (λ pv : positive * val,
-                          cfg.2 !! pv.1 = Some (encode_request (Push pv.2), None)) pushes)
+                          cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
               (push_lists_filtered cfg)) cfgs).
     { apply Forall_forall. intros cfg Hcfg_in_list.
       apply Forall_forall. intros pushes Hpushes_in.
@@ -666,12 +661,12 @@ Section proof.
         eapply elem_of_submseteq; first exact Hpv_in. exact Hsub_in_pset. }
       assert (Hnd_pending_keys : NoDup (pending_push_of_config cfg).*1).
       { destruct cfg as [s_q π_q]. unfold pending_push_of_config. simpl.
-        assert (Hkeys_sub : (omap (λ '(τ', v), if v is (InjRV v, None) then Some (τ',v) else None)
+        assert (Hkeys_sub : (omap (λ '(τ', v), if v is (0, v, None) then Some (τ',v) else None)
                                    (map_to_list π_q)).*1 `sublist_of` (map_to_list π_q).*1).
-        { induction (map_to_list π_q) as [|[τ' [v' resp']] tl IH'].
+        { induction (map_to_list π_q) as [|[τ' [[n' v'] resp']] tl IH'].
           - apply sublist_nil.
           - simpl.
-            destruct v' as [| | v_inner | |];
+            destruct n' as [|n'];
               try (simpl; apply sublist_cons; exact IH').
             destruct resp' as [v_resp |];
               try (simpl; apply sublist_cons; exact IH').
@@ -692,8 +687,8 @@ Section proof.
         assert (Hpv_in_pending : (τ_pv, v_pv) ∈ pending_push_of_config cfg)
           by (by apply Hpushes_subseteq).
         unfold pending_push_of_config in Hpv_in_pending.
-        apply list_elem_of_omap in Hpv_in_pending as ([τ_x [v_x resp]] & Hin_list & Hmatch).
-        destruct v_x as [| | v_y | |]; try discriminate.
+        apply list_elem_of_omap in Hpv_in_pending as ([τ_x [[n_x v_x] resp]] & Hin_list & Hmatch).
+        destruct n_x as [|n_x]; try discriminate.
         destruct resp as [v_resp |]; try discriminate.
         simpl in Hmatch. injection Hmatch as Heq1 Heq2. subst.
         apply elem_of_map_to_list in Hin_list.
@@ -799,7 +794,7 @@ Section proof.
 
            Key helper: configs in M_g_LP_τ have shape lineraize_pending_push pushes cfg
            for some cfg ∈ M_g2 and stat-conformant pushes. The π of such config
-           differs from π_cfg only at τ_pv ∈ pushes.*1 (LP'd to (Push v_pv, Some #())). *)
+           differs from π_cfg only at τ_pv ∈ pushes.*1 (LP'd to (Push, v_pv, Some #())). *)
         intros τ'.
         (* Helper: destruct membership in M_g_new2. Use s_c, π_c for cfg. *)
         assert (Hmem_destruct : ∀ s' π', (s', π') ∈ M_g_new2 →
@@ -1387,7 +1382,7 @@ Section proof.
              pending_push_of_config (s_pre, π_pre). That's: π_pre[τ_z] = Pending. *)
           assert (Hpushes_pending : Forall
                     (λ pv : positive * val,
-                       π_pre !! pv.1 = Some (encode_request (Push pv.2), None))
+                       π_pre !! pv.1 = Some (Push, pv.2, None))
                     pushes).
           { apply Forall_lookup. intros z' [τ_z v_z] Hpush_z'.
             simpl.
@@ -1997,8 +1992,8 @@ Section proof.
             destruct (decide (τ_e = τ)) as [-> | Hne_τe].
             -- (* τ_e = τ: stat_new[τ] = OpEnqReserved v_push back_val2.
                   So i_e = back_val2. By Hbv_notin_A, back_val2 ∉ A. So we're in
-                  the i_e ∉ A branch. We need π[τ] = (Push v_push, None).
-                  From Hsc2 τ on M_g2: ∀ s π ∈ M_g2, π[τ] = (Push v_push, None).
+                  the i_e ∉ A branch. We need π[τ] = (Push, v_push, None).
+                  From Hsc2 τ on M_g2: ∀ s π ∈ M_g2, π[τ] = (Push, v_push, None).
                   (s, π) ∈ M_g2 from Hin. So done. *)
                rewrite lookup_insert_eq in Hstat_e_new.
                injection Hstat_e_new as <- <-.
@@ -2153,7 +2148,7 @@ Section proof.
                Combined pushes (inner ++ pushes) gives lineraize on base. *)
             (* Step 1: extract disjointness inner_pushes.*1 ∩ pushes.*1 = ∅. *)
             assert (Hinner_pending : Forall (λ pv,
-                      π_c !! pv.1 = Some (encode_request (Push pv.2), None)) inner_pushes).
+                      π_c !! pv.1 = Some (Push, pv.2, None)) inner_pushes).
             { unfold all_push_lists in Hinner_in_all.
               apply list_elem_of_bind in Hinner_in_all as (sub & Hperm & Hsub_in_pset).
               rewrite permutations_Permutation in Hperm.
@@ -2166,8 +2161,8 @@ Section proof.
               assert (Hpv_in_pending : (τ_x, v_x) ∈ pending_push_of_config (s_c, π_c))
                 by (apply Hinner_subset; exact Hpv_in).
               unfold pending_push_of_config in Hpv_in_pending. simpl in *.
-              apply list_elem_of_omap in Hpv_in_pending as ([τ_y [v_y resp]] & Hin_list & Hmatch).
-              destruct v_y as [| | v_z | |]; try discriminate.
+              apply list_elem_of_omap in Hpv_in_pending as ([τ_y [[n_y v_y] resp]] & Hin_list & Hmatch).
+              destruct n_y as [|n_y]; try discriminate.
               destruct resp as [vr|]; try discriminate.
               simpl in Hmatch. injection Hmatch as -> ->.
               apply elem_of_map_to_list. exact Hin_list. }
@@ -2185,12 +2180,12 @@ Section proof.
               eapply sublist_NoDup; last exact Hsublist.
               destruct (s_c, π_c) as [s_q π_q] eqn:Hbase_eq.
               unfold pending_push_of_config. simpl.
-              assert (Hkeys_sub : (omap (λ '(τ', v), if v is (InjRV v, None) then Some (τ',v) else None)
+              assert (Hkeys_sub : (omap (λ '(τ', v), if v is (0, v, None) then Some (τ',v) else None)
                                           (map_to_list π_q)).*1 `sublist_of` (map_to_list π_q).*1).
-              { induction (map_to_list π_q) as [|[τ' [v' resp']] tl IH'].
+              { induction (map_to_list π_q) as [|[τ' [[n' v'] resp']] tl IH'].
                 - apply sublist_nil.
                 - simpl.
-                  destruct v' as [| | v_inner | |];
+                  destruct n' as [|n'];
                     try (simpl; apply sublist_cons; exact IH').
                   destruct resp' as [v_resp |];
                     try (simpl; apply sublist_cons; exact IH').
@@ -2206,9 +2201,9 @@ Section proof.
               apply list_elem_of_fmap_1 in Hτx_pushes as (pv_p & Heq_p & Hpv_p_in).
               specialize (Hsubset pv_p Hpv_p_in).
               unfold pending_push_of_config in Hsubset.
-              apply list_elem_of_omap in Hsubset as ([τ_y [v_y resp]] & Hin_list & Hmatch).
+              apply list_elem_of_omap in Hsubset as ([τ_y [[n_y v_y] resp]] & Hin_list & Hmatch).
               apply elem_of_map_to_list in Hin_list.
-              destruct v_y as [| | v_z | |]; try discriminate.
+              destruct n_y as [|n_y]; try discriminate.
               destruct resp as [vr|]; try discriminate.
               simpl in Hmatch. destruct pv_p as [τ_pp v_pp]. injection Hmatch as Heq_τ_y Heq_v_y.
               subst τ_y.
@@ -2216,10 +2211,10 @@ Section proof.
               assert (Hτpp_pv1 : τ_pp = pv_i.1).
               { simpl in Heq_p. rewrite -Heq_p. exact Heq_i. }
               rewrite Hτpp_pv1 in Hin_list.
-              (* Now Hin_list says (map_imap g_inner π_c) !! pv_i.1 = Some(Push v_pp, None). *)
+              (* Now Hin_list says (map_imap g_inner π_c) !! pv_i.1 = Some(Push, v_pp, None). *)
               rewrite map_lookup_imap in Hin_list.
               rewrite Forall_forall in Hinner_pending.
-              assert (Hπc_pvi : π_c !! pv_i.1 = Some (encode_request (Push pv_i.2), None))
+              assert (Hπc_pvi : π_c !! pv_i.1 = Some (Push, pv_i.2, None))
                 by exact (Hinner_pending pv_i Hpv_i_in).
               rewrite Hπc_pvi in Hin_list. simpl in Hin_list.
               rewrite bool_decide_eq_true_2 in Hin_list; last
@@ -2247,9 +2242,9 @@ Section proof.
                   apply (list_elem_of_fmap_2 fst _ pv); exact Hp. }
                 specialize (Hsubset pv Hp).
                 unfold pending_push_of_config in Hsubset.
-                apply list_elem_of_omap in Hsubset as ([τ_y [v_w resp]] & Hin_list & Hmatch).
+                apply list_elem_of_omap in Hsubset as ([τ_y [[n_w v_w] resp]] & Hin_list & Hmatch).
                 apply elem_of_map_to_list in Hin_list.
-                destruct v_w as [| | v_q | |]; try discriminate.
+                destruct n_w as [|n_w]; try discriminate.
                 destruct resp as [vr|]; try discriminate.
                 destruct pv as [τ_pq v_pq]. simpl in Hmatch.
                 injection Hmatch as Heq_pq1 Heq_pq2. subst.
@@ -2343,7 +2338,7 @@ Section proof.
           * (* cfg = lineraize inner_pushes (s_c, π_c). Combined approach again, but go to M_g_LP_τ. *)
             (* Build inner_pending and inner_NoDup same as before. *)
             assert (Hinner_pending : Forall (λ pv,
-                      π_c !! pv.1 = Some (encode_request (Push pv.2), None)) inner_pushes).
+                      π_c !! pv.1 = Some (Push, pv.2, None)) inner_pushes).
             { unfold all_push_lists in Hinner_in_all.
               apply list_elem_of_bind in Hinner_in_all as (sub & Hperm & Hsub_in_pset).
               rewrite permutations_Permutation in Hperm.
@@ -2356,8 +2351,8 @@ Section proof.
               assert (Hpv_in_pending : (τ_x, v_x) ∈ pending_push_of_config (s_c, π_c))
                 by (apply Hinner_subset; exact Hpv_in).
               unfold pending_push_of_config in Hpv_in_pending. simpl in *.
-              apply list_elem_of_omap in Hpv_in_pending as ([τ_y [v_y resp]] & Hin_list & Hmatch).
-              destruct v_y as [| | v_z | |]; try discriminate.
+              apply list_elem_of_omap in Hpv_in_pending as ([τ_y [[n_y v_y] resp]] & Hin_list & Hmatch).
+              destruct n_y as [|n_y]; try discriminate.
               destruct resp as [vr|]; try discriminate.
               simpl in Hmatch. injection Hmatch as -> ->.
               apply elem_of_map_to_list. exact Hin_list. }
@@ -2374,12 +2369,12 @@ Section proof.
               apply submseteq_sublist_l in Hsub_keys as (l2 & Hsublist & Hperm_l2).
               eapply sublist_NoDup; last exact Hsublist.
               unfold pending_push_of_config. simpl.
-              assert (Hkeys_sub : (omap (λ '(τ', v), if v is (InjRV v, None) then Some (τ',v) else None)
+              assert (Hkeys_sub : (omap (λ '(τ', v), if v is (0, v, None) then Some (τ',v) else None)
                                           (map_to_list π_c)).*1 `sublist_of` (map_to_list π_c).*1).
-              { induction (map_to_list π_c) as [|[τ' [v' resp']] tl IH'].
+              { induction (map_to_list π_c) as [|[τ' [[n' v'] resp']] tl IH'].
                 - apply sublist_nil.
                 - simpl.
-                  destruct v' as [| | v_inner | |];
+                  destruct n' as [|n'];
                     try (simpl; apply sublist_cons; exact IH').
                   destruct resp' as [v_resp |];
                     try (simpl; apply sublist_cons; exact IH').
@@ -2393,9 +2388,9 @@ Section proof.
               apply list_elem_of_fmap_1 in Hτx_pushes as (pv_p & Heq_p & Hpv_p_in).
               specialize (Hsubset pv_p Hpv_p_in).
               unfold pending_push_of_config in Hsubset.
-              apply list_elem_of_omap in Hsubset as ([τ_y [v_y resp]] & Hin_list & Hmatch).
+              apply list_elem_of_omap in Hsubset as ([τ_y [[n_y v_y] resp]] & Hin_list & Hmatch).
               apply elem_of_map_to_list in Hin_list.
-              destruct v_y as [| | v_z | |]; try discriminate.
+              destruct n_y as [|n_y]; try discriminate.
               destruct resp as [vr|]; try discriminate.
               simpl in Hmatch. destruct pv_p as [τ_pp v_pp]. injection Hmatch as Heq_τ_y Heq_v_y.
               subst τ_y.
@@ -2404,7 +2399,7 @@ Section proof.
               rewrite Hτpp_pv1 in Hin_list.
               rewrite map_lookup_imap in Hin_list.
               rewrite Forall_forall in Hinner_pending.
-              assert (Hπc_pvi : π_c !! pv_i.1 = Some (encode_request (Push pv_i.2), None))
+              assert (Hπc_pvi : π_c !! pv_i.1 = Some (Push, pv_i.2, None))
                 by exact (Hinner_pending pv_i Hpv_i_in).
               rewrite Hπc_pvi in Hin_list. simpl in Hin_list.
               rewrite bool_decide_eq_true_2 in Hin_list; last
@@ -2429,9 +2424,9 @@ Section proof.
                   apply (list_elem_of_fmap_2 fst _ pv); exact Hp. }
                 specialize (Hsubset pv Hp).
                 unfold pending_push_of_config in Hsubset.
-                apply list_elem_of_omap in Hsubset as ([τ_y [v_w resp]] & Hin_list & Hmatch).
+                apply list_elem_of_omap in Hsubset as ([τ_y [[n_w v_w] resp]] & Hin_list & Hmatch).
                 apply elem_of_map_to_list in Hin_list.
-                destruct v_w as [| | v_q | |]; try discriminate.
+                destruct n_w as [|n_w]; try discriminate.
                 destruct resp as [vr|]; try discriminate.
                 destruct pv as [τ_pq v_pq]. simpl in Hmatch.
                 injection Hmatch as Heq_pq1 Heq_pq2. subst.
@@ -3047,15 +3042,13 @@ Section proof.
         unfold M_g4_new in Hin_new.
         apply elem_of_map in Hin_new as (x & Heq & Hx_g).
         destruct x as [s_x π_x]. simpl in Heq.
-        unfold lp_or_keep_τ_push in Heq. simpl in Heq.
-        destruct (decide (π_x !! τ = Some (encode_request (Push v_push), None)))
-          as [Hxτ_pending | Hxτ_no].
-        + rewrite decide_True in Heq; last exact Hxτ_pending.
-          injection Heq as Hs_eq Hπ_eq. subst.
+        unfold lp_or_keep_τ_push in Heq.
+        case_decide as Hxτ_pending; simpl in Heq.
+        + injection Heq as Hs_eq Hπ_eq. subst.
           apply elem_of_intersection. split.
           * apply (Hchain_witnesses (s_x, π_x) Hx_g Hxτ_pending).
           * apply elem_of_PropSet. simpl. rewrite lookup_insert_eq. reflexivity.
-        + rewrite decide_False in Heq; last exact Hxτ_no.
+        + rename Hxτ_pending into Hxτ_no.
           injection Heq as Hs_eq Hπ_eq. subst.
           apply elem_of_intersection. split.
           * apply Hchain_sub. apply elem_of_set_to_propset. exact Hx_g.
@@ -3413,20 +3406,20 @@ Section proof.
           - right. rewrite lookup_insert_ne in Hs; last (intros ?; apply Hne_pv_τ; congruence).
             exact Hs. }
         (* Case split on whether cfg_x.2[τ] is Pending Push. *)
-        destruct (decide (cfg_x.2 !! τ = Some (encode_request (Push v_push), None)))
+        destruct (decide (cfg_x.2 !! τ = Some (Push, v_push, None)))
           as [Hcfg_x_pending | Hcfg_x_npending].
         + (* cfg_x.2[τ] = Pending Push. LP cfg_x via closure_push_single. *)
           pose proof (closure_push_single M_g4 stat4 cfg_x τ v_push (Z.to_nat back_val2)
                       Hcl_push4 Hin_x Hcfg_x_pending (or_intror Hstat_τ4_pre)) as Hin_xLP.
           assert (HlpEq : lp_or_keep_τ_push τ v_push cfg_x
-                       = (cfg_x.1 ++ [v_push], <[τ:=(encode_request (Push v_push), Some #())]>cfg_x.2)).
+                       = (cfg_x.1 ++ [v_push], <[τ:=(Push, v_push, Some #())]>cfg_x.2)).
           { unfold lp_or_keep_τ_push. rewrite decide_True; first reflexivity. exact Hcfg_x_pending. }
           rewrite HlpEq.
           rewrite HlpEq in Hsubset.
           pose proof (Hcl_push4 _ pushes Hin_xLP Hnd Hsubset Hstat_pushes_old) as Hcl_xLP.
           unfold M_g4_new. apply elem_of_map.
           exists (lineraize_pending_push pushes
-                    (cfg_x.1 ++ [v_push], <[τ:=(encode_request (Push v_push), Some #())]>cfg_x.2)).
+                    (cfg_x.1 ++ [v_push], <[τ:=(Push, v_push, Some #())]>cfg_x.2)).
           split; last exact Hcl_xLP.
           (* lp_or_keep is identity since τ already LP'd in this config. *)
           unfold lp_or_keep_τ_push.

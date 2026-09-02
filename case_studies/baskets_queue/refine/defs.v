@@ -167,8 +167,8 @@ Proof. solve_inG. Qed.
   encoded [next] field uses [InjL]/[InjR] of unboxed literals; an
   unboxed [d] is sufficient for the [enq_basket] CAS payload [InjL
   #nd] (location, always unboxed).  We additionally require
-  [val_is_unboxed (SOMEV d)] so that the dispatch [op] can wrap the
-  dequeue result in [SOMEV] safely (matching HWQ's convention). *)
+  [val_is_unboxed (SOMEV d)] so that [dequeue] can wrap its result in
+  [SOMEV] safely (matching HWQ's convention). *)
 Definition bq_valid_value : val → Prop :=
   λ v, val_is_unboxed (SOMEV v).
 
@@ -1018,6 +1018,6 @@ Section bq_skeleton.
     mgc_inv := @is_bq;
   |}.
 
-  Definition init_bq : val := (λ: <>, new_queue #())%V.
+  Definition init_bq : expr := new_queue #().
 
 End bq_skeleton.

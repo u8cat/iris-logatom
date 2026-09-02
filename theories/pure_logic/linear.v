@@ -13,9 +13,12 @@ From iris.heap_lang Require Import notation.
 Class model := {
   S : Set;
   s_init : S;
-  valid_request : val → Prop;
-  request_response : S → val → S → val → Prop;
+  valid_requests : list (val → Prop);
+  request_responses : list (S → val → S → val → Prop);
 }.
+
+Definition default_vr : val → Prop := λ _, False.
+Definition default_rr `{model} : S → val → S → val → Prop := λ _ _ _ _, False.
 
 Global Instance S_inhabited `{M : model} : Inhabited S := populate s_init.
 
@@ -28,35 +31,43 @@ Global Instance S_inhabited `{M : model} : Inhabited S := populate s_init.
 
 (* A trace is tagged by a unique ID τ. *)
 Inductive trace : Set :=
-  | Call (request : val)
-  | Lin (request result : val)
+  | Call (op : nat) (request : val)
+  | Lin (op : nat) (request result : val)
   | Ret (result : val).
 
 Definition encode_lin_trace (t : trace) :=
   match t with
-  | Call v => InjLV v
-  | Lin v v' => (v,v')%V
+  | Call op v => InjLV (#op, v)
+  | Lin op v v' => (#op,v,v')%V
   | Ret v => InjRV v
   end.
 
 Definition decode_lin_trace (v : val) :=
   match v with
-  | InjLV v => Some (Call v)
-  | (v,v')%V => Some (Lin v v')
+  | InjLV (#(LitInt z), v) =>
+    if bool_decide (0 ≤ z)%Z then
+      Some (Call (Z.to_nat z) v)
+    else
+      None
+  | (#(LitInt z), v,v')%V =>
+    if bool_decide (0 ≤ z)%Z then
+      Some (Lin (Z.to_nat z) v v')
+    else
+      None
   | InjRV v => Some (Ret v)
   | _ => None
   end.
 
 Definition is_call t :=
-  if t is Call _ then True else False.
+  if t is Call _ _ then True else False.
 
 Definition is_lin t :=
-  if t is Lin _ _ then True else False.
+  if t is Lin _ _ _ then True else False.
 
 Definition is_ret t :=
   if t is Ret _ then True else False.
 
-Global Instance trace_inhabited : Inhabited trace := populate (Call #()).
+Global Instance trace_inhabited : Inhabited trace := populate (Call 0 #()).
 
 Global Instance trace_eqdecision : EqDecision trace.
 Proof. solve_decision. Defined.
@@ -65,11 +76,27 @@ Global Program Instance trace_encodable : Encodable trace := {
   encode_val := encode_lin_trace;
   decode_val := decode_lin_trace;
 }.
-Next Obligation. intros [v|v v'|v']; reflexivity. Qed.
+Next Obligation.
+  intros [n v|n v v'|v']; try reflexivity.
+  - simpl. rewrite bool_decide_eq_true_2; last lia.
+    do 2 f_equal. lia.
+  - simpl. rewrite bool_decide_eq_true_2; last lia.
+    do 2 f_equal. lia.
+Qed.
 Next Obligation.
   intros v t Hdec.
   destruct v; simpl in Hdec; try discriminate Hdec.
-  all: injection Hdec as <-; reflexivity.
+  all: try (injection Hdec as <-; reflexivity).
+  - do 4 (case_match; try discriminate Hdec).
+    rename select (bool_decide _ = true) into Hn.
+    apply bool_decide_eq_true_1 in Hn.
+    simplify_eq. simpl.
+    do 4 f_equal. lia.
+  - do 4 (case_match; try discriminate Hdec).
+    rename select (bool_decide _ = true) into Hn.
+    apply bool_decide_eq_true_1 in Hn.
+    simplify_eq. simpl.
+    do 4 f_equal. lia.
 Qed.
 
 Global Instance is_call_decide t : Decision (is_call t).
@@ -91,26 +118,26 @@ Proof. destruct t; simpl; apply _. Defined.
 Inductive linearized_sound `{M : model} : list (positive*trace) → S → S → Prop :=
   | linearized_sound_nil s :
     linearized_sound [] s s
-  | linearized_sound_snoc s0 s s' τ v v' ts :
+  | linearized_sound_snoc s0 s s' n τ v v' ts :
     linearized_sound ts s0 s →
-    valid_request v →
-    request_response s v s' v' →
-    linearized_sound (ts ++ [(τ,Lin v v')]) s0 s'.
+    default default_vr (valid_requests!!n) v →
+    default default_rr (request_responses!!n) s v s' v' →
+    linearized_sound (ts ++ [(τ,Lin n v v')]) s0 s'.
 
 Definition call_valid `{M : model} (ts : list (positive*trace)) :=
-  Forall (λ x, if x.2 is Call v then valid_request v else True) ts.
+  Forall (λ x, if x.2 is Call n v then default default_vr (valid_requests!!n) v else True) ts.
 
 Definition per_tag_linearized (ts : list (positive*trace)) :=
-  ∀ τ, ∃ v v',
+  ∀ τ, ∃ n v v',
     filter (λ t, t.1 = τ) ts
       `prefix_of`
-    [(τ,Call v); (τ,Lin v v'); (τ,Ret v')].
+    [(τ,Call n v); (τ,Lin n v v'); (τ,Ret v')].
 
 Definition per_tag_wellformed (ts : list (positive*trace)) :=
-  ∀ τ, ∃ v v',
+  ∀ τ, ∃ n v v',
     filter (λ t, t.1 = τ) ts
       `prefix_of`
-    [(τ,Call v); (τ,Ret v')].
+    [(τ,Call n v); (τ,Ret v')].
 
 Definition events_of_trace (ts : list (positive*trace)) : gset positive :=
   list_to_set (ts.*1).
@@ -125,21 +152,21 @@ Definition lin_of_tag ts (τ : positive) :=
   list_find (λ t, t.1 = τ ∧ is_lin t.2) ts.
 
 Definition per_tag_complete (ts : list (positive*trace)) :=
-  ∀ τ, ∃ v v',
+  ∀ τ, ∃ n v v',
     filter (λ t, t.1 = τ) ts = [] ∨
-    filter (λ t, t.1 = τ) ts = [(τ,Call v); (τ,Ret v')].
+    filter (λ t, t.1 = τ) ts = [(τ,Call n v); (τ,Ret v')].
 
 Definition per_tag_partial_linearized (ts : list (positive*trace)) :=
-  ∀ τ, ∃ v v',
+  ∀ τ, ∃ n v v',
     filter (λ t, t.1 = τ) ts
       `substr_of`
-    [(τ,Call v); (τ,Lin v v'); (τ,Ret v')].
+    [(τ,Call n v); (τ,Lin n v v'); (τ,Ret v')].
 
 Definition per_tag_partial_wellformed (ts : list (positive*trace)) :=
-  ∀ τ, ∃ v v',
+  ∀ τ, ∃ n v v',
     filter (λ t, t.1 = τ) ts
       `substr_of`
-    [(τ,Call v); (τ,Ret v')].
+    [(τ,Call n v); (τ,Ret v')].
 
 (* returns the set of pending operations in a trace *)
 (* An operation τ is pending (in a trace satisfying [per_tag_partial_linearized]) iff
@@ -148,7 +175,7 @@ Definition per_tag_partial_wellformed (ts : list (positive*trace)) :=
 Local Fixpoint trace_pendingOp_aux (found : gset positive) (ts : list (positive*trace)) : gset positive :=
   match ts with
   | [] => ∅
-  | (τ,Call _)::ts => trace_pendingOp_aux ({[τ]} ∪ found) ts
+  | (τ,Call _ _)::ts => trace_pendingOp_aux ({[τ]} ∪ found) ts
   | (τ,_)::ts =>
     if decide (τ ∈ found) then
       trace_pendingOp_aux ({[τ]} ∪ found) ts
@@ -175,15 +202,15 @@ Proof.
   intros Hlin.
   inversion Hlin.
   - done.
-  - rename select (_ ++ [(_,Lin _ _)] = []) into Hfalse.
+  - rename select (_ ++ [(_,Lin _ _ _)] = []) into Hfalse.
     apply (f_equal length) in Hfalse.
     rewrite length_app /= in Hfalse.
     lia.
 Qed.
 
-Lemma linearized_sound_snoc_inv `{M : model} τ v v' (ts : list (positive*trace)) (s s' : S) :
-  linearized_sound (ts++[(τ,Lin v v')]) s s' →
-  ∃ s_mid, linearized_sound ts s s_mid ∧ valid_request v ∧ request_response s_mid v s' v'.
+Lemma linearized_sound_snoc_inv `{M : model} τ n v v' (ts : list (positive*trace)) (s s' : S) :
+  linearized_sound (ts++[(τ,Lin n v v')]) s s' →
+  ∃ s_mid, linearized_sound ts s s_mid ∧ default default_vr (valid_requests!!n) v ∧ default default_rr (request_responses!!n) s_mid v s' v'.
 Proof.
   intros Hlin.
   inversion Hlin; simplify_eq.
@@ -194,7 +221,7 @@ Proof.
   - rename select (_ ++ [_] = _ ++ [_]) into Heq.
     opose proof (app_inj_2 _ _ _ _ _ Heq) as [-> Heq'].
     { simpl. done. }
-    injection Heq' as <- <- <-.
+    injection Heq' as <- <- <- <-.
     eexists. split_and!; eassumption.
 Qed.
 
@@ -210,8 +237,8 @@ Proof.
     apply linearized_sound_is_lin in Hlin_sound as Hlin.
     rewrite Forall_app Forall_singleton in Hlin.
     destruct Hlin as [_ Hlin].
-    destruct t as [τ [|v v'|]]; try solve [by simpl in Hlin].
-    destruct (linearized_sound_snoc_inv τ v v' _ s s' Hlin_sound)
+    destruct t as [τ [|n v v'|]]; try solve [by simpl in Hlin].
+    destruct (linearized_sound_snoc_inv τ n v v' _ s s' Hlin_sound)
       as (s1 & Hlin_sound_begin_1 & Hvalid & Hrr).
     destruct (IH _ s1 Hlin_sound_begin_1)
       as (s2 & Hlin_sound_begin_2 & Hlin_sound_2_1).
@@ -219,11 +246,11 @@ Proof.
     eapply linearized_sound_snoc; eassumption.
 Qed.
 
-Lemma linearized_sound_cons_inv `{M : model} τ v v' (ts : list (positive*trace)) (s s' : S) :
-  linearized_sound ((τ,Lin v v')::ts) s s' →
-  ∃ s_mid, valid_request v ∧ request_response s v s_mid v' ∧ linearized_sound ts s_mid s'.
+Lemma linearized_sound_cons_inv `{M : model} τ n v v' (ts : list (positive*trace)) (s s' : S) :
+  linearized_sound ((τ,Lin n v v')::ts) s s' →
+  ∃ s_mid, default default_vr (valid_requests!!n) v ∧ default default_rr (request_responses!!n) s v s_mid v' ∧ linearized_sound ts s_mid s'.
 Proof.
-  change ((τ,Lin v v')::ts) with (([]++[(τ,Lin v v')])++ts).
+  change ((τ,Lin n v v')::ts) with (([]++[(τ,Lin n v v')])++ts).
   intros (s1 & Hlin_begin_1 & Hlin_1_end)%linearized_sound_app_inv.
   apply linearized_sound_snoc_inv in Hlin_begin_1.
   destruct Hlin_begin_1 as (? & Hlin_nil & Hvalid & Hrr).
@@ -249,14 +276,14 @@ Proof.
   eapply linearized_sound_snoc; first eapply IH; eassumption.
 Qed.
 
-Lemma linearized_sound_cons `{M: model} s0 s s' τ v v' ts :
-  valid_request v →
-  request_response s0 v s v' →
+Lemma linearized_sound_cons `{M: model} s0 s s' τ n v v' ts :
+  default default_vr (valid_requests!!n) v →
+  default default_rr (request_responses!!n) s0 v s v' →
   linearized_sound ts s s' →
-  linearized_sound ((τ,Lin v v') :: ts) s0 s'.
+  linearized_sound ((τ,Lin n v v') :: ts) s0 s'.
 Proof.
   intros ???.
-  change ((τ, Lin v v') :: ts) with (([]++[(τ, Lin v v')]) ++ ts).
+  change ((τ, Lin n v v') :: ts) with (([]++[(τ, Lin n v v')]) ++ ts).
   eapply linearized_sound_app;
     first eapply linearized_sound_snoc;
     first apply linearized_sound_nil;
@@ -265,7 +292,7 @@ Qed.
 
 Lemma linearized_sound_valid_request `{M: model} ts s s' :
   linearized_sound ts s s' →
-  Forall (λ x, if x is (_,Lin v _) then valid_request v else False) ts.
+  Forall (λ x, if x is (_,Lin n v _) then default default_vr (valid_requests!!n) v else False) ts.
 Proof.
   induction 1; first done.
   rewrite Forall_app Forall_singleton. split; done.
@@ -323,16 +350,16 @@ Proof.
 Qed.
 
 Lemma call_of_tag_destruct ts τ :
-  (∃ i v, call_of_tag ts τ = Some (i, (τ,Call v)) ∧ ts !! i = Some (τ,Call v)) ∨
+  (∃ i n v, call_of_tag ts τ = Some (i, (τ,Call n v)) ∧ ts !! i = Some (τ,Call n v)) ∨
   call_of_tag ts τ = None.
 Proof.
   rewrite /call_of_tag.
   destruct list_find as [[i t]|] eqn:Heq.
   - apply list_find_Some in Heq.
     destruct Heq as (Hlookup & [Htag His_call] & _).
-    destruct t as [τ' [v| |]]; simpl in His_call; try done.
+    destruct t as [τ' [n v| |]]; simpl in His_call; try done.
     simpl in Htag. subst τ'.
-    left. exists i, v. done.
+    left. exists i, n, v. done.
   - right. done.
 Qed.
 
@@ -376,15 +403,15 @@ Qed.
 Lemma per_tag_linearized_nil :
   per_tag_linearized [].
 Proof.
-  intros τ. exists #(), #().
+  intros τ. do 3 exists inhabitant.
   rewrite filter_nil. apply prefix_nil.
 Qed.
 
 Lemma per_tag_linearized_snoc ts t :
   per_tag_linearized (ts ++ [t]) → per_tag_linearized ts.
 Proof.
-  intros H τ. destruct (H τ) as (v & v' & Hprefix).
-  exists v, v'. rewrite filter_app in Hprefix.
+  intros H τ. destruct (H τ) as (n & v & v' & Hprefix).
+  exists n, v, v'. rewrite filter_app in Hprefix.
   destruct (decide (t.1 = τ)) as [Heq | Hne].
   - rewrite filter_cons_True in Hprefix; last done.
     rewrite filter_nil in Hprefix.
@@ -396,7 +423,7 @@ Qed.
 Lemma per_tag_partial_linearized_nil :
   per_tag_partial_linearized [].
 Proof.
-  intros τ. exists #(), #().
+  intros τ. do 3 exists inhabitant.
   rewrite filter_nil. apply substr_nil.
 Qed.
 
@@ -404,8 +431,8 @@ Lemma per_tag_linearized_per_tag_partial_linearized ts :
   per_tag_linearized ts → per_tag_partial_linearized ts.
 Proof.
   intros H τ.
-  destruct (H τ) as (v & v' & Hprefix).
-  exists v, v'.
+  destruct (H τ) as (n & v & v' & Hprefix).
+  exists n, v, v'.
   by apply prefix_substr.
 Qed.
 
@@ -413,8 +440,8 @@ Lemma per_tag_partial_linearized_cons t ts :
   per_tag_partial_linearized (t::ts) → per_tag_partial_linearized ts.
 Proof.
   intros H τ'.
-  destruct (H τ') as (w & w' & Hsubstr).
-  exists w, w'. rewrite filter_cons /= in Hsubstr.
+  destruct (H τ') as (n & v & v' & Hsubstr).
+  exists n, v, v'. rewrite filter_cons /= in Hsubstr.
   destruct (decide (t.1=τ')) as [? | ?]; last done.
   by apply (substr_app_r [t]).
 Qed.
@@ -423,8 +450,8 @@ Lemma per_tag_partial_linearized_snoc ts t :
   per_tag_partial_linearized (ts++[t]) → per_tag_partial_linearized ts.
 Proof.
   intros H τ'.
-  destruct (H τ') as (w & w' & Hsubstr).
-  exists w, w'. rewrite filter_app filter_cons filter_nil /= in Hsubstr.
+  destruct (H τ') as (n & v & v' & Hsubstr).
+  exists n, v, v'. rewrite filter_app filter_cons filter_nil /= in Hsubstr.
   destruct (decide (t.1=τ')) as [? | ?]; last by rewrite right_id in Hsubstr.
   by apply (substr_app_l _ [t]).
 Qed.
@@ -451,13 +478,13 @@ Proof.
   rewrite app_comm_cons //.
 Qed.
 
-Lemma per_tag_partial_linearized_filter_call τ v ts :
-  per_tag_partial_linearized ((τ,Call v) :: ts) →
+Lemma per_tag_partial_linearized_filter_call τ n v ts :
+  per_tag_partial_linearized ((τ,Call n v) :: ts) →
   filter (λ t, t.1 = τ) ts = [] ∨
-  ∃ v' xs, filter (λ t, t.1 = τ) ts = (τ,Lin v v')::xs.
+  ∃ v' xs, filter (λ t, t.1 = τ) ts = (τ,Lin n v v')::xs.
 Proof.
   intros Hlin.
-  destruct (Hlin τ) as (v_ & v' & Hsubstr).
+  destruct (Hlin τ) as (n_ & v_ & v' & Hsubstr).
   rewrite filter_cons_True // in Hsubstr.
   destruct (filter (λ t, t.1 = τ) ts) as [|ts_hd xs] eqn:Heq.
   - left; done.
@@ -479,13 +506,13 @@ Proof.
     by simplify_eq.
 Qed.
 
-Lemma per_tag_partial_linearized_filter_lin τ v v' ts :
-  per_tag_partial_linearized ((τ, Lin v v') :: ts) →
+Lemma per_tag_partial_linearized_filter_lin τ n v v' ts :
+  per_tag_partial_linearized ((τ, Lin n v v') :: ts) →
   filter (λ t, t.1 = τ) ts = [] ∨
   filter (λ t, t.1 = τ) ts = [(τ,Ret v')].
 Proof.
   intros Hlin.
-  destruct (Hlin τ) as (v_ & v'_ & Hsubstr).
+  destruct (Hlin τ) as (n_ & v_ & v'_ & Hsubstr).
   rewrite filter_cons_True // in Hsubstr.
   destruct (filter (λ t, t.1 = τ) ts) as [|ts_hd xs] eqn:Heq.
   - left; done.
@@ -511,7 +538,7 @@ Lemma per_tag_partial_linearized_filter_ret τ v ts :
   filter (λ t, t.1 = τ) ts = [].
 Proof.
   intros Hlin.
-  destruct (Hlin τ) as (v_ & v'_ & Hsubstr).
+  destruct (Hlin τ) as (n_ & v_ & v'_ & Hsubstr).
   rewrite filter_cons_True // in Hsubstr.
   destruct (filter (λ t, t.1 = τ) ts) as [|ts_hd xs] eqn:Heq.
   - done.
@@ -532,14 +559,14 @@ Proof.
       discriminate HFalse.
 Qed.
 
-Lemma per_tag_partial_linearized_inj_call_index ts τ i j v1 v2 :
+Lemma per_tag_partial_linearized_inj_call_index ts τ i j n1 v1 n2 v2 :
   per_tag_partial_linearized ts →
-  ts !! i = Some (τ, Call v1) → ts !! j = Some (τ, Call v2) →
+  ts !! i = Some (τ, Call n1 v1) → ts !! j = Some (τ, Call n2 v2) →
   i = j.
 Proof.
   intros Hwf Hlookup1 Hlookup2.
   apply dec_stable. intros ?.
-  destruct (Hwf τ) as (v & v' & Hsubstr).
+  destruct (Hwf τ) as (n & v & v' & Hsubstr).
   destruct (decide (i < j)) as [?|?].
   - pose proof (take_drop_middle _ _ _ Hlookup2) as Heq.
     rewrite -(lookup_take_lt _ j) in Hlookup1; last lia.
@@ -567,24 +594,24 @@ Proof.
     lia.
 Qed.
 
-Lemma per_tag_partial_linearized_inj_call ts τ v1 v2 :
+Lemma per_tag_partial_linearized_inj_call ts τ n1 v1 n2 v2 :
   per_tag_partial_linearized ts →
-  (τ,Call v1) ∈ ts → (τ,Call v2) ∈ ts →
-  v1 = v2.
+  (τ,Call n1 v1) ∈ ts → (τ,Call n2 v2) ∈ ts →
+  n1 = n2 ∧ v1 = v2.
 Proof.
   intros Hwf [? H1]%list_elem_of_lookup_1 [? H2]%list_elem_of_lookup_1.
-  pose proof (per_tag_partial_linearized_inj_call_index _ _ _ _ _ _ Hwf H1 H2).
+  pose proof (per_tag_partial_linearized_inj_call_index _ _ _ _ _ _ _ _ Hwf H1 H2).
   simplify_eq. done.
 Qed.
 
-Lemma per_tag_partial_linearized_inj_lin_index ts τ i j v1 v1' v2 v2' :
+Lemma per_tag_partial_linearized_inj_lin_index ts τ i j n1 v1 v1' n2 v2 v2' :
   per_tag_partial_linearized ts →
-  ts !! i = Some (τ, Lin v1 v1') → ts !! j = Some (τ, Lin v2 v2') →
+  ts !! i = Some (τ, Lin n1 v1 v1') → ts !! j = Some (τ, Lin n2 v2 v2') →
   i = j.
 Proof.
   intros Hwf Hlookup1 Hlookup2.
   apply dec_stable. intros ?.
-  destruct (Hwf τ) as (v & v' & Hsubstr).
+  destruct (Hwf τ) as (n & v & v' & Hsubstr).
   destruct (decide (i < j)) as [?|?].
   - pose proof (take_drop_middle _ _ _ Hlookup2) as Heq.
     rewrite -(lookup_take_lt _ j) in Hlookup1; last lia.
@@ -612,13 +639,13 @@ Proof.
     lia.
 Qed.
 
-Lemma per_tag_partial_linearized_inj_lin ts τ v1 v1' v2 v2' :
+Lemma per_tag_partial_linearized_inj_lin ts τ n1 v1 v1' n2 v2 v2' :
   per_tag_partial_linearized ts →
-  (τ,Lin v1 v1') ∈ ts → (τ,Lin v2 v2') ∈ ts →
-  v1 = v2 ∧ v1' = v2'.
+  (τ,Lin n1 v1 v1') ∈ ts → (τ,Lin n2 v2 v2') ∈ ts →
+  n1 = n2 ∧ v1 = v2 ∧ v1' = v2'.
 Proof.
   intros Hwf [? H1]%list_elem_of_lookup_1 [? H2]%list_elem_of_lookup_1.
-  pose proof (per_tag_partial_linearized_inj_lin_index _ _ _ _ _ _ _ _ Hwf H1 H2).
+  pose proof (per_tag_partial_linearized_inj_lin_index _ _ _ _ _ _ _ _ _ _ Hwf H1 H2).
   simplify_eq. done.
 Qed.
 
@@ -629,7 +656,7 @@ Lemma per_tag_partial_linearized_inj_ret_index ts τ i j v1 v2 :
 Proof.
   intros Hwf Hlookup1 Hlookup2.
   apply dec_stable. intros ?.
-  destruct (Hwf τ) as (v & v' & Hsubstr).
+  destruct (Hwf τ) as (n & v & v' & Hsubstr).
   destruct (decide (i < j)) as [?|?].
   - pose proof (take_drop_middle _ _ _ Hlookup2) as Heq.
     rewrite -(lookup_take_lt _ j) in Hlookup1; last lia.
@@ -670,14 +697,14 @@ Qed.
 Lemma per_tag_wellformed_nil :
   per_tag_wellformed [].
 Proof.
-  intros τ. exists #(), #().
+  intros τ. exists inhabitant, inhabitant, inhabitant.
   rewrite filter_nil. apply prefix_nil.
 Qed.
 
 Lemma per_tag_partial_wellformed_nil :
   per_tag_partial_wellformed [].
 Proof.
-  intros τ. exists #(), #().
+  intros τ. do 3 exists inhabitant.
   rewrite filter_nil. apply substr_nil.
 Qed.
 
@@ -685,8 +712,8 @@ Lemma per_tag_wellformed_per_tag_partial_wellformed ts :
   per_tag_wellformed ts → per_tag_partial_wellformed ts.
 Proof.
   intros H τ.
-  destruct (H τ) as (v & v' & Hprefix).
-  exists v, v'.
+  destruct (H τ) as (n & v & v' & Hprefix).
+  exists n, v, v'.
   by apply prefix_substr.
 Qed.
 
@@ -694,8 +721,8 @@ Lemma per_tag_partial_wellformed_cons t ts :
   per_tag_partial_wellformed (t::ts) → per_tag_partial_wellformed ts.
 Proof.
   intros H τ'.
-  destruct (H τ') as (w & w' & Hsubstr).
-  exists w, w'. rewrite filter_cons /= in Hsubstr.
+  destruct (H τ') as (n & v & v' & Hsubstr).
+  exists n, v, v'. rewrite filter_cons /= in Hsubstr.
   destruct (decide (t.1=τ')) as [? | ?]; last done.
   by apply (substr_app_r [t]).
 Qed.
@@ -704,8 +731,8 @@ Lemma per_tag_partial_wellformed_snoc ts t :
   per_tag_partial_wellformed (ts++[t]) → per_tag_partial_wellformed ts.
 Proof.
   intros H τ'.
-  destruct (H τ') as (w & w' & Hsubstr).
-  exists w, w'. rewrite filter_app filter_cons filter_nil /= in Hsubstr.
+  destruct (H τ') as (n & v & v' & Hsubstr).
+  exists n, v, v'. rewrite filter_app filter_cons filter_nil /= in Hsubstr.
   destruct (decide (t.1=τ')) as [? | ?]; last by rewrite right_id in Hsubstr.
   by apply (substr_app_l _ [t]).
 Qed.
@@ -732,13 +759,13 @@ Proof.
   rewrite app_comm_cons //.
 Qed.
 
-Lemma per_tag_partial_wellformed_filter_call τ v ts :
-  per_tag_partial_wellformed ((τ,Call v) :: ts) →
+Lemma per_tag_partial_wellformed_filter_call τ n v ts :
+  per_tag_partial_wellformed ((τ,Call n v) :: ts) →
   filter (λ t, t.1 = τ) ts = [] ∨
   ∃ v', filter (λ t, t.1 = τ) ts = [(τ,Ret v')].
 Proof.
   intros Hwf.
-  destruct (Hwf τ) as (v_ & v' & Hsubstr).
+  destruct (Hwf τ) as (n_ & v_ & v' & Hsubstr).
   rewrite filter_cons_True // in Hsubstr.
   destruct (filter (λ t, t.1 = τ) ts) as [|ts_hd xs] eqn:Heq.
   - left; done.
@@ -756,7 +783,7 @@ Proof.
       injection Hsubstr as ? HFalse.
       discriminate HFalse. }
     rewrite left_id_L -!app_comm_cons in Hsubstr.
-    injection Hsubstr as Hcall_eq Hlin_eq Hret_eq.
+    injection Hsubstr as Hcall_eq1 Hcall_eq2 Hlin_eq Hret_eq.
     symmetry in Hret_eq.
     apply app_nil_l_inv in Hret_eq as ->.
     by simplify_eq.
@@ -767,7 +794,7 @@ Lemma per_tag_partial_wellformed_filter_ret τ v ts :
   filter (λ t, t.1 = τ) ts = [].
 Proof.
   intros Hwf.
-  destruct (Hwf τ) as (v_ & v'_ & Hsubstr).
+  destruct (Hwf τ) as (n_ & v_ & v'_ & Hsubstr).
   rewrite filter_cons_True // in Hsubstr.
   destruct (filter (λ t, t.1 = τ) ts) as [|ts_hd xs] eqn:Heq.
   - done.
@@ -782,14 +809,14 @@ Proof.
       lia.
 Qed.
 
-Lemma per_tag_partial_wellformed_inj_call_index ts τ i j v1 v2 :
+Lemma per_tag_partial_wellformed_inj_call_index ts τ i j n1 v1 n2 v2 :
   per_tag_partial_wellformed ts →
-  ts !! i = Some (τ, Call v1) → ts !! j = Some (τ, Call v2) →
+  ts !! i = Some (τ, Call n1 v1) → ts !! j = Some (τ, Call n2 v2) →
   i = j.
 Proof.
   intros Hwf Hlookup1 Hlookup2.
   apply dec_stable. intros ?.
-  destruct (Hwf τ) as (v & v' & Hsubstr).
+  destruct (Hwf τ) as (n & v & v' & Hsubstr).
   destruct (decide (i < j)) as [?|?].
   - pose proof (take_drop_middle _ _ _ Hlookup2) as Heq.
     rewrite -(lookup_take_lt _ j) in Hlookup1; last lia.
@@ -817,13 +844,13 @@ Proof.
     lia.
 Qed.
 
-Lemma per_tag_partial_wellformed_inj_call ts τ v1 v2 :
+Lemma per_tag_partial_wellformed_inj_call ts τ n1 v1 n2 v2 :
   per_tag_partial_wellformed ts →
-  (τ,Call v1) ∈ ts → (τ,Call v2) ∈ ts →
-  v1 = v2.
+  (τ,Call n1 v1) ∈ ts → (τ,Call n2 v2) ∈ ts →
+  n1 = n2 ∧ v1 = v2.
 Proof.
   intros Hwf [? H1]%list_elem_of_lookup_1 [? H2]%list_elem_of_lookup_1.
-  pose proof (per_tag_partial_wellformed_inj_call_index _ _ _ _ _ _ Hwf H1 H2).
+  pose proof (per_tag_partial_wellformed_inj_call_index _ _ _ _ _ _ _ _ Hwf H1 H2).
   simplify_eq. done.
 Qed.
 
@@ -834,7 +861,7 @@ Lemma per_tag_partial_wellformed_inj_ret_index ts τ i j v1 v2 :
 Proof.
   intros Hwf Hlookup1 Hlookup2.
   apply dec_stable. intros ?.
-  destruct (Hwf τ) as (v & v' & Hsubstr).
+  destruct (Hwf τ) as (n & v & v' & Hsubstr).
   destruct (decide (i < j)) as [?|?].
   - pose proof (take_drop_middle _ _ _ Hlookup2) as Heq.
     rewrite -(lookup_take_lt _ j) in Hlookup1; last lia.
@@ -876,10 +903,10 @@ Lemma per_tag_complete_per_tag_wellformed ts :
   per_tag_complete ts → per_tag_wellformed ts.
 Proof.
   intros H τ.
-  destruct (H τ) as (v & v' & [Heq|Heq]).
-  - exists v, v',  [(τ, Call v); (τ, Ret v')].
+  destruct (H τ) as (n & v & v' & [Heq|Heq]).
+  - exists n, v, v',  [(τ, Call n v); (τ, Ret v')].
     by rewrite Heq left_id_L.
-  - exists v, v', [].
+  - exists n, v, v', [].
     by rewrite right_id_L.
 Qed.
 
@@ -888,7 +915,7 @@ Lemma per_tag_complete_NoDup ts :
 Proof.
   intros Hcomplete.
   apply NoDup_alt. intros i j [τ t] Hi Hj.
-  destruct (Hcomplete τ) as (v & v' & [Heq|Heq]).
+  destruct (Hcomplete τ) as (n & v & v' & [Heq|Heq]).
   - exfalso.
     apply list_elem_of_lookup_2 in Hi.
     apply (list_elem_of_filter_2 (λ x, x.1 = τ)) in Hi; last done.
@@ -947,15 +974,15 @@ Proof.
       * apply IHts. set_solver.
 Qed.
 
-Lemma trace_pendingOp_call_elem_of τ v ts:
-  τ ∉ trace_pendingOp ((τ, Call v)::ts).
+Lemma trace_pendingOp_call_elem_of τ n v ts:
+  τ ∉ trace_pendingOp ((τ, Call n v)::ts).
 Proof.
   rewrite /trace_pendingOp /= right_id_L.
   apply trace_pendingOp_aux_notin. set_solver.
 Qed.
 
-Lemma trace_pendingOp_lin_elem_of τ v v' ts:
-  τ ∈ trace_pendingOp ((τ, Lin v v')::ts).
+Lemma trace_pendingOp_lin_elem_of τ n v v' ts:
+  τ ∈ trace_pendingOp ((τ, Lin n v v')::ts).
 Proof.
   rewrite /trace_pendingOp /= right_id_L.
   (* FIXME: Using ssreflect rewrite does not work, may relate to Rocq bug #7773. *)
@@ -1040,7 +1067,7 @@ Proof.
   apply set_eq => τ.
   split; last done.
   intros HFalse%filter_tag_trace_pendingOp.
-  destruct (Hlin τ) as (v & v' & Hprefix).
+  destruct (Hlin τ) as (n & v & v' & Hprefix).
   destruct (filter (λ t, t.1 = τ) ts) eqn:Heq.
   - by rewrite /trace_pendingOp /= in HFalse.
   - apply prefix_cons_inv_1 in Hprefix as ->.
@@ -1054,20 +1081,20 @@ Proof.
   apply set_eq => τ.
   split; last done.
   intros HFalse%filter_tag_trace_pendingOp.
-  destruct (Hlin τ) as (v & v' & Hprefix).
+  destruct (Hlin τ) as (n & v & v' & Hprefix).
   destruct (filter (λ t, t.1 = τ) ts) eqn:Heq.
   - by rewrite /trace_pendingOp /= in HFalse.
   - apply prefix_cons_inv_1 in Hprefix as ->.
     by apply trace_pendingOp_call_elem_of in HFalse.
 Qed.
 
-Lemma trace_pendingOp_call τ v ts:
-  trace_pendingOp ts ⊆ {[τ]} ∪ trace_pendingOp ((τ, Call v)::ts).
+Lemma trace_pendingOp_call τ n v ts:
+  trace_pendingOp ts ⊆ {[τ]} ∪ trace_pendingOp ((τ, Call n v)::ts).
 Proof.
   apply elem_of_subseteq => τ'.
   rewrite elem_of_union.
   rewrite (filter_tag_trace_pendingOp τ' ts).
-  rewrite (filter_tag_trace_pendingOp τ' ((τ, Call v) :: ts)).
+  rewrite (filter_tag_trace_pendingOp τ' ((τ, Call n v) :: ts)).
   destruct (decide (τ = τ')) as [<- | Hne].
   - left. set_solver.
   - assert (τ' ∈ ({[τ]} : gset _) ↔ False) as -> by set_solver.
@@ -1075,12 +1102,12 @@ Proof.
     rewrite filter_cons_False //.
 Qed.
 
-Lemma trace_pendingOp_lin τ v v' ts:
-  trace_pendingOp ts ⊆ trace_pendingOp ((τ, Lin v v')::ts).
+Lemma trace_pendingOp_lin τ n v v' ts:
+  trace_pendingOp ts ⊆ trace_pendingOp ((τ, Lin n v v')::ts).
 Proof.
   apply elem_of_subseteq => τ'.
   rewrite (filter_tag_trace_pendingOp τ' ts).
-  rewrite (filter_tag_trace_pendingOp τ' ((τ, Lin v v') :: ts)).
+  rewrite (filter_tag_trace_pendingOp τ' ((τ, Lin n v v') :: ts)).
   destruct (decide (τ = τ')) as [<- | Hne];
     last rewrite filter_cons_False //.
   rewrite filter_cons_True //.
@@ -1102,16 +1129,16 @@ Proof.
     rewrite right_id filter_cons_False //.
 Qed.
 
-Lemma trace_pendingOp_call_middle_elem_of τ v ts1 ts2:
-  per_tag_partial_wellformed (ts1++(τ, Call v)::ts2) →
-  τ ∉ trace_pendingOp (ts1++(τ, Call v)::ts2).
+Lemma trace_pendingOp_call_middle_elem_of τ n v ts1 ts2:
+  per_tag_partial_wellformed (ts1++(τ, Call n v)::ts2) →
+  τ ∉ trace_pendingOp (ts1++(τ, Call n v)::ts2).
 Proof.
   intros Hper_tag_lin. rewrite filter_tag_trace_pendingOp.
   induction ts1 as [|[τ' t] ts1 IH].
   { rewrite left_id filter_cons_True //. apply trace_pendingOp_call_elem_of. }
   assert (Hne: τ' ≠ τ). {
     intros ->.
-    destruct (Hper_tag_lin τ) as (?&?&Hsubstr).
+    destruct (Hper_tag_lin τ) as (?&?&?&Hsubstr).
     rewrite filter_app !filter_cons_True // in Hsubstr.
     rewrite -app_comm_cons in Hsubstr.
     destruct Hsubstr as (l1 & l2 & Heq).
@@ -1143,16 +1170,16 @@ Proof.
   by eapply IH, per_tag_partial_wellformed_cons.
 Qed.
 
-Lemma trace_pendingOp_call_middle_elem_of' τ v ts1 ts2:
-  per_tag_partial_linearized (ts1++(τ, Call v)::ts2) →
-  τ ∉ trace_pendingOp (ts1++(τ, Call v)::ts2).
+Lemma trace_pendingOp_call_middle_elem_of' τ n v ts1 ts2:
+  per_tag_partial_linearized (ts1++(τ, Call n v)::ts2) →
+  τ ∉ trace_pendingOp (ts1++(τ, Call n v)::ts2).
 Proof.
   intros Hper_tag_lin. rewrite filter_tag_trace_pendingOp.
   induction ts1 as [|[τ' t] ts1 IH].
   { rewrite left_id filter_cons_True //. apply trace_pendingOp_call_elem_of. }
   assert (Hne: τ' ≠ τ). {
     intros ->.
-    destruct (Hper_tag_lin τ) as (?&?&Hsubstr).
+    destruct (Hper_tag_lin τ) as (?&?&?&Hsubstr).
     rewrite filter_app !filter_cons_True // in Hsubstr.
     rewrite -app_comm_cons in Hsubstr.
     destruct Hsubstr as (l1 & l2 & Heq).
@@ -1191,7 +1218,7 @@ Lemma elem_of_trace_pendingOp_inv_ret τ ts :
 Proof.
   intros Hwf Hin.
   rewrite filter_tag_trace_pendingOp in Hin.
-  induction ts as [|[τ₀ [v|v v'|v']] ts IH].
+  induction ts as [|[τ₀ [n v|n v v'|v']] ts IH].
   - rewrite /trace_pendingOp /= in Hin.
     set_solver.
   - destruct (decide (τ₀=τ)) as [-> | Hne].
@@ -1203,7 +1230,7 @@ Proof.
       destruct (IH Hwf Hin) as [v' H].
       exists v'. right. done.
   - exfalso.
-    destruct (Hwf τ₀) as (?&?&Hsubstr).
+    destruct (Hwf τ₀) as (?&?&?&Hsubstr).
     rewrite filter_cons_True // in Hsubstr.
     eapply elem_of_substr in Hsubstr; last left.
     set_solver.
@@ -1274,8 +1301,8 @@ Section trace_linearizable_facts.
     { rewrite /call_valid Forall_app in Hcall_valid. by destruct Hcall_valid. }
     exists ts1'. split; first done.
     split.
-    - intros τ. destruct (Hper_tag_lin τ) as (v & v' & Hprefix).
-      exists v, v'.
+    - intros τ. destruct (Hper_tag_lin τ) as (n & v & v' & Hprefix).
+      exists n, v, v'.
       rewrite filter_app in Hprefix.
       by eapply prefix_app_l.
     - eapply linearized_sound_prefix; last eassumption.
@@ -1285,7 +1312,7 @@ Section trace_linearizable_facts.
   (* Trace [ts1] is obtained by adding fresh calls into [ts2] *)
   Definition is_adding_call ts1 ts2 :=
     ts2 = filter (λ x, x.1 ∈ events_of_trace ts2) ts1
-  ∧ Forall (λ x, if x.2 is Call v then valid_request v else False) (filter (λ x, x.1 ∉ events_of_trace ts2) ts1)
+  ∧ Forall (λ x, if x.2 is Call n v then default default_vr (valid_requests!!n) v else False) (filter (λ x, x.1 ∉ events_of_trace ts2) ts1)
   ∧ NoDup (filter (λ x, x.1 ∉ events_of_trace ts2) ts1).*1.
 
   Local Fixpoint split_by (ts1 : list (positive*trace)) t2  :=
@@ -1303,8 +1330,8 @@ Section trace_linearizable_facts.
   Local Fixpoint add_lins ts1 ts2' :=
     match ts2' with
     | [] => ts1
-    | (τ,Lin v2 v2')::ts2' =>
-      (τ,Lin v2 v2')::add_lins ts1 ts2'
+    | (τ,Lin n2 v2 v2')::ts2' =>
+      (τ,Lin n2 v2 v2')::add_lins ts1 ts2'
     | (τ,t2)::ts2' =>
       let (fresh_calls, ts1) := split_by ts1 (τ,t2) in
       fresh_calls++(τ,t2)::add_lins ts1 ts2'
@@ -1350,7 +1377,7 @@ Section trace_linearizable_facts.
       split_by ts1 (τ, t2) = (prefix, ts1_rest)
       ∧ ts1 = prefix ++ (τ, t2) :: ts1_rest
       ∧ Forall (λ x, x.1 ∉ events_of_trace ((τ, t2) :: rest)) prefix
-      ∧ Forall (λ x, if x.2 is Call v then valid_request v else False) prefix
+      ∧ Forall (λ x, if x.2 is Call n v then default default_vr (valid_requests!!n) v else False) prefix
       ∧ is_adding_call ts1_rest rest.
   Proof.
     intros (Hfilter & Hcall & Hnodup).
@@ -1446,13 +1473,13 @@ Section trace_linearizable_facts.
       + by rewrite Hcmpl_τs'.
   Qed.
 
-  Local Lemma add_lins_lin_step ts1 (τ : positive) v v' rest :
-    add_lins ts1 ((τ, Lin v v') :: rest) = (τ, Lin v v') :: add_lins ts1 rest.
+  Local Lemma add_lins_lin_step ts1 (τ : positive) n v v' rest :
+    add_lins ts1 ((τ, Lin n v v') :: rest) = (τ, Lin n v v') :: add_lins ts1 rest.
   Proof. reflexivity. Qed.
 
-  Local Lemma add_lins_call_step ts1 (τ : positive) v rest prefix ts1_rest :
-    split_by ts1 (τ, Call v) = (prefix, ts1_rest) →
-    add_lins ts1 ((τ, Call v) :: rest) = prefix ++ (τ, Call v) :: add_lins ts1_rest rest.
+  Local Lemma add_lins_call_step ts1 (τ : positive) n v rest prefix ts1_rest :
+    split_by ts1 (τ, Call n v) = (prefix, ts1_rest) →
+    add_lins ts1 ((τ, Call n v) :: rest) = prefix ++ (τ, Call n v) :: add_lins ts1_rest rest.
   Proof.
     intros Hsplit. cbn. rewrite Hsplit. reflexivity.
   Qed.
@@ -1479,7 +1506,7 @@ Section trace_linearizable_facts.
     - rewrite Forall_forall in Hcall.
       pose proof (Hcall (τ_a, t_a)) as HCall_a.
       simpl in HCall_a.
-      assert (HCall_a' : (if t_a is Call v then valid_request v else False)).
+      assert (HCall_a' : (if t_a is Call n v then default default_vr (valid_requests!!n) v else False)).
       { apply HCall_a. by apply (list_elem_of_filter_2 (λ x, x.1 ∉ events_of_trace ts2)). }
       destruct t_a as [v_b|v_b v_b'|v_b]; simpl; [intros []|by destruct HCall_a'|intros []].
   Qed.
@@ -1495,13 +1522,13 @@ Section trace_linearizable_facts.
     - rewrite filter_nil in Hts2. subst ts2.
       simpl. symmetry. apply filter_True_id_aux.
       apply (is_adding_call_no_lin _ _ Hadd). done.
-    - destruct t2' as [v_f|v_f v_f'|v_f'].
-      + assert (Hts2_eq : ts2 = (τ', Call v_f) :: filter (not∘is_lin∘snd) ts2_rest).
+    - destruct t2' as [n_f v_f|n_f v_f v_f'|v_f'].
+      + assert (Hts2_eq : ts2 = (τ', Call n_f v_f) :: filter (not∘is_lin∘snd) ts2_rest).
         { rewrite Hts2. apply filter_cons_True. cbn. by intros HX. }
         subst ts2.
         destruct (is_adding_call_split_by _ _ _ _ Hadd)
           as (prefix & ts1_rest & Hsplit & Hts1_eq & _ & Hcall_prefix & Hadd_rest).
-        rewrite (add_lins_call_step _ _ _ _ _ _ Hsplit).
+        rewrite (add_lins_call_step _ _ _ _ _ _ _ Hsplit).
         rewrite filter_app. rewrite filter_cons_True; last (cbn; by intros HX).
         rewrite (filter_True_id_aux (not∘is_lin∘snd) prefix); last first.
         { eapply Forall_impl; first exact Hcall_prefix.
@@ -1541,19 +1568,19 @@ Section trace_linearizable_facts.
       { apply (is_adding_call_no_lin _ _ Hadd). done. }
       intros [τ_i t_i] HCall_i. simpl in HCall_i. simpl.
       done.
-    - destruct t2' as [v_j|v_j v_j'|v_j'].
-      + assert (Hts2_eq : ts2 = (τ', Call v_j) :: filter (not∘is_lin∘snd) ts2_rest).
+    - destruct t2' as [n_j v_j|n_j v_j v_j'|v_j'].
+      + assert (Hts2_eq : ts2 = (τ', Call n_j v_j) :: filter (not∘is_lin∘snd) ts2_rest).
         { rewrite Hts2. apply filter_cons_True. cbn. by intros HX. }
         subst ts2.
         destruct (is_adding_call_split_by _ _ _ _ Hadd)
           as (prefix & ts1_rest & Hsplit & _ & _ & Hcall_prefix & Hadd_rest).
-        rewrite (add_lins_call_step _ _ _ _ _ _ Hsplit).
+        rewrite (add_lins_call_step _ _ _ _ _ _ _ Hsplit).
         rewrite filter_app. rewrite filter_cons_False; last (cbn; intros HX; by apply HX).
         rewrite filter_cons_False; last (cbn; intros HX; by apply HX).
         rewrite (filter_False_nil (is_lin∘snd) prefix); last first.
         { eapply Forall_impl; first exact Hcall_prefix.
           intros [τ_k t_k] HCall_k.
-          destruct t_k as [w_k|w_k w_k'|w_k]; cbn; [intros []|by destruct HCall_k|intros []]. }
+          destruct t_k as [m_k w_k|m_k w_k w_k'|w_k]; cbn; [intros []|by destruct HCall_k|intros []]. }
         rewrite left_id_L.
         eapply IH; [exact Hadd_rest|done].
       + assert (Hts2_eq : ts2 = filter (not∘is_lin∘snd) ts2_rest).
@@ -1590,16 +1617,16 @@ Section trace_linearizable_facts.
     induction ts2' as [|[τ' t2'] ts2_rest IH]; intros ts1 ts2 Hadd Hts2 Hts1_empty Hforall.
     - cbn. by rewrite Hts1_empty.
     - rewrite Forall_cons in Hforall. destruct Hforall as [Hhead Htail].
-      destruct t2' as [v_m|v_m v_m'|v_m'].
+      destruct t2' as [n_m v_m|n_m v_m v_m'|v_m'].
       + (* Call: τ' ≠ τ since head must be Lin if τ' = τ *)
         assert (Hne : τ' ≠ τ).
         { intros Heq. specialize (Hhead Heq). by destruct Hhead. }
-        assert (Hts2_eq : ts2 = (τ', Call v_m) :: filter (not∘is_lin∘snd) ts2_rest).
+        assert (Hts2_eq : ts2 = (τ', Call n_m v_m) :: filter (not∘is_lin∘snd) ts2_rest).
         { rewrite Hts2. apply filter_cons_True. cbn. by intros HX. }
         subst ts2.
         destruct (is_adding_call_split_by _ _ _ _ Hadd)
           as (prefix & ts1_rest & Hsplit & Hts1_eq & _ & _ & Hadd_rest).
-        rewrite (add_lins_call_step _ _ _ _ _ _ Hsplit).
+        rewrite (add_lins_call_step _ _ _ _ _ _ _ Hsplit).
         rewrite filter_app. rewrite filter_cons_False; last (cbn; intros HE; by apply Hne).
         rewrite filter_cons_False; last (cbn; intros HE; by apply Hne).
         (* filter_τ ts1 = filter_τ prefix ++ filter_τ ts1_rest, both empty *)
@@ -1619,7 +1646,7 @@ Section trace_linearizable_facts.
         { rewrite Hts2. apply filter_cons_False. cbn. intros HF. by apply (HF I). }
         rewrite add_lins_lin_step.
         rewrite !filter_cons.
-        destruct (decide ((τ', Lin v_m v_m').1 = τ)) as [Hd|Hd].
+        destruct (decide ((τ', Lin n_m v_m v_m').1 = τ)) as [Hd|Hd].
         * f_equal. eapply IH; [exact Hadd|exact Hts2_eq|exact Hts1_empty|exact Htail].
         * eapply IH; [exact Hadd|exact Hts2_eq|exact Hts1_empty|exact Htail].
       + (* Ret: τ' ≠ τ since head must be Lin if τ' = τ *)
@@ -1676,13 +1703,13 @@ Section trace_linearizable_facts.
     - rewrite filter_cons in Hempty.
       destruct (decide ((τ', t2').1 = τ)) as [Heq|Hne]; first done.
       simpl in Hne.
-      destruct t2' as [v_a|v_a v_a'|v_a].
-      + assert (Hts2_eq : ts2 = (τ', Call v_a) :: filter (not∘is_lin∘snd) ts2_rest).
+      destruct t2' as [n_a v_a|n_a v_a v_a'|v_a].
+      + assert (Hts2_eq : ts2 = (τ', Call n_a v_a) :: filter (not∘is_lin∘snd) ts2_rest).
         { rewrite Hts2. apply filter_cons_True. cbn. by intros HX. }
         subst ts2.
         destruct (is_adding_call_split_by _ _ _ _ Hadd)
           as (prefix & ts1_rest & Hsplit & Hts1_eq & _ & _ & Hadd_rest).
-        rewrite (add_lins_call_step _ _ _ _ _ _ Hsplit).
+        rewrite (add_lins_call_step _ _ _ _ _ _ _ Hsplit).
         rewrite filter_app. rewrite filter_cons_False; last done.
         rewrite (IH ts1_rest _ Hadd_rest eq_refl Hempty).
         rewrite Hts1_eq filter_app filter_cons_False; last done. done.
@@ -1713,14 +1740,14 @@ Section trace_linearizable_facts.
     induction ts2' as [|[τ' t2'] ts2_rest IH]; intros ts1 ts2 Hadd Hts2 Hτin.
     - subst ts2. rewrite /events_of_trace fmap_nil list_to_set_nil in Hτin.
       by apply not_elem_of_empty in Hτin.
-    - destruct t2' as [v_a|v_a v_a'|v_a].
+    - destruct t2' as [n_a v_a|n_a v_a v_a'|v_a].
       + (* Call v_a *)
-        assert (Hts2_eq : ts2 = (τ', Call v_a) :: filter (not∘is_lin∘snd) ts2_rest).
+        assert (Hts2_eq : ts2 = (τ', Call n_a v_a) :: filter (not∘is_lin∘snd) ts2_rest).
         { rewrite Hts2. apply filter_cons_True. cbn. by intros HX. }
         clear Hts2. subst ts2.
         destruct (is_adding_call_split_by _ _ _ _ Hadd)
           as (prefix & ts1_rest & Hsplit & Hts1_eq & Htag_prefix & _ & Hadd_rest).
-        rewrite (add_lins_call_step _ _ _ _ _ _ Hsplit).
+        rewrite (add_lins_call_step _ _ _ _ _ _ _ Hsplit).
         rewrite !filter_app !filter_cons.
         assert (Hpfx_τ : filter (λ x : positive*trace, x.1 = τ) prefix = []).
         { apply filter_False_nil. eapply Forall_impl; first exact Htag_prefix.
@@ -1735,9 +1762,9 @@ Section trace_linearizable_facts.
           -- (* Use add_lins_filter_tag_only_lin *)
              assert (Htsr_empty : filter (λ x : positive*trace, x.1 = τ) ts1_rest = []).
              { (* From filter_τ ts1 = [(τ, Call v_a)] and Hts1_eq, derive filter_τ ts1_rest = []. *)
-               assert (Hts1_τ : filter (λ x : positive*trace, x.1 = τ) ts1 = [(τ, Call v_a)]).
+               assert (Hts1_τ : filter (λ x : positive*trace, x.1 = τ) ts1 = [(τ, Call n_a v_a)]).
                { destruct Hadd as (Hf & _).
-                 assert (Hts2_τ : filter (λ x : positive*trace, x.1 = τ) ((τ, Call v_a) :: filter (not∘is_lin∘snd) ts2_rest) = [(τ, Call v_a)]).
+                 assert (Hts2_τ : filter (λ x : positive*trace, x.1 = τ) ((τ, Call n_a v_a) :: filter (not∘is_lin∘snd) ts2_rest) = [(τ, Call n_a v_a)]).
                  { rewrite filter_cons_True; last done.
                    f_equal. apply filter_False_nil. rewrite Forall_forall.
                    intros [τ_b t_b] Hin. simpl. intros ->.
@@ -1748,16 +1775,16 @@ Section trace_linearizable_facts.
                  symmetry. apply list_filter_filter_l.
                  intros [τ_c t_c] HH. simpl in HH. simpl. rewrite HH.
                  unfold events_of_trace. apply elem_of_list_to_set, list_elem_of_fmap.
-                 exists (τ, Call v_a). split; first done. by left. }
+                 exists (τ, Call n_a v_a). split; first done. by left. }
                rewrite Hts1_eq in Hts1_τ.
                rewrite filter_app filter_cons_True // Hpfx_τ left_id_L /= in Hts1_τ.
                by injection Hts1_τ. }
              assert (Hforall_only_lin : Forall (λ x : positive*trace, x.1 = τ → is_lin x.2) ts2_rest).
              { rewrite Forall_forall. intros [τ_d t_d] Hin. simpl. intros ->.
-               destruct t_d as [v_e|v_e v_e'|v_e]; [|cbn; done|].
+               destruct t_d as [n_e v_e|n_e v_e v_e'|v_e]; [|cbn; done|].
                - exfalso. apply HnotinR.
                  unfold events_of_trace. apply elem_of_list_to_set, list_elem_of_fmap.
-                 exists (τ, Call v_e). split; first done.
+                 exists (τ, Call n_e v_e). split; first done.
                  apply (list_elem_of_filter_2 (not∘is_lin∘snd)); last exact Hin.
                  cbn. by intros [].
                - exfalso. apply HnotinR.
@@ -1819,10 +1846,10 @@ Section trace_linearizable_facts.
                by injection Hts1_τ. }
              assert (Hforall_only_lin : Forall (λ x : positive*trace, x.1 = τ → is_lin x.2) ts2_rest).
              { rewrite Forall_forall. intros [τ_d t_d] Hin. simpl. intros ->.
-               destruct t_d as [v_e|v_e v_e'|v_e]; [|cbn; done|].
+               destruct t_d as [n_e v_e|n_e v_e v_e'|v_e]; [|cbn; done|].
                - exfalso. apply HnotinR.
                  unfold events_of_trace. apply elem_of_list_to_set, list_elem_of_fmap.
-                 exists (τ, Call v_e). split; first done.
+                 exists (τ, Call n_e v_e). split; first done.
                  apply (list_elem_of_filter_2 (not∘is_lin∘snd)); last exact Hin.
                  cbn. by intros [].
                - exfalso. apply HnotinR.
@@ -1848,9 +1875,9 @@ Section trace_linearizable_facts.
     per_tag_linearized (add_lins ts1 ts2').
   Proof.
     intros ts2' ts1 ts2 Hadd Hts2 Hper τ.
-    destruct (Hper τ) as (v_p & v_p' & Hpref_per).
+    destruct (Hper τ) as (n_p & v_p & v_p' & Hpref_per).
     destruct (decide (τ ∈ events_of_trace ts2)) as [Hin | Hnotin].
-    - exists v_p, v_p'.
+    - exists n_p, v_p, v_p'.
       rewrite (add_lins_filter_tag_eq_in_τs τ ts2' ts1 ts2 Hadd Hts2 Hin).
       exact Hpref_per.
     - (* filter_τ ts2' = [] *)
@@ -1867,11 +1894,11 @@ Section trace_linearizable_facts.
         apply (list_elem_of_filter (λ x : positive*trace, x.1 = τ)) in Hh_in.
         destruct Hh_in as [Hh_τ Hh_in_orig].
         destruct h as [τ_h t_h]. simpl in Hh_τ. subst τ_h.
-        destruct t_h as [v_h|v_h v_h'|v_h].
+        destruct t_h as [n_h v_h|n_h v_h v_h'|v_h].
         + (* Call: τ ∈ events_of_trace (filter (not_lin) ts2') = τs, contradicting Hnotin. *)
           apply Hnotin. rewrite Hts2.
           unfold events_of_trace. apply elem_of_list_to_set, list_elem_of_fmap.
-          exists (τ, Call v_h). split; first done.
+          exists (τ, Call n_h v_h). split; first done.
           apply (list_elem_of_filter_2 (not∘is_lin∘snd)); last exact Hh_in_orig.
           cbn. by intros [].
         + (* Lin: Hk has form [(τ, Call v_p); ...] = ((τ, Lin v_h v_h') :: tail) ++ k.
@@ -1894,7 +1921,7 @@ Section trace_linearizable_facts.
       assert (Hlen_le1 : length (filter (λ x : positive*trace, x.1 = τ) ts1) ≤ 1).
       { rewrite Hts1_eq_filter. apply filter_eq_τ_nodup_le1. exact Hnodup. }
       destruct (filter (λ x : positive*trace, x.1 = τ) ts1) as [|h tail] eqn:Hts1f.
-      + exists v_p, v_p'. eexists. by rewrite left_id_L.
+      + exists n_p, v_p, v_p'. eexists. by rewrite left_id_L.
       + assert (Htail_empty : tail = []).
         { simpl in Hlen_le1. destruct tail as [|? ?]; first done. simpl in Hlen_le1. lia. }
         subst tail.
@@ -1911,8 +1938,8 @@ Section trace_linearizable_facts.
         rewrite Forall_forall in Hcall.
         pose proof (Hcall (τ, t_h) Hh_in_cmpl) as Hh_call.
         simpl in Hh_call.
-        destruct t_h as [v_h|v_h v_h'|v_h]; [|by destruct Hh_call|by destruct Hh_call].
-        exists v_h, v_p'. by exists [(τ, Lin v_h v_p'); (τ, Ret v_p')].
+        destruct t_h as [n_h v_h|n_h v_h v_h'|v_h]; [|by destruct Hh_call|by destruct Hh_call].
+        exists n_h, v_h, v_p'. by exists [(τ, Lin n_h v_h v_p'); (τ, Ret v_p')].
   Qed.
 
   Lemma trace_linearizable_adds_call ts1 ts2 :
@@ -1931,8 +1958,8 @@ Section trace_linearizable_facts.
       destruct (decide (τ' ∈ τs)) as [Hints2 | Hnotints2].
       + apply Hcall_valid.
         apply list_elem_of_filter_2; assumption.
-      + destruct t' as [v| |]; [|done..].
-        apply (Hinsert_call (τ', Call v)).
+      + destruct t' as [n v| |]; [|done..].
+        apply (Hinsert_call (τ', Call n v)).
         apply list_elem_of_filter_2; assumption.
     - exact (add_lins_filter_not_lin ts2' ts1 _ His_add_filter Hfilter).
     - exact (add_lins_per_tag_lin ts2' ts1 _ His_add_filter Hfilter Hper_tag_lin).
@@ -1944,8 +1971,8 @@ Section trace_linearizable_facts.
     trace_linearizable ts → per_tag_wellformed ts.
   Proof.
     intros [_ (ts' & -> & Hper_tag_lin & _)] τ.
-    destruct (Hper_tag_lin τ) as (v & v' & Hprefix).
-    exists v, v'.
+    destruct (Hper_tag_lin τ) as (n & v & v' & Hprefix).
+    exists n, v, v'.
     rewrite list_filter_comm.
     apply (prefix_filter (not ∘ is_lin ∘ snd)) in Hprefix.
     rewrite filter_cons_True in Hprefix; last compute_done.
@@ -2016,7 +2043,7 @@ Record configuration := Config {
 }.
 
 Section adv_step.
-  Context (op obj : val) (valid_request : val → Prop).
+  Context (ops : list val) (obj : val) (valid_requests : list (val → Prop)).
   Implicit Types (τ : positive) (π : list pendingOp) (σ : state) (e : expr) (v : val).
 
   (* A possible behavior of an objection with a most adversarial client. *)
@@ -2024,9 +2051,9 @@ Section adv_step.
     (demonically) non-determinitic request values. It covers all possible
     usages of a library that do not break the abstraction of the library. *)
   Inductive adv_step : configuration → configuration → list (positive*trace) → Prop :=
-    | adv_step_call v τ π efs σ :
-      τ ∉ π.*1 → valid_request v →
-      adv_step (Config π efs σ) (Config (π++[(τ,Some (op obj v))]) efs σ) [(τ,Call v)]
+    | adv_step_call n v τ π efs σ :
+      τ ∉ π.*1 → default default_vr (valid_requests!!n) v →
+      adv_step (Config π efs σ) (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ) [(τ,Call n v)]
     | adv_step_intermediate τ π₁ π₂ efs e e' σ σ' κ ef :
       prim_step e σ κ e' σ' ef →
       adv_step (Config (π₁++(τ,Some e)::π₂) efs σ) (Config (π₁++(τ,Some e')::π₂) (efs++ef) σ') []
@@ -2051,23 +2078,23 @@ Section adv_step.
     ∧ Forall (λ e, not_stuck e config.(config_state)) config.(config_childThread).
 End adv_step.
 
-Definition library_initializable (init : val) (valid_obj : val → state → Prop) :=
-  ∀ σ, adequate NotStuck (init #()) σ valid_obj.
+Definition library_initializable (init : expr) (valid_obj : val → state → Prop) :=
+  ∀ σ, adequate NotStuck init σ valid_obj.
 
-Definition library_linearizable `{M : model} (op : val) (valid_obj : val → state → Prop) :=
+Definition library_linearizable `{M : model} (ops : list val) (valid_obj : val → state → Prop) :=
   ∀ obj σ config' ts, valid_obj obj σ →
-    adv_steps op obj valid_request (Config [] [] σ) config' ts →
+    adv_steps ops obj valid_requests (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ trace_linearizable ts.
 
-Definition library_initializable_linearizable `{M : model} (init op : val) :=
-  (∀ σ, adequate NotStuck (init #()) σ (λ _ _, True)) ∧
+Definition library_initializable_linearizable `{M : model} (init : expr) (ops : list val) :=
+  (∀ σ, adequate NotStuck init σ (λ _ _, True)) ∧
   (∀ obj σ₀ t σ config' ts,
-    rtc erased_step ([init #()], σ₀) (Val obj::t, σ) →
-    adv_steps op obj valid_request (Config [] [] σ) config' ts →
+    rtc erased_step ([init], σ₀) (Val obj::t, σ) →
+    adv_steps ops obj valid_requests (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ trace_linearizable ts).
 
-Definition config_safe `{M : model} (op : val) obj π efs σ :=
-  ∀ config' ts, adv_steps op obj valid_request (Config π efs σ) config' ts →
+Definition config_safe `{M : model} (ops : list val) obj π efs σ :=
+  ∀ config' ts, adv_steps ops obj valid_requests (Config π efs σ) config' ts →
   config_not_stuck config'.
 
 Lemma pendingOp_nodup_inj (τ : positive) (π₁ : list pendingOp) (e : option expr) π₂ π₁' (e' : option expr) π₂' :
@@ -2100,46 +2127,46 @@ Proof.
       destruct (Hnodup τ); set_solver.
 Qed.
 
-Lemma config_safe_intro `{M : model} op valid_obj obj σ :
-  library_linearizable op valid_obj → valid_obj obj σ →
-  config_safe op obj [] [] σ.
+Lemma config_safe_intro `{M : model} ops valid_obj obj σ :
+  library_linearizable ops valid_obj → valid_obj obj σ →
+  config_safe ops obj [] [] σ.
 Proof.
   intros Hlib_lin Hvalid_obj config' ts Hadv_steps.
   destruct (Hlib_lin obj σ config' ts Hvalid_obj Hadv_steps) as (?&?).
   auto.
 Qed.
 
-Lemma config_safe_call `{M : model} op obj π efs σ (τ : positive) (v : val):
-  τ ∉ π.*1 → valid_request v →
-  config_safe op obj π efs σ →
-  config_safe op obj (π++[(τ,Some (op obj v))]) efs σ.
+Lemma config_safe_call `{M : model} ops obj π efs σ (τ : positive) (n : nat) (v : val):
+  τ ∉ π.*1 → default default_vr (valid_requests!!n) v →
+  config_safe ops obj π efs σ →
+  config_safe ops obj (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ.
 Proof.
   intros Hfresh Hvalid Hsafe config' ts Hadv_steps.
   eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
   by apply adv_step_call.
 Qed.
 
-Lemma config_safe_intermediate `{M : model} op obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ (τ : positive) ef :
+Lemma config_safe_intermediate `{M : model} ops obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ (τ : positive) ef :
   prim_step e₁ σ₁ κ e₂ σ₂ ef →
-  config_safe op obj (π₁++(τ,Some e₁)::π₂) efs σ₁ →
-  config_safe op obj (π₁++(τ,Some e₂)::π₂) (efs++ef) σ₂.
+  config_safe ops obj (π₁++(τ,Some e₁)::π₂) efs σ₁ →
+  config_safe ops obj (π₁++(τ,Some e₂)::π₂) (efs++ef) σ₂.
 Proof.
   intros Hprim_step Hsafe config' ts Hadv_steps.
   eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
   by eapply adv_step_intermediate.
 Qed.
 
-Lemma config_safe_return `{M : model} op obj π₁ π₂ efs σ (τ : positive) (v : val) :
-  config_safe op obj (π₁++(τ,Some (Val v))::π₂) efs σ →
-  config_safe op obj (π₁++(τ,None)::π₂) efs σ.
+Lemma config_safe_return `{M : model} ops obj π₁ π₂ efs σ (τ : positive) (v : val) :
+  config_safe ops obj (π₁++(τ,Some (Val v))::π₂) efs σ →
+  config_safe ops obj (π₁++(τ,None)::π₂) efs σ.
 Proof.
   intros Hsafe config' ts Hadv_steps.
   eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
   apply adv_step_return.
 Qed.
 
-Lemma config_safe_not_stuck `{M : model} op obj π₁ π₂ efs e σ (τ : positive) :
-  config_safe op obj (π₁++(τ,Some e)::π₂) efs σ →
+Lemma config_safe_not_stuck `{M : model} ops obj π₁ π₂ efs e σ (τ : positive) :
+  config_safe ops obj (π₁++(τ,Some e)::π₂) efs σ →
   not_stuck e σ.
 Proof.
   intros Hsafe.
@@ -2149,18 +2176,18 @@ Proof.
     by destruct Hnot_stuck as (_ & ? & _).
 Qed.
 
-Lemma config_safe_child `{M : model} op obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef :
+Lemma config_safe_child `{M : model} ops obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef :
   prim_step e₁ σ₁ κ e₂ σ₂ ef →
-  config_safe op obj π (efs1++e₁::efs2) σ₁ →
-  config_safe op obj π (efs1++e₂::efs2++ef) σ₂.
+  config_safe ops obj π (efs1++e₁::efs2) σ₁ →
+  config_safe ops obj π (efs1++e₂::efs2++ef) σ₂.
 Proof.
   intros Hprim_step Hsafe config' ts Hadv_steps.
   eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
   by eapply adv_step_child.
 Qed.
 
-Lemma config_safe_child_not_stuck `{M : model} op obj π efs1 efs2 e σ :
-  config_safe op obj π (efs1++e::efs2) σ →
+Lemma config_safe_child_not_stuck `{M : model} ops obj π efs1 efs2 e σ :
+  config_safe ops obj π (efs1++e::efs2) σ →
   not_stuck e σ.
 Proof.
   intros Hsafe.
@@ -2170,10 +2197,10 @@ Proof.
     by destruct Hnot_stuck as (_ & ? & _).
 Qed.
 
-Lemma adv_steps_app op obj valid_request config0 config1 config2 ts1 ts2 :
-  adv_steps op obj valid_request config0 config1 ts1 →
-  adv_steps op obj valid_request config1 config2 ts2 →
-  adv_steps op obj valid_request config0 config2 (ts1++ts2).
+Lemma adv_steps_app ops obj valid_requests config0 config1 config2 ts1 ts2 :
+  adv_steps ops obj valid_requests config0 config1 ts1 →
+  adv_steps ops obj valid_requests config1 config2 ts2 →
+  adv_steps ops obj valid_requests config0 config2 (ts1++ts2).
 Proof.
   intros Hstep1.
   induction Hstep1 => Hstep2; first rewrite left_id //.
@@ -2181,10 +2208,10 @@ Proof.
   eapply adv_steps_cons; eauto.
 Qed.
 
-Lemma adv_steps_cons_inj op obj valid_request config config' t ts :
-  adv_steps op obj valid_request config config' (t::ts) →
-  ∃ config_mid, adv_steps op obj valid_request config config_mid [t]
-    ∧ adv_steps op obj valid_request config_mid config' ts.
+Lemma adv_steps_cons_inj ops obj valid_requests config config' t ts :
+  adv_steps ops obj valid_requests config config' (t::ts) →
+  ∃ config_mid, adv_steps ops obj valid_requests config config_mid [t]
+    ∧ adv_steps ops obj valid_requests config_mid config' ts.
 Proof.
   intros Hadv_steps. remember (t::ts) as ts0 eqn:Heqts0.
   induction Hadv_steps as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]; first done.
@@ -2192,7 +2219,7 @@ Proof.
   - (* Call *)
     injection Heqts0 as <- ->.
     eexists. split; last eassumption.
-    rewrite -(right_id [] (++) [(_,Call _)]).
+    rewrite -(right_id [] (++) [(_,Call _ _)]).
     eapply adv_steps_cons; last apply adv_steps_nil.
     assumption.
   - (* Intermediate *)
@@ -2217,10 +2244,10 @@ Proof.
     assumption.
 Qed.
 
-Lemma adv_steps_app_inj op obj valid_request config config' ts1 ts2 :
-  adv_steps op obj valid_request config config' (ts1++ts2) →
-  ∃ config_mid, adv_steps op obj valid_request config config_mid ts1
-    ∧ adv_steps op obj valid_request config_mid config' ts2.
+Lemma adv_steps_app_inj ops obj valid_requests config config' ts1 ts2 :
+  adv_steps ops obj valid_requests config config' (ts1++ts2) →
+  ∃ config_mid, adv_steps ops obj valid_requests config config_mid ts1
+    ∧ adv_steps ops obj valid_requests config_mid config' ts2.
 Proof.
   revert config config'.
   induction ts1 as [|t1 ts1 IH] => config config'.
@@ -2237,16 +2264,16 @@ Proof.
     by eapply adv_steps_app.
 Qed.
 
-Lemma adv_step_heap_subdom op obj valid_request config config' ts :
-  adv_step op obj valid_request config config' ts →
+Lemma adv_step_heap_subdom ops obj valid_requests config config' ts :
+  adv_step ops obj valid_requests config config' ts →
   dom (config.(config_state).(heap)) ⊆ dom (config'.(config_state).(heap)).
 Proof.
   intros Hadv_step. inversion Hadv_step; simplify_eq; simpl; [done| | |done];
   by eapply prim_step_heap_subdom.
 Qed.
 
-Lemma adv_steps_heap_subdom op obj valid_request config config' ts :
-  adv_steps op obj valid_request config config' ts →
+Lemma adv_steps_heap_subdom ops obj valid_requests config config' ts :
+  adv_steps ops obj valid_requests config config' ts →
   dom (config.(config_state).(heap)) ⊆ dom (config'.(config_state).(heap)).
 Proof.
   intros Hadv_steps. induction Hadv_steps; first done.
@@ -2254,16 +2281,16 @@ Proof.
   by eapply adv_step_heap_subdom.
 Qed.
 
-Lemma adv_step_proph_subset op obj valid_request config config' ts :
-  adv_step op obj valid_request config config' ts →
+Lemma adv_step_proph_subset ops obj valid_requests config config' ts :
+  adv_step ops obj valid_requests config config' ts →
   (config.(config_state).(used_proph_id)) ⊆ (config'.(config_state).(used_proph_id)).
 Proof.
   intros Hadv_step. inversion Hadv_step; simplify_eq; simpl; [done| | |done];
   by eapply prim_step_proph_subset.
 Qed.
 
-Lemma adv_steps_proph_subset op obj valid_request config config' ts :
-  adv_steps op obj valid_request config config' ts →
+Lemma adv_steps_proph_subset ops obj valid_requests config config' ts :
+  adv_steps ops obj valid_requests config config' ts →
   (config.(config_state).(used_proph_id)) ⊆ (config'.(config_state).(used_proph_id)).
 Proof.
   intros Hadv_steps. induction Hadv_steps; first done.
@@ -2271,14 +2298,14 @@ Proof.
   by eapply adv_step_proph_subset.
 Qed.
 
-Lemma adv_step_trace_valid_req op obj valid_request config config' ts :
-  adv_step op obj valid_request config config' ts →
-  Forall (λ x, if x.2 is Call req then valid_request req else True) ts.
+Lemma adv_step_trace_valid_req ops obj valid_requests config config' ts :
+  adv_step ops obj valid_requests config config' ts →
+  Forall (λ x, if x.2 is Call n req then default default_vr (valid_requests!!n) req else True) ts.
 Proof. intros []; rewrite ?Forall_singleton ?Forall_nil; done. Qed.
 
-Lemma adv_steps_trace_valid_req op obj valid_request config config' ts :
-  adv_steps op obj valid_request config config' ts →
-  Forall (λ x, if x.2 is Call req then valid_request req else True) ts.
+Lemma adv_steps_trace_valid_req ops obj valid_requests config config' ts :
+  adv_steps ops obj valid_requests config config' ts →
+  Forall (λ x, if x.2 is Call n req then default default_vr (valid_requests!!n) req else True) ts.
 Proof.
   induction 1; first by rewrite Forall_nil.
   rewrite Forall_app. split; last done.
@@ -2290,7 +2317,7 @@ Lemma library_initializable_linearizable_destruct `{M : model} init op :
   ∃ valid_obj, library_initializable init valid_obj ∧ library_linearizable op valid_obj.
 Proof.
   intros [Hadq Hlin].
-  exists (λ op σ, ∃ σ₀ t, rtc erased_step ([init #()], σ₀) (Val op::t, σ)).
+  exists (λ op σ, ∃ σ₀ t, rtc erased_step ([init], σ₀) (Val op::t, σ)).
   split.
   - intros σ₀. specialize (Hadq σ₀). constructor.
     + intros t2 σ2 v2 Hsteps. exists σ₀, t2.

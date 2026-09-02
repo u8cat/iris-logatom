@@ -10,7 +10,7 @@ Ltac erased_steps_pure :=
     reshape_expr e ltac:(fun K e' =>
       eassert (H: PureExec _ _ e' _) by tc_solve;
       change e with (fill K e'));
-    refine (erased_steps_pure_head _ _ _ _ _ σ1 σ2 ts1 ts2 H _ _);
+    refine (erased_steps_pure_exec_head _ _ _ _ _ σ1 σ2 ts1 ts2 H _ _);
     clear H;
     [try done|simpl]
   | _ => fail "erased_steps_pure: not a 'rtc erased_step'"
@@ -21,23 +21,20 @@ Ltac erased_steps_apply_core lem :=
   | |- rtc erased_step (?e::?efs1, ?σ1) (?t3,?σ3) =>
     reshape_expr e ltac:(fun K e1 =>
       change e with (fill K e1);
-      refine (erased_steps_apply_head K e1 σ1 efs1 _ _ _ t3 σ3 _ _);
-      [eapply lem|simpl])
-  | _ => fail 1 "erased_steps_apply: not a 'rtc erased_step'"
-  end.
-
-Ltac erased_steps_apply_once_core lem :=
-  lazymatch goal with
-  | |- rtc erased_step (?e::?efs1, ?σ1) (?t3,?σ3) =>
-    reshape_expr e ltac:(fun K e1 =>
-      change e with (fill K e1);
-      refine (erased_steps_apply_once_head K e1 σ1 efs1 _ _ _ t3 σ3 _ _);
-      [eapply lem|simpl])
+      first [
+        refine (erased_steps_apply_head K e1 σ1 efs1 _ _ _ t3 σ3 _ _);
+        [eapply lem|simpl]
+      | refine (erased_steps_apply_head_nofork K e1 σ1 efs1 _ _ t3 σ3 _ _);
+        [eapply lem|simpl]
+      | refine (erased_steps_apply_once_head K e1 σ1 efs1 _ _ _ t3 σ3 _ _);
+        [eapply lem|simpl]
+      | refine (erased_steps_apply_once_head_nofork K e1 σ1 efs1 _ _ t3 σ3 _ _);
+        [eapply lem|simpl]])
   | _ => fail 1 "erased_steps_apply: not a 'rtc erased_step'"
   end.
 
 Tactic Notation "erased_steps_apply" open_constr(lem) :=
-  first [erased_steps_apply_core lem | erased_steps_apply_once_core lem].
+  first [erased_steps_apply_core lem].
 
 (* Some very ad-hoc tactics to operate on the second thread *)
 Ltac erased_steps_pure2 :=
@@ -47,7 +44,7 @@ Ltac erased_steps_pure2 :=
     reshape_expr e ltac:(fun K e' =>
       eassert (H: PureExec _ _ e' _) by tc_solve;
       change e with (fill K e'));
-    refine (erased_steps_pure _ _ _ _ _ σ1 σ2 [e0] ts1 ts2 H _ _);
+    refine (erased_steps_pure_exec _ _ _ _ _ σ1 σ2 [e0] ts1 ts2 H _ _);
     clear H;
     [try done|simpl]
   | _ => fail "erased_steps_pure: not a 'rtc erased_step'"

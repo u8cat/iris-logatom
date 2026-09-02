@@ -15,7 +15,7 @@ Section proof.
       ∧ τ2 ∉ (filter (is_call∘snd) (take n ts)).*1) m).*1 in
     let values := omap (λ x,
       if bool_decide (x.1 ∈ pushes) then
-        if x.2 is Call (SOMEV v) then
+        if x.2 is Call 0 v then
           Some v
         else None
       else None) ts in
@@ -25,9 +25,9 @@ Section proof.
   (* Claude Opus 4.6 (1M context, high effort, v2.1.91) *)
 
   (* Helper: a tag whose Call is at position n has no events at all in ts'_head *)
-  Local Lemma call_at_n_no_events n₀ τ₀ v₀ ts'_head₀ :
+  Local Lemma call_at_n_no_events n₀ τ₀ nv₀ v₀ ts'_head₀ :
     per_tag_wellformed_bag rme valid_value ts →
-    ts !! n₀ = Some (τ₀, Call v₀) →
+    ts !! n₀ = Some (τ₀, Call nv₀ v₀) →
     take n₀ ts = filter (not ∘ is_lin ∘ snd) ts'_head₀ →
     per_tag_linearized ts'_head₀ →
     filter (λ x, x.1 = τ₀) ts'_head₀ = [].
@@ -35,10 +35,10 @@ Section proof.
     intros Hwf₀ Hlookup₀ Hfilter₀ Hper_tag₀.
     destruct (filter (λ x, x.1 = τ₀) ts'_head₀) as [|hd rest] eqn:Hfilt_eq; [done|].
     exfalso.
-    destruct (Hper_tag₀ τ₀) as (w & w' & Hprefix₀).
+    destruct (Hper_tag₀ τ₀) as (nw & w & w' & Hprefix₀).
     rewrite Hfilt_eq in Hprefix₀.
     pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as Hhd_eq. subst hd.
-    assert (Hcall_in_take : (τ₀, Call w) ∈ take n₀ ts).
+    assert (Hcall_in_take : (τ₀, Call nw w) ∈ take n₀ ts).
     { rewrite Hfilter₀. apply list_elem_of_filter_2; first by simpl; auto.
       apply (list_elem_of_filter_1 (λ x, x.1 = τ₀)).
       rewrite Hfilt_eq. set_solver. }
@@ -46,7 +46,7 @@ Section proof.
     pose proof (take_drop_middle _ _ _ Hlookup₀) as Hts_split.
     apply (f_equal (filter (λ x, x.1 = τ₀))) in Hts_split as Hfilt_split.
     rewrite !filter_app filter_cons_True // in Hfilt_split.
-    destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c | Heq_c]); rewrite Heq_c in Hfilt_split.
+    destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c | Heq_c]); rewrite Heq_c in Hfilt_split.
     - destruct (filter (λ x, x.1 = τ₀) (take n₀ ts)); discriminate.
     - destruct (filter (λ x, x.1 = τ₀) (take n₀ ts)) as [|a_take rest_take]; first set_solver.
       simpl in Hfilt_split.
@@ -77,12 +77,12 @@ Section proof.
     (* ts!!j = (τ₀,ev') and ts!!n₀ = (τ₀,ev₀). Both have P. By Huniq: ev' = ev₀. *)
     pose proof (Huniq ev' (list_elem_of_lookup_2 _ _ _ Hj) HP') as ->.
     (* Same element at positions j and n₀ with j < n₀. *)
-    destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c|Heq_c]).
+    destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c|Heq_c]).
     - (* filter = []: (τ₀,ev₀) ∈ ts but not in tag-filter → contradiction *)
       assert (Hin : (τ₀, ev₀) ∈ filter (λ x, x.1 = τ₀) ts).
       { apply list_elem_of_filter_2; [done|]. eapply list_elem_of_lookup_2. exact Hlookup. }
       rewrite Heq_c in Hin. set_solver.
-    - (* filter = [(Call vc); (Ret vc')]. *)
+    - (* filter = [(Call nvc vc); (Ret vc')]. *)
       pose proof (take_drop_middle _ _ _ Hlookup) as Hts_split.
       apply (f_equal (filter (λ x, x.1 = τ₀))) in Hts_split.
       rewrite !filter_app filter_cons_True // in Hts_split.
@@ -92,7 +92,7 @@ Section proof.
       rewrite Heq_c in Hts_split.
       destruct (filter (λ x, x.1 = τ₀) (take n₀ ts)) as [|a rest] eqn:Hfilt_take.
       { set_solver. }
-      (* a :: rest ++ (τ₀,ev₀) :: ... = [(Call vc); (Ret vc')] *)
+      (* a :: rest ++ (τ₀,ev₀) :: ... = [(Call nvc vc); (Ret vc')] *)
       simpl in Hts_split. injection Hts_split as Ha Hrest.
       destruct rest as [|b rest'].
       + simpl in Hrest. injection Hrest as Hev₀ _.
@@ -101,21 +101,21 @@ Section proof.
   Qed.
 
   Local Lemma call_at_n_not_in_call_tags n₀ τ₀ :
-    ts !! n₀ = Some (τ₀, Call (encode_request Pop)) →
+    ts !! n₀ = Some (τ₀, Call Pop #()) →
     τ₀ ∉ (filter (is_call ∘ snd) (take n₀ ts)).*1.
   Proof.
     intros Hlookup.
     eapply tag_at_n_not_in_take_tags; [exact Hlookup|simpl; auto|].
     intros ev' Hin_ts HP'.
-    destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c|Heq_c]).
+    destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c|Heq_c]).
     - apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts; [rewrite Heq_c in Hin_ts; set_solver|done].
     - apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts; last done.
       rewrite Heq_c in Hin_ts.
       apply elem_of_cons in Hin_ts as [Heq_call|Hin_ts].
-      + (* (τ₀,ev') = (τ₀, Call vc). Also ts!!n₀ = (τ₀, Call Pop) ∈ filter.
-           Call Pop = Call vc (both are the unique Call entry). *)
+      + (* (τ₀,ev') = (τ₀, Call nvc vc). Also ts!!n₀ = (τ₀, Call Pop) ∈ filter.
+           Call Pop = Call nvc vc (both are the unique Call entry). *)
         apply (f_equal snd) in Heq_call. simpl in Heq_call. subst ev'.
-        assert (Hlookup_in : (τ₀, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ₀) ts).
+        assert (Hlookup_in : (τ₀, Call Pop #()) ∈ filter (λ x, x.1 = τ₀) ts).
         { apply list_elem_of_filter_2; [done|]. eapply list_elem_of_lookup_2. exact Hlookup. }
         rewrite Heq_c in Hlookup_in.
         apply elem_of_cons in Hlookup_in as [Heq|Hlookup_in].
@@ -129,9 +129,9 @@ Section proof.
 
     (* Helper: a tag whose Call is at position n has no events in ts'_head,
      so it can't be linearized. *)
-  Local Lemma call_at_n_not_linearized n₀ τ₀ v₀ ts'_head₀ :
+  Local Lemma call_at_n_not_linearized n₀ τ₀ nv₀ v₀ ts'_head₀ :
     per_tag_wellformed_bag rme valid_value ts →
-    ts !! n₀ = Some (τ₀, Call v₀) →
+    ts !! n₀ = Some (τ₀, Call nv₀ v₀) →
     take n₀ ts = filter (not ∘ is_lin ∘ snd) ts'_head₀ →
     per_tag_linearized ts'_head₀ →
     τ₀ ∉ (filter (is_lin ∘ snd) ts'_head₀).*1.
@@ -141,18 +141,18 @@ Section proof.
     simpl in Heq_tag. subst τ₀'.
     apply list_elem_of_filter in Hin_filt as [Hlin_ev Hin_head].
     apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_head; last done.
-    destruct (Hper_tag₀ τ₀) as (w & w' & Hprefix₀).
+    destruct (Hper_tag₀ τ₀) as (nw & w & w' & Hprefix₀).
     destruct (filter (λ x, x.1 = τ₀) ts'_head₀) as [|hd rest] eqn:Hfilt_eq.
     { set_solver. }
     pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as Hhd_eq. subst hd.
-    assert (Hcall_in_take : (τ₀, Call w) ∈ take n₀ ts).
+    assert (Hcall_in_take : (τ₀, Call nw w) ∈ take n₀ ts).
     { rewrite Hfilter₀. apply list_elem_of_filter_2; first by simpl; auto.
       apply (list_elem_of_filter_1 (λ x, x.1 = τ₀)). rewrite Hfilt_eq. set_solver. }
     pose proof (take_drop_middle _ _ _ Hlookup₀) as Hts_split.
     apply (f_equal (filter (λ x, x.1 = τ₀))) in Hts_split as Hfilt_split.
     rewrite !filter_app filter_cons_True // in Hfilt_split.
     apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hcall_in_take; last done.
-    destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c | Heq_c]); rewrite Heq_c in Hfilt_split.
+    destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c | Heq_c]); rewrite Heq_c in Hfilt_split.
     - destruct (filter (λ x, x.1 = τ₀) (take n₀ ts)); discriminate.
     - destruct (filter (λ x, x.1 = τ₀) (take n₀ ts)) as [|a_take rest_take].
       { set_solver. }
@@ -172,7 +172,7 @@ Section proof.
     intros Hlookup.
     eapply tag_at_n_not_in_take_tags; [exact Hlookup|simpl; auto|].
     intros ev' Hin_ts HP'.
-    destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c|Heq_c]).
+    destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c|Heq_c]).
     - apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts; [rewrite Heq_c in Hin_ts; set_solver|done].
     - apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts; last done.
       rewrite Heq_c in Hin_ts.
@@ -203,7 +203,7 @@ Section proof.
 
   (* Helper: pop tags in m differ from push-Call tags *)
   Local Lemma pop_tag_ne_call_push n₀ τ₀ v₀ τ1₀ τ2₀ :
-    ts !! n₀ = Some (τ₀, Call (encode_request (Push v₀))) →
+    ts !! n₀ = Some (τ₀, Call Push v₀) →
     (τ1₀, τ2₀) ∈ m → τ2₀ ≠ τ₀.
   Proof.
     intros Hlookup₀ Hin₀ <-. (* τ₀ replaced by τ2₀ *)
@@ -211,7 +211,7 @@ Section proof.
     apply list_elem_of_lookup_2 in Hlookup₀ as Hpush.
     apply (list_elem_of_filter_2 (λ x, x.1 = τ2₀)) in Hpop; last done.
     apply (list_elem_of_filter_2 (λ x, x.1 = τ2₀)) in Hpush; last done.
-    destruct (Hcomplete τ2₀) as (w & w' & [Heq|Heq]); rewrite Heq in Hpop; first set_solver.
+    destruct (Hcomplete τ2₀) as (nw & w & w' & [Heq|Heq]); rewrite Heq in Hpop; first set_solver.
     rewrite Heq in Hpush.
     apply elem_of_cons in Hpop as [Hp|Hpop].
     + apply elem_of_cons in Hpush as [Hq|Hpush].
@@ -296,28 +296,28 @@ Section proof.
   (* Helper: the omap for state_of_trace can be split at (τ1, Call Push v) *)
   Local Lemma state_of_trace_omap_split (pushes : list positive) τ₀ v₀ :
     τ₀ ∈ pushes →
-    (τ₀, Call (encode_request (Push v₀))) ∈ ts →
+    (τ₀, Call Push v₀) ∈ ts →
     ∃ l1 l2,
       omap (λ x, if bool_decide (x.1 ∈ pushes)
-        then if x.2 is Call (SOMEV v) then Some v else None else None) ts
+        then if x.2 is Call 0 v then Some v else None else None) ts
       = l1 ++ [v₀] ++ l2
     ∧ omap (λ x, if bool_decide (x.1 ∈ filter (λ τ, τ ≠ τ₀) pushes)
-        then if x.2 is Call (SOMEV v) then Some v else None else None) ts
+        then if x.2 is Call 0 v then Some v else None else None) ts
       = l1 ++ l2.
   Proof.
     intros Hin_pushes Hin_ts.
     (* Split ts at (τ₀, Call Push v₀) *)
     destruct (list_elem_of_split _ _ Hin_ts) as (ts1 & ts2 & Hts_eq).
     set f_with := (λ x : positive * trace, if bool_decide (x.1 ∈ pushes)
-      then if x.2 is Call (SOMEV v) then Some v else None else None).
+      then if x.2 is Call 0 v then Some v else None else None).
     set f_without := (λ x : positive * trace, if bool_decide (x.1 ∈ filter (λ τ, τ ≠ τ₀) pushes)
-      then if x.2 is Call (SOMEV v) then Some v else None else None).
+      then if x.2 is Call 0 v then Some v else None else None).
     exists (omap f_without ts1), (omap f_without ts2).
     rewrite Hts_eq !omap_app /=.
     (* For the middle element: f_with gives Some v₀, f_without gives None *)
-    assert (Hf_mid_with : f_with (τ₀, Call (encode_request (Push v₀))) = Some v₀).
+    assert (Hf_mid_with : f_with (τ₀, Call Push v₀) = Some v₀).
     { rewrite /f_with /=. rewrite bool_decide_eq_true_2; last done. done. }
-    assert (Hf_mid_without : f_without (τ₀, Call (encode_request (Push v₀))) = None).
+    assert (Hf_mid_without : f_without (τ₀, Call Push v₀) = None).
     { rewrite /f_without /=. rewrite bool_decide_eq_false_2; first done.
       rewrite list_elem_of_filter. intros [Habs _]. done. }
     rewrite Hf_mid_with Hf_mid_without /=.
@@ -326,15 +326,15 @@ Section proof.
     destruct (decide (τ' = τ₀)) as [->|Hne].
     - rewrite bool_decide_eq_true_2; last done.
       rewrite bool_decide_eq_false_2; last by (rewrite list_elem_of_filter; tauto).
-      destruct ev' as [v_ev|v_ev v_ev'|v_ev]; try done.
-      (* ev' = Call v_ev. Show v_ev ≠ SOMEV _ *)
+      destruct ev' as [n_ev v_ev|nl_ev v_ev v_ev'|v_ev]; try done.
+      (* ev' = Call n_ev v_ev. Show v_ev ≠ SOMEV _ *)
       exfalso.
-      assert (Hin_ts' : (τ₀, Call v_ev) ∈ ts).
+      assert (Hin_ts' : (τ₀, Call n_ev v_ev) ∈ ts).
       { rewrite Hts_eq. pose proof (Hsub _ Hin') as Hin_sub.
         apply elem_of_app in Hin_sub as [?|?]; apply elem_of_app; [left; done|right; right; done]. }
       apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts'; last done.
       apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts as Hin_ts_filt; last done.
-      destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c|Heq_c]).
+      destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c|Heq_c]).
       { rewrite Heq_c in Hin_ts'. set_solver. }
       rewrite Heq_c in Hin_ts', Hin_ts_filt.
       apply (f_equal (filter (λ x, x.1 = τ₀))) in Hts_eq.
@@ -345,13 +345,13 @@ Section proof.
       pose proof (Hsub _ Hin') as Hin_sub.
       apply elem_of_app in Hin_sub as [Hin_x|Hin_x].
       all: apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_x; last done.
-      + (* (τ₀, Call v_ev) ∈ filter(tag=τ₀)(ts1). *)
+      + (* (τ₀, Call n_ev v_ev) ∈ filter(tag=τ₀)(ts1). *)
         destruct (filter (λ x, x.1 = τ₀) ts1) as [|x1 rest1] eqn:Hfilt1; first set_solver.
         assert (Hrest1_nil : rest1 = []) by (destruct rest1; [done|simpl in Hts_eq; lia]).
         subst rest1. simpl in Hts_eq_struct.
         apply (f_equal (λ l, hd_error (drop 1 l))) in Hts_eq_struct. simpl in Hts_eq_struct.
         destruct (filter (λ x, x.1 = τ₀) ts2); simpl in Hts_eq_struct; discriminate.
-      + (* (τ₀, Call v_ev) ∈ filter(tag=τ₀)(ts2) *)
+      + (* (τ₀, Call n_ev v_ev) ∈ filter(tag=τ₀)(ts2) *)
         destruct (filter (λ x, x.1 = τ₀) ts1) as [|x1 rest1].
         * simpl in Hts_eq_struct.
           apply (f_equal (λ l, hd_error (drop 1 l))) in Hts_eq_struct.
@@ -443,26 +443,26 @@ Section proof.
   Local Lemma state_of_trace_omap_add (new_pushes pushes : list positive) τ₀ v₀ :
     τ₀ ∉ pushes →
     (∀ τ, τ ∈ new_pushes ↔ τ = τ₀ ∨ τ ∈ pushes) →
-    (τ₀, Call (encode_request (Push v₀))) ∈ ts →
+    (τ₀, Call Push v₀) ∈ ts →
     ∃ l1 l2,
       omap (λ x, if bool_decide (x.1 ∈ new_pushes)
-        then if x.2 is Call (SOMEV v) then Some v else None else None) ts
+        then if x.2 is Call 0 v then Some v else None else None) ts
       = l1 ++ [v₀] ++ l2
     ∧ omap (λ x, if bool_decide (x.1 ∈ pushes)
-        then if x.2 is Call (SOMEV v) then Some v else None else None) ts
+        then if x.2 is Call 0 v then Some v else None else None) ts
       = l1 ++ l2.
   Proof.
     intros Hnotin_pushes Hmem Hin_ts.
     destruct (list_elem_of_split _ _ Hin_ts) as (ts1 & ts2 & Hts_eq).
     set f_new := (λ x : positive * trace, if bool_decide (x.1 ∈ new_pushes)
-      then if x.2 is Call (SOMEV v) then Some v else None else None).
+      then if x.2 is Call 0 v then Some v else None else None).
     set f_old := (λ x : positive * trace, if bool_decide (x.1 ∈ pushes)
-      then if x.2 is Call (SOMEV v) then Some v else None else None).
+      then if x.2 is Call 0 v then Some v else None else None).
     exists (omap f_old ts1), (omap f_old ts2).
     rewrite Hts_eq !omap_app /=.
-    assert (Hf_mid_new : f_new (τ₀, Call (encode_request (Push v₀))) = Some v₀).
+    assert (Hf_mid_new : f_new (τ₀, Call Push v₀) = Some v₀).
     { rewrite /f_new /=. rewrite bool_decide_eq_true_2; [done|]. apply Hmem. left. done. }
-    assert (Hf_mid_old : f_old (τ₀, Call (encode_request (Push v₀))) = None).
+    assert (Hf_mid_old : f_old (τ₀, Call Push v₀) = None).
     { rewrite /f_old /=. rewrite bool_decide_eq_false_2; [done|exact Hnotin_pushes]. }
     rewrite Hf_mid_new Hf_mid_old /=.
     (* f_new and f_old agree on ts1 and ts2 (same argument as omap_split) *)
@@ -473,11 +473,11 @@ Section proof.
         rewrite bool_decide_eq_true_2; last by (apply Hmem; left; done).
         rewrite bool_decide_eq_false_2; last done.
         (* Show ev' ≠ Call (SOMEV _) using same argument as omap_split *)
-        destruct ev' as [v_ev|v_ev v_ev'|v_ev]; try done.
+        destruct ev' as [n_ev v_ev|nl_ev v_ev v_ev'|v_ev]; try done.
         exfalso.
         apply (f_equal (filter (λ x, x.1 = τ₀))) in Hts_eq.
         rewrite !filter_app filter_cons_True // in Hts_eq.
-        destruct (Hcomplete τ₀) as (vc & vc' & [Heq_c|Heq_c]).
+        destruct (Hcomplete τ₀) as (nvc & vc & vc' & [Heq_c|Heq_c]).
         { apply (list_elem_of_filter_2 (λ x, x.1 = τ₀)) in Hin_ts; [rewrite Heq_c in Hin_ts; set_solver|done]. }
         rewrite Heq_c in Hts_eq.
         pose proof Hts_eq as Hts_eq_struct.
@@ -565,7 +565,7 @@ Section proof.
   Qed.
 
   Lemma state_of_trace_call_push n τ v :
-    ts !! n = Some (τ,Call (encode_request (Push v))) →
+    ts !! n = Some (τ,Call Push v) →
     state_of_trace (1+n) = state_of_trace n.
   Proof.
     intros Hlookup.
@@ -604,7 +604,7 @@ Section proof.
   Lemma state_of_trace_call_pop_overlap n τ1 τ2 :
     (τ1,τ2) ∈ m →
     τ1 ∉ (filter (is_ret∘snd) (take n ts)).*1 →
-    ts !! n = Some (τ2,Call (encode_request Pop)) →
+    ts !! n = Some (τ2,Call Pop #()) →
     state_of_trace (1+n) = state_of_trace n.
   Proof.
     intros Hin_m Hτ1_no_ret Hlookup.
@@ -624,9 +624,9 @@ Section proof.
 
    Lemma state_of_trace_call_pop_nonoverlap n τ1 τ2 v :
     (τ1,τ2) ∈ m →
-    (τ1,Call (encode_request (Push v))) ∈ ts →
+    (τ1,Call Push v) ∈ ts →
     τ1 ∈ (filter (is_ret∘snd) (take n ts)).*1 →
-    ts !! n = Some (τ2,Call (encode_request Pop)) →
+    ts !! n = Some (τ2,Call Pop #()) →
     state_of_trace (1+n) = state_of_trace n ∖ {[+ v +]}.
   Proof.
     intros Hin_m Hpush_in Hτ1_ret Hlookup.
@@ -679,7 +679,7 @@ Section proof.
 
   Lemma state_of_trace_ret_push_nonoverlap n τ1 τ2 v :
     (τ1,τ2) ∈ m →
-    (τ1,Call (encode_request (Push v))) ∈ ts →
+    (τ1,Call Push v) ∈ ts →
     τ2 ∉ (filter (is_call∘snd) (take n ts)).*1 →
     ts !! n = Some (τ1, Ret #()) →
     state_of_trace (1+n) = {[+ v +]} ⊎ state_of_trace n.
@@ -725,7 +725,7 @@ Section proof.
 
   Lemma state_of_trace_call_pop_empty n τ :
     τ ∉ m.*2 →
-    ts !! n = Some (τ, Call (encode_request Pop)) →
+    ts !! n = Some (τ, Call Pop #()) →
     state_of_trace (1+n) = state_of_trace n.
   Proof.
     intros Hnotin_m2 Hlookup.
@@ -745,9 +745,9 @@ Section proof.
 
   (* Helper: if a tag has Call at position j and Ret at position n,
      and per_tag_wellformed holds, then j < n (Call before Ret). *)
-  Local Lemma call_pos_lt_ret_pos τ0 j n ev_call ev_ret :
+  Local Lemma call_pos_lt_ret_pos τ0 j n n_call ev_call ev_ret :
     per_tag_wellformed_bag rme valid_value ts →
-    ts !! j = Some (τ0, Call ev_call) →
+    ts !! j = Some (τ0, Call n_call ev_call) →
     ts !! n = Some (τ0, Ret ev_ret) →
     j < n.
   Proof.
@@ -756,7 +756,7 @@ Section proof.
     assert (j < length ts) by (eapply lookup_lt_Some; eauto).
     destruct (decide (j < n)); [lia|exfalso].
     (* j > n: Ret at n before Call at j. filter starts with Call (from prefix). Contradiction. *)
-    destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ0) as (vc & vc' & Hpfx).
+    destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ0) as (nvc & vc & vc' & Hpfx).
     rewrite -(take_drop n ts) filter_app in Hpfx.
     destruct (filter (λ x, x.1 = τ0) (take n ts)) as [|htk rtk] eqn:Hftk.
     - (* filter(take) = []: filter starts from drop. drop starts with Ret at n. *)
@@ -766,9 +766,9 @@ Section proof.
       apply prefix_cons_inv_1 in Hpfx. discriminate.
     - (* filter(take) ≠ []: Call in take AND Call at j in drop. Two Calls. *)
       pose proof (prefix_cons_inv_1 _ _ _ _ Hpfx) as Hhtk. subst htk.
-      assert (Hcall_take : (τ0, Call vc) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ0) (take n ts))).
+      assert (Hcall_take : (τ0, Call nvc vc) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ0) (take n ts))).
       { apply list_elem_of_filter_2; [done|]. rewrite Hftk. clear. set_solver. }
-      assert (Hcall_drop : (τ0, Call ev_call) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ0) (drop n ts))).
+      assert (Hcall_drop : (τ0, Call n_call ev_call) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ0) (drop n ts))).
       { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|].
         replace j with (n + (j - n)) in Hj by lia. rewrite -lookup_drop in Hj.
         exact (list_elem_of_lookup_2 _ _ _ Hj). }
@@ -788,9 +788,9 @@ Section proof.
     per_tag_complete ts →
     valid_match ts m →
     per_tag_wellformed_bag rme valid_value ts →
-    (τ0, Call (encode_request Pop)) ∈ ts →
+    (τ0, Call Pop #()) ∈ ts →
     filter (λ x, x.1 = τ0) ts `prefix_of`
-      [(τ0, Call (encode_request Pop)); (τ0, Ret (encode_response IsEmpty))] →
+      [(τ0, Call Pop #()); (τ0, Ret (encode_response IsEmpty))] →
     τ0 ∉ m.*2.
   Proof.
     intros Hcomp Hval Hwf0 Hin_call Hpfx Hin_m2.
@@ -806,11 +806,11 @@ Section proof.
       destruct Hin' as [Hin'|Hin']; apply (f_equal snd) in Hin'; simpl in Hin'; discriminate.
     - (* τ0 ∉ ret_tags(ts). But from per_tag_complete, τ0 has Ret IsEmpty. *)
       apply Hno_ret.
-      destruct (Hcomp τ0) as (vc & vc' & [Heq_c | Heq_c]).
+      destruct (Hcomp τ0) as (nvc & vc & vc' & [Heq_c | Heq_c]).
       { (* filter = []: but τ0 has Call ∈ ts. *)
         apply (list_elem_of_filter_2 (λ x, x.1 = τ0)) in Hin_call; last done.
         rewrite Heq_c in Hin_call. clear -Hin_call. set_solver. }
-      (* filter = [(Call vc); (Ret vc')]. Ret vc' ∈ ts. *)
+      (* filter = [(Call nvc vc); (Ret vc')]. Ret vc' ∈ ts. *)
       apply (list_elem_of_fmap_2 fst _ (τ0, Ret vc')).
       apply list_elem_of_filter_2; [done|].
       apply (list_elem_of_filter_1 (λ x, x.1 = τ0)). rewrite Heq_c. clear. set_solver.
@@ -818,12 +818,12 @@ Section proof.
 
   (* Helper: for matched (τ1, τ2), τ1's Call at j and τ2's Ret at n give j ≤ n
      via ¬ pre_of_trace. Uses per_tag_complete + per_tag_wellformed. *)
-  Local Lemma matched_push_call_le_pop_ret τ1₀ τ2₀ j n ev_call ev_ret :
+  Local Lemma matched_push_call_le_pop_ret τ1₀ τ2₀ j n n_call ev_call ev_ret :
     per_tag_complete ts →
     valid_match ts m →
     per_tag_wellformed_bag rme valid_value ts →
     (τ1₀, τ2₀) ∈ m →
-    ts !! j = Some (τ1₀, Call ev_call) →
+    ts !! j = Some (τ1₀, Call n_call ev_call) →
     ts !! n = Some (τ2₀, Ret ev_ret) →
     j ≤ n.
   Proof.
@@ -852,7 +852,7 @@ Section proof.
       eexists _, _. split; [exact Hfind|].
       destruct (decide (n' ≤ n)); [lia|exfalso].
       (* n' > n: two Ret events for τ2₀. Contradiction with per_tag_wellformed. *)
-      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ2₀) as (vc_τ & vc_τ' & Hpfx_τ).
+      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ2₀) as (nvc_τ & vc_τ & vc_τ' & Hpfx_τ).
       apply (prefix_filter (is_ret∘snd)) in Hpfx_τ.
       rewrite filter_cons_False in Hpfx_τ; last by simpl; auto.
       rewrite filter_cons_True in Hpfx_τ; last by simpl; auto.
@@ -861,7 +861,7 @@ Section proof.
       destruct Hfind as (_ & _ & Hmin_ret).
       exfalso. eapply Hmin_ret; [exact Hn|lia|]. simpl. done. }
     (* call_of_tag ts τ1₀: finds first Call for τ1₀. *)
-    assert (Hcall_ex : ∃ j' ev_call', call_of_tag ts τ1₀ = Some (j', (τ1₀, Call ev_call'))).
+    assert (Hcall_ex : ∃ j' n_call' ev_call', call_of_tag ts τ1₀ = Some (j', (τ1₀, Call n_call' ev_call'))).
     { destruct (call_of_tag ts τ1₀) as [[j' [τ' ev']]|] eqn:Hfind.
       2: { rewrite /call_of_tag in Hfind. apply list_find_None in Hfind.
            rewrite Forall_forall in Hfind.
@@ -869,9 +869,9 @@ Section proof.
       pose proof Hfind as Hfind'.
       rewrite /call_of_tag list_find_Some /= in Hfind'.
       destruct Hfind' as (Hj' & [Heq_τ' His_call'] & _). subst τ'.
-      destruct ev' as [v_call'| |]; [exists j', v_call'; done|by simpl in His_call'..]. }
+      destruct ev' as [nv_call' v_call'| |]; [exists j', nv_call', v_call'; done|by simpl in His_call'..]. }
     destruct Hret_ex as (n' & ev_ret' & Hret & Hn'_le_n).
-    destruct Hcall_ex as (j' & ev_call' & Hcall).
+    destruct Hcall_ex as (j' & n_call' & ev_call' & Hcall).
     rewrite Hret Hcall /=.
     (* Need: n' < j'. We know n' ≤ n < j. And j' ≤ j (first match ≤ any match). *)
     (* j' ≤ j: from list_find finding the FIRST match. *)
@@ -886,7 +886,7 @@ Section proof.
     { destruct (decide (j' = j)); [lia|exfalso].
       assert (j' < j) by lia.
       (* Two Call positions for τ1₀ (j' and j). Contradiction via take/drop. *)
-      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ1₀) as (vc_u & vc_u' & Hpfx_u).
+      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf0 τ1₀) as (nvc_u & vc_u & vc_u' & Hpfx_u).
       apply (prefix_filter (is_call∘snd)) in Hpfx_u.
       rewrite filter_cons_True in Hpfx_u; last done.
       rewrite filter_cons_False in Hpfx_u; last by simpl; auto.
@@ -895,10 +895,10 @@ Section proof.
       destruct Hcall as (Hj'_lookup & _ & _).
       rewrite -(take_drop j ts) !filter_app in Hpfx_u.
       apply prefix_length in Hpfx_u. rewrite !length_app length_cons length_nil in Hpfx_u.
-      assert (Hin_take : (τ1₀, Call ev_call') ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ1₀) (take j ts))).
+      assert (Hin_take : (τ1₀, Call n_call' ev_call') ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ1₀) (take j ts))).
       { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|].
         eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj'_lookup|lia]. }
-      assert (Hin_drop : (τ1₀, Call ev_call) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ1₀) (drop j ts))).
+      assert (Hin_drop : (τ1₀, Call n_call ev_call) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ1₀) (drop j ts))).
       { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|].
         replace j with (j + 0) in Hj by lia. rewrite -lookup_drop in Hj.
         exact (list_elem_of_lookup_2 _ _ _ Hj). }
@@ -941,11 +941,11 @@ Section proof.
     τ1 ≠ τ2 →
     τ1 ∉ trace_pendingOp (drop n ts) →
     τ1 ∉ (filter (is_call ∘ snd) (drop n ts)).*1 →
-    ts !! n = Some (τ2, Call (encode_request Pop)) →
+    ts !! n = Some (τ2, Call Pop #()) →
     τ1 ∈ (filter (is_ret ∘ snd) (take n ts)).*1.
   Proof.
     intros Hcomp Hval Hwf0 Hin_m Hne_τ Hnot_pending Hfinished Hlookup.
-    destruct (Hcomp τ1) as (vc1 & vc1' & [Hfilt_empty | Hfilt_eq]).
+    destruct (Hcomp τ1) as (nvc1 & vc1 & vc1' & [Hfilt_empty | Hfilt_eq]).
     { destruct (valid_match_call_push ts m τ1 τ2 Hval Hin_m) as [vp Hcp].
       apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hcp; last done.
       rewrite Hfilt_empty in Hcp. clear -Hcp. set_solver. }
@@ -976,11 +976,11 @@ Section proof.
         rewrite -Hfilt_d in Hin_hd.
         apply list_elem_of_filter in Hin_hd as [Htag _]. simpl in Htag. done. }
       subst τ1_d.
-      destruct ev_d as [v_d| |].
+      destruct ev_d as [nv_d v_d| |].
       - exfalso. apply Hfinished.
-        apply (list_elem_of_fmap_2 fst _ (τ1, Call v_d)).
+        apply (list_elem_of_fmap_2 fst _ (τ1, Call nv_d v_d)).
         apply list_elem_of_filter_2; [done|].
-        assert (Hcall_in_filt : (τ1, Call v_d) ∈ filter (λ x, x.1 = τ1) (drop (Datatypes.S n) ts)).
+        assert (Hcall_in_filt : (τ1, Call nv_d v_d) ∈ filter (λ x, x.1 = τ1) (drop (Datatypes.S n) ts)).
         { rewrite Hfilt_d. clear. set_solver. }
         apply list_elem_of_filter in Hcall_in_filt as [_ Hcall_in_ds].
         pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq2. rewrite Hdrop_eq2.
@@ -997,9 +997,9 @@ Section proof.
     valid_match ts m →
     per_tag_wellformed_bag rme valid_value ts →
     (τ1, τ2) ∈ m →
-    (τ1, Call (encode_request (Push vp))) ∈ ts →
+    (τ1, Call Push vp) ∈ ts →
     filter (λ x, x.1 = τ2) ts `prefix_of`
-      [(τ2, Call (encode_request Pop)); (τ2, Ret (encode_response (NonEmpty v_pop)))] →
+      [(τ2, Call Pop #()); (τ2, Ret (encode_response (NonEmpty v_pop)))] →
     vp = v_pop.
   Proof.
     intros Hcomp Hval Hwf0 Hin_m Hcp Hprefix.
@@ -1030,7 +1030,7 @@ Section proof.
         rewrite !elem_of_cons !elem_of_nil in Hin1.
         destruct Hin1 as [Hin1|[Hin1|[]]]; apply (f_equal snd) in Hin1; by simpl in Hin1.
     - exfalso. apply Hno_ret.
-      destruct (Hcomp τ2) as (vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
+      destruct (Hcomp τ2) as (nvc2 & vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
       { pose proof (valid_match_call_pop ts m τ1 τ2 Hval Hin_m) as Hcp2.
         apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hcp2; last done.
         rewrite Hfilt_empty2 in Hcp2. clear -Hcp2. set_solver. }
@@ -1044,9 +1044,9 @@ Section proof.
   Local Lemma matched_push_value_in_state_of_trace τ1 τ2 v_pop n :
     valid_match ts m →
     (τ1, τ2) ∈ m →
-    (τ1, Call (encode_request (Push v_pop))) ∈ ts →
+    (τ1, Call Push v_pop) ∈ ts →
     τ1 ∈ (filter (is_ret ∘ snd) (take n ts)).*1 →
-    ts !! n = Some (τ2, Call (encode_request Pop)) →
+    ts !! n = Some (τ2, Call Pop #()) →
     v_pop ∈ state_of_trace n.
   Proof.
     intros Hval Hin_m Hcp Hτ1_ret Hlookup.
@@ -1068,12 +1068,12 @@ Section proof.
     (P : positive → val → val → Prop)
     (ts'_head_old added : list (positive * trace)) :
     Forall (λ x, ¬ is_lin (snd x)) added →
-    (∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old → P τ v v') →
-    ∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old ++ added → P τ v v'.
+    (∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old → P τ v v') →
+    ∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old ++ added → P τ v v'.
   Proof.
-    intros Hno_lin Hold τ v v' Hpop Hin.
+    intros Hno_lin Hold τ nl v v' Hpop Hin.
     apply elem_of_app in Hin as [Hin_old|Hin_new].
-    - exact (Hold τ v v' Hpop Hin_old).
+    - exact (Hold τ nl v v' Hpop Hin_old).
     - exfalso.
       rewrite Forall_forall in Hno_lin.
       pose proof (Hno_lin _ Hin_new) as Hnl. simpl in Hnl. by apply Hnl.
@@ -1084,7 +1084,7 @@ Section proof.
     (τ_push, τ_pop) ∈ m → τ_push ∈ push_of_trace ts.
   Proof.
     intros Hin_m. destruct (valid_match_call_push ts m _ _ Hvalid Hin_m) as [vp Hcp].
-    apply (list_elem_of_fmap_2 fst _ (τ_push, Call (encode_request (Push vp)))).
+    apply (list_elem_of_fmap_2 fst _ (τ_push, Call Push vp)).
     apply list_elem_of_filter_2; [eexists; done|exact Hcp].
   Qed.
 
@@ -1093,7 +1093,7 @@ Section proof.
     (τ_push, τ_pop) ∈ m → τ_pop ∈ pop_of_trace ts.
   Proof.
     intros Hin_m.
-    apply (list_elem_of_fmap_2 fst _ (τ_pop, Call (encode_request Pop))).
+    apply (list_elem_of_fmap_2 fst _ (τ_pop, Call Pop #())).
     apply list_elem_of_filter_2; [done|exact (valid_match_call_pop _ _ _ _ Hvalid Hin_m)].
   Qed.
 
@@ -1111,23 +1111,23 @@ Section proof.
 
   (* If τ ∈ ts as Call event with tag τ, then τ ∈ pop_of_trace if event is Call Pop. *)
   Local Lemma in_pop_of_trace_from_call_pop τ :
-    (τ, Call (encode_request Pop)) ∈ ts → τ ∈ pop_of_trace ts.
+    (τ, Call Pop #()) ∈ ts → τ ∈ pop_of_trace ts.
   Proof.
     intros Hin.
-    apply (list_elem_of_fmap_2 fst _ (τ, Call (encode_request Pop))).
+    apply (list_elem_of_fmap_2 fst _ (τ, Call Pop #())).
     apply list_elem_of_filter_2; [done|exact Hin].
   Qed.
 
   (* Specialized helper: extend Hpop_lin_consistent with one Call event. *)
   Local Lemma pop_lin_consistent_extend_call
     (P : positive → val → val → Prop)
-    ts'_head_old τ_call v_call :
-    (∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old → P τ v v') →
-    ∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old ++ [(τ_call, Call v_call)] → P τ v v'.
+    ts'_head_old τ_call nv_call v_call :
+    (∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old → P τ v v') →
+    ∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old ++ [(τ_call, Call nv_call v_call)] → P τ v v'.
   Proof.
-    intros Hold τ v v' Hpop Hin.
+    intros Hold τ nl v v' Hpop Hin.
     apply elem_of_app in Hin as [Hin_old|Hin_new].
-    - exact (Hold τ v v' Hpop Hin_old).
+    - exact (Hold τ nl v v' Hpop Hin_old).
     - rewrite elem_of_cons elem_of_nil in Hin_new.
       destruct Hin_new as [Habs|[]]. discriminate.
   Qed.
@@ -1136,12 +1136,12 @@ Section proof.
   Local Lemma pop_lin_consistent_extend_ret
     (P : positive → val → val → Prop)
     ts'_head_old τ_ret v_ret :
-    (∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old → P τ v v') →
-    ∀ τ v v', τ ∈ pop_of_trace ts → (τ, Lin v v') ∈ ts'_head_old ++ [(τ_ret, Ret v_ret)] → P τ v v'.
+    (∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old → P τ v v') →
+    ∀ τ nl v v', τ ∈ pop_of_trace ts → (τ, Lin nl v v') ∈ ts'_head_old ++ [(τ_ret, Ret v_ret)] → P τ v v'.
   Proof.
-    intros Hold τ v v' Hpop Hin.
+    intros Hold τ nl v v' Hpop Hin.
     apply elem_of_app in Hin as [Hin_old|Hin_new].
-    - exact (Hold τ v v' Hpop Hin_old).
+    - exact (Hold τ nl v v' Hpop Hin_old).
     - rewrite elem_of_cons elem_of_nil in Hin_new.
       destruct Hin_new as [Habs|[]]. discriminate.
   Qed.
@@ -1172,7 +1172,7 @@ Section proof.
       (* No pending pop(∅) can ever linearize *)
     ∧ (∀ τ, τ ∈ (trace_pendingOp (drop n ts)) ∧ τ ∉ ts'_head_lin.*1 →
           τ ∈ pop_emp_of_trace ts →
-          ∃ icall, ts !! icall = Some (τ, Call (encode_request Pop)) ∧
+          ∃ icall, ts !! icall = Some (τ, Call Pop #()) ∧
                    ∀ i, icall ≤ i < n → ∃ τ1 τ2, (τ1,τ2) ∈ m ∧ push_pop_covers ts τ1 τ2 i)
       (* If a pending push has linearized, its pop must also have linearized *)
     ∧ (∀ τ1, τ1 ∈ (trace_pendingOp (drop n ts)) ∧ τ1 ∈ ts'_head_lin.*1 →
@@ -1184,9 +1184,9 @@ Section proof.
       τ2 ∈ (filter (is_call ∘ snd) (take n ts)).*1 →
       τ2 ∈ ts'_head_lin.*1)
       (* The linearization of Pop is consistent with m *)
-    ∧ (∀ τ2 v v', τ2 ∈ pop_of_trace ts → (τ2,Lin v v') ∈ ts'_head →
+    ∧ (∀ τ2 nl v v', τ2 ∈ pop_of_trace ts → (τ2,Lin nl v v') ∈ ts'_head →
       if bool_decide (τ2 ∈ m.*2)
-        then (∃ τ1 v_pop, (τ1,τ2) ∈ m ∧ (τ1, Call (encode_request (Push v_pop))) ∈ ts ∧ v' = encode_response (NonEmpty v_pop))
+        then (∃ τ1 v_pop, (τ1,τ2) ∈ m ∧ (τ1, Call Push v_pop) ∈ ts ∧ v' = encode_response (NonEmpty v_pop))
         else v' = encode_response IsEmpty).
   Proof.
   (* Part of this proof is LLM-generated using the same configuration:
@@ -1222,7 +1222,7 @@ Section proof.
         intros ? [HFalse _]. exfalso. set_solver.
       - simpl.
         intros ??? HFalse. exfalso. set_solver.
-      - intros ??? ? HFalse. exfalso. set_solver. }
+      - intros ???? ? HFalse. exfalso. set_solver. }
     destruct IH as (ts'_head & s &
       Hfilter & Hper_tag_lin & Hlin_sound
       & Hval_then_not_pr & Hstate_of_trace & Hempty_aeap & Hpush_alap & Hpop_aeap & Hpop_lin_consistent).
@@ -1248,11 +1248,11 @@ Section proof.
         rewrite !take_ge in Hpop_aeap; last lia.
         assumption. }
     rewrite -lookup_lt_is_Some in Hn_lt.
-    destruct Hn_lt as [[τ [v|v v'|v']] Hlookup].
+    destruct Hn_lt as [[τ [nv v|nlv v v'|v']] Hlookup].
     2: { exfalso.
       apply list_elem_of_lookup_2 in Hlookup as Hin.
       apply (list_elem_of_filter_2 (λ x, x.1 = τ)) in Hin; last done.
-      destruct (Hcomplete τ) as (?&?&[Heq | Heq]); rewrite Heq in Hin.
+      destruct (Hcomplete τ) as (?&?&?&[Heq | Heq]); rewrite Heq in Hin.
       - set_solver.
       - rewrite !elem_of_cons elem_of_nil right_id in Hin.
         destruct Hin; discriminate. }
@@ -1266,8 +1266,7 @@ Section proof.
         pose proof (Hin':= elem_of_prefix _ _ _ Hin_filter_tag Hprefix).
         rewrite !elem_of_cons elem_of_nil right_id in Hin'.
         destruct Hin' as [Heq | HFalse]; last discriminate HFalse.
-        injection Heq as Heq.
-        subst v.
+        injection Heq as -> ->.
         assert (Hτ1_in_m: τ1 ∈ m.*1).
         { destruct Hclosed as [Hclosed_push _].
           eapply list_elem_of_weaken; last exact Hclosed_push.
@@ -1282,9 +1281,9 @@ Section proof.
         { apply per_tag_complete_per_tag_wellformed, Hcomplete. }
         destruct (decide (τ2 ∈ trace_pendingOp (drop n ts))) as [Hτ2_started | Hτ2_not_started].
         * (* If the matched Pop has started, linearize both operations immediately *)
-          exists (ts'_head ++ [(τ1,Call (encode_request (Push v_push)));
-            (τ1,Lin (encode_request (Push v_push)) #());
-            (τ2,Lin (encode_request Pop) (encode_response (NonEmpty v_push)))]), s.
+          exists (ts'_head ++ [(τ1,Call Push v_push);
+            (τ1,Lin Push v_push #());
+            (τ2,Lin Pop #() (encode_response (NonEmpty v_push)))]), s.
           intros ts'_head_lin. split_and!.
           --(* Hfilter *)
             rewrite filter_app.
@@ -1297,11 +1296,11 @@ Section proof.
           --(* Hper_tag_lin *)
             intro τ₀.
             pose proof (Hper_tag_lin' := Hper_tag_lin).
-            specialize (Hper_tag_lin' τ₀) as (v₀ & v₀' & Hprefix₀).
+            specialize (Hper_tag_lin' τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ1)) as [-> | Hτ₀_ne_τ1];
             last destruct (decide (τ₀ = τ2)) as [-> | Hτ₀_ne_τ2].
-            ++exists (encode_request (Push v_push)), #().
+            ++exists Push, v_push, #().
               do 2 rewrite filter_cons_True //.
               rewrite filter_cons_False //.
               rewrite filter_nil.
@@ -1309,7 +1308,7 @@ Section proof.
               destruct (filter (λ x, x.1 = τ1) ts'_head) as [|t l] eqn:Heq; last first.
               { exfalso. (* ts cannot have two (τ1,Call) *)
                 apply prefix_cons_inv_1 in Hprefix₀. subst t.
-                assert (Hτ1_called: (τ1, Call v₀) ∈ take n ts).
+                assert (Hτ1_called: (τ1, Call nv₀ v₀) ∈ take n ts).
                 { rewrite Hfilter.
                   apply (list_elem_of_filter_2); first by auto.
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ1)).
@@ -1325,7 +1324,7 @@ Section proof.
                 rewrite -assoc in Hts_eq.
                 apply (f_equal (filter (λ x, x.1 = τ1))) in Hts_eq.
                 rewrite !filter_app !filter_cons_True // in Hts_eq.
-                destruct (Hcomplete τ1) as (? & ? & [Heq1 | Heq1]); rewrite Heq1 in Hts_eq.
+                destruct (Hcomplete τ1) as (? & ? & ? & [Heq1 | Heq1]); rewrite Heq1 in Hts_eq.
                 - apply (f_equal length) in Hts_eq.
                   rewrite !length_app length_cons length_nil in Hts_eq.
                   lia.
@@ -1339,19 +1338,19 @@ Section proof.
                   lia. }
               rewrite left_id.
               eexists. reflexivity.
-            ++exists (encode_request Pop), (encode_response (NonEmpty v_push)).
+            ++exists Pop, #(), (encode_response (NonEmpty v_push)).
               do 2 rewrite filter_cons_False //.
               rewrite filter_cons_True //.
               rewrite filter_nil.
-              assert (filter (λ x, x.1 = τ2) ts'_head = [(τ2, Call (encode_request Pop))]) as ->.
+              assert (filter (λ x, x.1 = τ2) ts'_head = [(τ2, Call Pop #())]) as ->.
               { (* τ2 was called because of Hτ2_started
                    τ2 did not linearize because of Hval_then_not_pr  *)
                 (*************** Begin LLM-generated code. ****************)
                 (* The prefix is non-empty: τ2 was called before step n *)
-                assert (Hτ2_call_in : (τ2, Call (encode_request Pop)) ∈ ts'_head).
+                assert (Hτ2_call_in : (τ2, Call Pop #()) ∈ ts'_head).
                 { assert (Hcall_pop := valid_match_call_pop _ _ _ _ Hvalid Hin_m).
                   (* (τ2, Call Pop) ∈ ts. Need it in take n ts. *)
-                  assert (Hcall_in_take : (τ2, Call (encode_request Pop)) ∈ take n ts).
+                  assert (Hcall_in_take : (τ2, Call Pop #()) ∈ take n ts).
                   { (*clear -Hcall_pop Hτ2_started.*)
                     apply list_elem_of_lookup_1 in Hcall_pop as [j Hj].
                     assert (j < length ts) by (eapply lookup_lt_Some; eauto).
@@ -1375,7 +1374,7 @@ Section proof.
                    [τ1; τ2] sublist. But τ1 ∉ ts'_head_lin.*1 (call_at_n_no_events). *)
                 assert (Hτ2_not_lin : τ2 ∉ (filter (is_lin ∘ snd) ts'_head).*1).
                 { intro Habs.
-                  assert (Hτ1_no_events := call_at_n_no_events n τ1 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin).
+                  assert (Hτ1_no_events := call_at_n_no_events n τ1 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin).
                   assert (Hsub := Hval_then_not_pr τ1 τ2 Hin_m Habs).
                   (* [τ1; τ2] sublist of ts'_head_lin.*1. But τ1 ∉ ts'_head_lin.*1. *)
                   apply sublist_cons_l in Hsub as (la & la' & Heq_sub & _).
@@ -1402,11 +1401,11 @@ Section proof.
                     destruct Hm as [Hm|Hm]; apply (f_equal snd) in Hm; simpl in Hm; discriminate.
                   + (* pop pattern *)
                     subst hd.
-                    assert (Hhd_in_filt : (τ2, Call v₀) ∈ filter (λ x, x.1 = τ2) ts).
+                    assert (Hhd_in_filt : (τ2, Call nv₀ v₀) ∈ filter (λ x, x.1 = τ2) ts).
                     { apply list_elem_of_filter_2; first done.
-                      assert (Hin_ts'_head : (τ2, Call v₀) ∈ ts'_head).
+                      assert (Hin_ts'_head : (τ2, Call nv₀ v₀) ∈ ts'_head).
                       { apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hfilt2. clear. set_solver. }
-                      assert (Hnot_lin : (not ∘ is_lin ∘ snd) (τ2, Call v₀)).
+                      assert (Hnot_lin : (not ∘ is_lin ∘ snd) (τ2, Call nv₀ v₀)).
                       { simpl. auto. }
                       eapply (elem_of_prefix (take n _)); last apply prefix_take.
                       rewrite Hfilter. apply list_elem_of_filter_2; [exact Hnot_lin|exact Hin_ts'_head]. }
@@ -1418,15 +1417,15 @@ Section proof.
                   exfalso.
                   apply prefix_cons_inv_2 in Hprefix₀.
                   apply prefix_cons_inv_1 in Hprefix₀ as ->.
-                  (* hd2 = (τ2, Lin w2 w2') → τ2 linearized → contradiction with Hτ2_not_lin *)
+                  (* hd2 = (τ2, Lin nw2 w2 w2') → τ2 linearized → contradiction with Hτ2_not_lin *)
                   apply Hτ2_not_lin.
-                  apply (list_elem_of_fmap_2 fst _ (τ2, Lin v₀ v₀')).
+                  apply (list_elem_of_fmap_2 fst _ (τ2, Lin nv₀ v₀ v₀')).
                   apply list_elem_of_filter_2; first by simpl.
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ2)).
                   rewrite Hfilt2. clear. set_solver.
                 (**************** End LLM-generated code. *****************)}
               eexists. reflexivity.
-            ++exists v₀, v₀'.
+            ++exists nv₀, v₀, v₀'.
               do 3 rewrite filter_cons_False //.
               rewrite filter_nil right_id.
               assumption.
@@ -1437,13 +1436,11 @@ Section proof.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
-            eapply linearized_sound_cons; first by (left; exists v_push;
-              split; [eapply per_tag_wellformed_bag_valid_push_value; eauto|reflexivity]).
-            { eexists. split; first reflexivity.
-              split; reflexivity. }
-            eapply (linearized_sound_cons _ s); first by (right; reflexivity).
-            { eexists. split; first reflexivity.
-              right. eexists v_push.
+            eapply linearized_sound_cons;
+              first by (eapply per_tag_wellformed_bag_valid_push_value; eauto).
+            { split; reflexivity. }
+            eapply (linearized_sound_cons _ s); first by reflexivity.
+            { right. eexists v_push.
               split_and!.
               - set_solver.
               - clear. multiset_solver.
@@ -1470,7 +1467,7 @@ Section proof.
               apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hτ1_pop; last done.
               apply list_elem_of_lookup_2 in Hlookup as Hin_ts.
               apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hin_ts; last done.
-              destruct (Hcomplete τ1) as (vc & vc' & [Heq_c | Heq_c]).
+              destruct (Hcomplete τ1) as (nvc & vc & vc' & [Heq_c | Heq_c]).
               { rewrite Heq_c in Hin_ts. clear -Hin_ts. set_solver. }
               rewrite Heq_c in Hin_ts, Hτ1_pop.
               rewrite !elem_of_cons !elem_of_nil !right_id in Hin_ts, Hτ1_pop.
@@ -1500,7 +1497,7 @@ Section proof.
             (* τ₀ ∈ trace_pendingOp (drop (S n) ts). Derive τ₀ ∈ trace_pendingOp (drop n ts). *)
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ1 (encode_request (Push v_push))
+              assert (Hsubset := trace_pendingOp_call τ1 Push v_push
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ1 Hτ₀_ne_τ2.
               set_solver. }
@@ -1525,8 +1522,8 @@ Section proof.
               intros ->.
               rewrite /call_of_tag list_find_Some /= in Hicall_c.
               destruct Hicall_c as (Hlookup' & [-> His_call] & _).
-              destruct t_c as [v_c | |]; [|apply His_call..].
-              opose proof (valid_match_lookup_call_pop _ _ _ _ _ _ _ Hvalid Hinm Hlookup') as ->.
+              destruct t_c as [nv_c v_c | |]; [|apply His_call..].
+              opose proof (valid_match_lookup_call_pop _ _ _ _ _ _ _ _ Hvalid Hinm Hlookup') as [-> ->].
               { by eapply per_tag_wellformed_bag_wellformed. }
               rewrite Hlookup' in Hlookup. discriminate Hlookup.
             ++ apply Hicall_covers. lia.
@@ -1544,11 +1541,11 @@ Section proof.
             ++(* τ₀ was already linearized before step n *)
               assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
               { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-                assert (Hsubset := trace_pendingOp_call τ1 (encode_request (Push v_push))
+                assert (Hsubset := trace_pendingOp_call τ1 Push v_push
                                      (drop (Datatypes.S n) ts)).
                 assert (Hne: τ₀ ≠ τ1).
                 { intros <-.
-                  exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
+                  exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
                 clear -Hsubset Hne Hτ₀_pending.
                 set_solver. }
               destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin_old) Hτ₀_push)
@@ -1573,7 +1570,7 @@ Section proof.
                 exfalso.
                 eapply push_xor_pop_of_trace; [exact Hwf|exact Hτ₀_push|].
                 rewrite /pop_of_trace.
-                apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+                apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                 apply list_elem_of_filter_2; [simpl; done|].
                 exact (valid_match_call_pop _ _ _ _ Hvalid Hin_m).
             (**************** End LLM-generated code. *****************)
@@ -1607,9 +1604,9 @@ Section proof.
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
             (*************** Begin LLM-generated code. ****************)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             rewrite !elem_of_cons elem_of_nil in Hlin_new.
             destruct Hlin_new as [Habs | [Habs | [Heq_lin | []]]].
             ++ (* (τ1,Call Push) — not a Lin *) discriminate.
@@ -1619,13 +1616,13 @@ Section proof.
                exact (push_xor_pop_of_trace ts _ _ _ Hwf
                  (matched_push_in_push_of_trace _ _ Hin_m) Hτ₀_pop).
             ++ (* (τ2,Lin Pop (NonEmpty v_push)) — τ₀ = τ2, matched, NonEmpty *)
-               injection Heq_lin as -> _ ->.
+               injection Heq_lin as -> -> _ ->.
                rewrite bool_decide_eq_true_2; last by (apply (list_elem_of_fmap_2 snd _ (τ1,τ2)); exact Hin_m).
                exists τ1, v_push. split_and!; [exact Hin_m| |done].
                apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). exact Hin_filter_tag.
             (**************** End LLM-generated code. *****************)
         * (* If the matched Pop hasn't started, don't linearize *)
-          exists (ts'_head ++ [(τ1,Call (encode_request (Push v_push)))]), s.
+          exists (ts'_head ++ [(τ1,Call Push v_push)]), s.
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
           --(* Hfilter *)
@@ -1636,17 +1633,17 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀.
-            specialize (Hper_tag_lin τ₀) as (v₀ & v₀' & Hprefix₀).
+            specialize (Hper_tag_lin τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ1)) as [-> | Hτ₀_ne_τ1].
-            ++exists (encode_request (Push v_push)), #().
+            ++exists Push, v_push, #().
               rewrite filter_cons_True //.
               rewrite filter_nil.
               (* filter for τ1 in ts'_head is [] because Call Push at n is the first event for τ1 *)
               destruct (filter (λ x, x.1 = τ1) ts'_head) as [|t l] eqn:Heq; last first.
               { exfalso.
                 apply prefix_cons_inv_1 in Hprefix₀. subst t.
-                assert (Hτ1_called: (τ1, Call v₀) ∈ take n ts).
+                assert (Hτ1_called: (τ1, Call nv₀ v₀) ∈ take n ts).
                 { rewrite Hfilter.
                   apply (list_elem_of_filter_2); first by auto.
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ1)).
@@ -1663,7 +1660,7 @@ Section proof.
                 rewrite -assoc in Hts_eq.
                 apply (f_equal (filter (λ x, x.1 = τ1))) in Hts_eq.
                 rewrite !filter_app !filter_cons_True // in Hts_eq.
-                destruct (Hcomplete τ1) as (? & ? & [Heq1 | Heq1]); rewrite Heq1 in Hts_eq.
+                destruct (Hcomplete τ1) as (? & ? & ? & [Heq1 | Heq1]); rewrite Heq1 in Hts_eq.
                 - apply (f_equal length) in Hts_eq.
                   rewrite !length_app length_cons length_nil in Hts_eq.
                   lia.
@@ -1677,7 +1674,7 @@ Section proof.
                   lia. }
               rewrite left_id.
               eexists. reflexivity.
-            ++exists v₀, v₀'.
+            ++exists nv₀, v₀, v₀'.
               rewrite filter_cons_False; last by simpl; auto.
               rewrite filter_nil right_id. assumption.
           --(* Hlin_sound *)
@@ -1700,7 +1697,7 @@ Section proof.
             assert (Hτ₀_pending_old: τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
               rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ1 (encode_request (Push v_push))
+              assert (Hsubset := trace_pendingOp_call τ1 Push v_push
                                    (drop (Datatypes.S n) ts)).
               assert (Hne_τ₀ : τ₀ ≠ τ1). {
                 intros <-.
@@ -1742,8 +1739,8 @@ Section proof.
               intros ->.
               rewrite /call_of_tag list_find_Some /= in Hicall_c.
               destruct Hicall_c as (Hlookup' & [-> His_call] & _).
-              destruct t_c as [v_c | |]; [|apply His_call..].
-              opose proof (valid_match_lookup_call_pop _ _ _ _ _ _ _ Hvalid Hinm Hlookup') as ->.
+              destruct t_c as [nv_c v_c | |]; [|apply His_call..].
+              opose proof (valid_match_lookup_call_pop _ _ _ _ _ _ _ _ Hvalid Hinm Hlookup') as [-> ->].
               { by eapply per_tag_wellformed_bag_wellformed. }
               rewrite Hlookup' in Hlookup. discriminate Hlookup.
             ++apply Hicall_covers. lia.
@@ -1754,11 +1751,11 @@ Section proof.
             assert (Hτ₀_pending_old: τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
               rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ1 (encode_request (Push v_push))
+              assert (Hsubset := trace_pendingOp_call τ1 Push v_push
                                    (drop (Datatypes.S n) ts)).
               assert (Hne_τ₀ : τ₀ ≠ τ1). {
                 intros <-.
-                exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin).
+                exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin).
               }
               clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
             destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin) Hτ₀_push)
@@ -1784,10 +1781,10 @@ Section proof.
                exfalso.
                assert (Hτ1_push : τ1 ∈ push_of_trace ts).
                { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcp].
-                 apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp)))).
+                 apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp)).
                  apply list_elem_of_filter_2; [eexists; done|exact Hcp]. }
                assert (Hτ1_pop : τ1 ∈ pop_of_trace ts).
-               { apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request Pop))).
+               { apply (list_elem_of_fmap_2 fst _ (τ1, Call Pop #())).
                  apply list_elem_of_filter_2; [done|exact (valid_match_call_pop ts m _ _ Hvalid Hin_m₀)]. }
                exact (push_xor_pop_of_trace ts _ _ _ Hwf Hτ1_push Hτ1_pop).
             ++ (* τ1₀ = τ1, τ2₀ old: (τ1, τ2₀) ∈ m → τ2₀ = τ2 → τ2 ∈ call_tags(take n). *)
@@ -1798,18 +1795,18 @@ Section proof.
                { exact (valid_match_inj_ret ts m _ _ _ Hvalid Hin_m₀ Hin_m). }
                subst τ2₀.
                (* From per_tag_complete: τ2 has both Call and Ret. *)
-               destruct (Hcomplete τ2) as (vc_τ2 & vc_τ2' & [Hfilt_empty | Hfilt_eq]).
+               destruct (Hcomplete τ2) as (nvc_τ2 & vc_τ2 & vc_τ2' & [Hfilt_empty | Hfilt_eq]).
                { (* filter = []: τ2 has no events. But valid_match gives Call Pop ∈ ts. *)
                  pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp2.
                  apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hcp2; last done.
                  rewrite Hfilt_empty in Hcp2. clear -Hcp2. set_solver. }
-               (* filter = [(Call vc_τ2); (Ret vc_τ2')]. τ2 has Ret at some position. *)
+               (* filter = [(Call nvc_τ2 vc_τ2); (Ret vc_τ2')]. τ2 has Ret at some position. *)
                assert (Hτ2_ret_in : (τ2, Ret vc_τ2') ∈ ts).
                { apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hfilt_eq. clear. set_solver. }
                apply list_elem_of_lookup_1 in Hτ2_ret_in as [k2 Hk2].
                (* From matched_push_call_le_pop_ret: n ≤ k2 *)
                assert (Hk2_ge_n : n ≤ k2).
-               { exact (matched_push_call_le_pop_ret _ _ _ _ _ _ Hcomplete Hvalid Hwf Hin_m Hlookup Hk2). }
+               { exact (matched_push_call_le_pop_ret _ _ _ _ _ _ _ Hcomplete Hvalid Hwf Hin_m Hlookup Hk2). }
                (* k2 ≥ n: Ret at position k2 ∈ drop n ts. τ2 is pending. *)
                exfalso.
                assert (k2 ≠ n).
@@ -1837,19 +1834,19 @@ Section proof.
                    simpl in Hhd_tag. done. }
                  subst τ2'.
                  (* ev2' is NOT a Call for τ2 (since τ2's Call is in take, not in drop (S n)). *)
-                 destruct ev2' as [v_c| |]; last first.
+                 destruct ev2' as [nv_c v_c| |]; last first.
                  - (* Ret: use trace_pendingOp_ret_elem_of *)
                    apply trace_pendingOp_ret_elem_of.
                  - (* Lin: use trace_pendingOp_lin_elem_of *)
                    apply trace_pendingOp_lin_elem_of.
                  - (* Call: impossible — τ2's Call is in take n ts, not in drop (S n). *)
                    exfalso.
-                   assert (Hcall_vc_drop : (τ2, Call v_c) ∈ drop (Datatypes.S n) ts).
+                   assert (Hcall_vc_drop : (τ2, Call nv_c v_c) ∈ drop (Datatypes.S n) ts).
                    { apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hfilt_τ2. clear. set_solver. }
                    apply list_elem_of_fmap_1 in Hτ2₀_old as ([τ2'' ev2''] & Heq_τ2'' & Hin_take).
                    simpl in Heq_τ2''. subst τ2''.
                    apply list_elem_of_filter in Hin_take as [Hcall_ev2 Hin_take].
-                   destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (vc_u & vc_u' & Hpfx_u).
+                   destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (nvc_u & vc_u & vc_u' & Hpfx_u).
                    apply (prefix_filter (is_call∘snd)) in Hpfx_u.
                    rewrite filter_cons_True in Hpfx_u; last done.
                    rewrite filter_cons_False in Hpfx_u; last by simpl; auto.
@@ -1861,7 +1858,7 @@ Section proof.
                      apply list_elem_of_lookup_1 in Hin_take as [i_take Hi_take].
                      apply lookup_take_Some in Hi_take as [Hi_take Hilt].
                      eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hi_take|lia]. }
-                   assert (Hcall_drop : (τ2, Call v_c) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ2) (drop (Datatypes.S n) ts))).
+                   assert (Hcall_drop : (τ2, Call nv_c v_c) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ2) (drop (Datatypes.S n) ts))).
                    { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|exact Hcall_vc_drop]. }
                    enough (1 ≤ length (filter (is_call ∘ snd) (filter (λ x, x.1 = τ2) (take (Datatypes.S n) ts)))).
                    { enough (1 ≤ length (filter (is_call ∘ snd) (filter (λ x, x.1 = τ2) (drop (Datatypes.S n) ts))));
@@ -1875,18 +1872,17 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            exact (pop_lin_consistent_extend_call _ _ _ _ Hpop_lin_consistent).
+            exact (pop_lin_consistent_extend_call _ _ _ _ _ Hpop_lin_consistent).
           (**************** End LLM-generated code. *****************)
       + (* Call Pop IsEmpty *)
         pose proof (Hin':= elem_of_prefix _ _ _ Hin_filter_tag Hprefix).
         rewrite !elem_of_cons elem_of_nil right_id in Hin'.
         destruct Hin' as [Heq | HFalse]; last discriminate HFalse.
-        injection Heq as Heq.
-        subst v.
+        injection Heq as -> ->.
         destruct (decide (s = ∅)) as [Hs_is_empty | Hs_not_empty].
         * (* If the current state is already empty, linearize immediately *)
-          exists (ts'_head ++ [(τ,Call (encode_request Pop));
-            (τ,Lin (encode_request Pop) (encode_response IsEmpty))]), s.
+          exists (ts'_head ++ [(τ,Call Pop #());
+            (τ,Lin Pop #() (encode_response IsEmpty))]), s.
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
           --(* Hfilter *)
@@ -1898,14 +1894,14 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀.
-            destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hprefix₀).
+            destruct (Hper_tag_lin τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ)) as [-> | Hne].
-            ++exists (encode_request Pop), (encode_response IsEmpty).
+            ++exists Pop, #(), (encode_response IsEmpty).
               rewrite filter_cons_True // filter_cons_True // filter_nil.
-              rewrite (call_at_n_no_events n τ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+              rewrite (call_at_n_no_events n τ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
               eexists. reflexivity.
-            ++exists v₀, v₀'.
+            ++exists nv₀, v₀, v₀'.
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_nil right_id. assumption.
@@ -1915,9 +1911,8 @@ Section proof.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ s); first by (right; reflexivity).
-            { eexists. split; first reflexivity.
-              left. destruct rme; [split_and!; done|exfalso; by apply Hr_ne]. }
+            eapply (linearized_sound_cons _ s); first by reflexivity.
+            { left. destruct rme; [split_and!; done|exfalso; by apply Hr_ne]. }
             apply linearized_sound_nil.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
@@ -1939,7 +1934,7 @@ Section proof.
                destruct Hret' as [Habs | Habs]; apply (f_equal snd) in Habs;
                  simpl in Habs; discriminate.
             ++ apply Hno_ret.
-               destruct (Hcomplete τ) as (vc & vc' & [Heq_c | Heq_c]).
+               destruct (Hcomplete τ) as (nvc & vc & vc' & [Heq_c | Heq_c]).
                ** rewrite Heq_c in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
                ** apply (list_elem_of_fmap_2 fst _ (τ, Ret vc')).
                   apply list_elem_of_filter_2; first by (simpl; eexists; done).
@@ -1957,7 +1952,7 @@ Section proof.
                 destruct Hret' as [Habs' | Habs']; apply (f_equal snd) in Habs';
                   simpl in Habs'; discriminate.
               - apply Hno_ret.
-                destruct (Hcomplete τ) as (vc & vc' & [Heq_c | Heq_c]).
+                destruct (Hcomplete τ) as (nvc & vc & vc' & [Heq_c | Heq_c]).
                 + rewrite Heq_c in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
                 + apply (list_elem_of_fmap_2 fst _ (τ, Ret vc')).
                   apply list_elem_of_filter_2; first by (simpl; eexists; done).
@@ -1976,7 +1971,7 @@ Section proof.
             (* τ₀ ∈ trace_pendingOp (drop (S n) ts) ⇒ τ₀ ∈ trace_pendingOp (drop n ts) *)
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ Pop #()
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ.
               set_solver. }
@@ -2016,7 +2011,7 @@ Section proof.
                  destruct Hret' as [Habs | Habs]; apply (f_equal snd) in Habs;
                    simpl in Habs; discriminate.
               ** apply Hno_ret.
-                 destruct (Hcomplete τ) as (vc & vc' & [Heq_c | Heq_c]).
+                 destruct (Hcomplete τ) as (nvc & vc & vc' & [Heq_c | Heq_c]).
                  --- rewrite Heq_c in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
                  --- apply (list_elem_of_fmap_2 fst _ (τ, Ret vc')).
                      apply list_elem_of_filter_2; first by (simpl; eexists; done).
@@ -2034,11 +2029,11 @@ Section proof.
             ++ (* τ₀ was already linearized before step n *)
               assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
               { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-                assert (Hsubset := trace_pendingOp_call τ (encode_request Pop)
+                assert (Hsubset := trace_pendingOp_call τ Pop #()
                                      (drop (Datatypes.S n) ts)).
                 assert (Hne_τ₀ : τ₀ ≠ τ).
                 { intros <-.
-                  exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
+                  exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
                 clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
               destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin_old) Hτ₀_push)
                 as (τ2_0 & Hin_m₀ & Hτ2_0_lin).
@@ -2053,7 +2048,7 @@ Section proof.
               exfalso.
               eapply push_xor_pop_of_trace; [exact Hwf|exact Hτ₀_push|].
               rewrite /pop_of_trace.
-              apply (list_elem_of_fmap_2 fst _ (τ, Call (encode_request Pop))).
+              apply (list_elem_of_fmap_2 fst _ (τ, Call Pop #())).
               apply list_elem_of_filter_2; [done|exact Hin].
           --(* Hpop as early as possible *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ1₀_called Hτ2₀_called.
@@ -2083,18 +2078,18 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             rewrite !elem_of_cons elem_of_nil in Hlin_new.
             destruct Hlin_new as [Habs | [Heq_lin | []]].
             ++ discriminate.
-            ++ injection Heq_lin as -> _ ->.
+            ++ injection Heq_lin as -> -> _ ->.
                rewrite bool_decide_eq_false_2; [done|].
                eapply pop_empty_not_in_m; eauto.
           (**************** End LLM-generated code. *****************)
         * (* If the current state is not empty, don't linearize *)
-          exists (ts'_head ++ [(τ,Call (encode_request Pop))]), s.
+          exists (ts'_head ++ [(τ,Call Pop #())]), s.
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
           --(* Hfilter *)
@@ -2105,15 +2100,15 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀0.
-            destruct (Hper_tag_lin τ₀0) as (v₀0 & v₀0' & Hprefix₀0).
+            destruct (Hper_tag_lin τ₀0) as (nv₀0 & v₀0 & v₀0' & Hprefix₀0).
             rewrite filter_app.
             destruct (decide (τ₀0 = τ)) as [-> | Hne0]; last first.
-            { exists v₀0, v₀0'.
+            { exists nv₀0, v₀0, v₀0'.
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_nil right_id. assumption. }
-            exists (encode_request Pop), (encode_response IsEmpty).
+            exists Pop, #(), (encode_response IsEmpty).
             rewrite filter_cons_True // filter_nil.
-            rewrite (call_at_n_no_events n τ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+            rewrite (call_at_n_no_events n τ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
           --(* Hlin_sound *)
             rewrite /ts'_head_lin filter_app.
@@ -2148,7 +2143,7 @@ Section proof.
                   destruct Hret' as [Habs | Habs]; apply (f_equal snd) in Habs;
                     simpl in Habs; discriminate.
                ** apply Hno_ret.
-                  destruct (Hcomplete τ) as (vc & vc' & [Heq_c | Heq_c]).
+                  destruct (Hcomplete τ) as (nvc & vc & vc' & [Heq_c | Heq_c]).
                   --- rewrite Heq_c in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
                   --- apply (list_elem_of_fmap_2 fst _ (τ, Ret vc')).
                       apply list_elem_of_filter_2; first by (simpl; eexists; done).
@@ -2173,7 +2168,7 @@ Section proof.
                 destruct Hret' as [Habs | Habs]; apply (f_equal snd) in Habs;
                   simpl in Habs; discriminate.
               - apply Hno_ret.
-                destruct (Hcomplete τ) as (vc & vc' & [Heq_c | Heq_c]).
+                destruct (Hcomplete τ) as (nvc & vc & vc' & [Heq_c | Heq_c]).
                 + rewrite Heq_c in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
                 + apply (list_elem_of_fmap_2 fst _ (τ, Ret vc')).
                   apply list_elem_of_filter_2; first by (simpl; eexists; done).
@@ -2212,7 +2207,7 @@ Section proof.
                 assert (Hi_call_ge : i_call ≥ n).
                 { destruct (decide (i_call < n)) as [Hlt | ?]; last lia.
                   exfalso. apply Hτ2c_no_call.
-                  apply (list_elem_of_fmap_2 fst _ (τ2c, Call (encode_request Pop))).
+                  apply (list_elem_of_fmap_2 fst _ (τ2c, Call Pop #())).
                   apply list_elem_of_filter_2; first by (simpl; auto).
                   eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hi_call | lia]. }
                 assert (Hi_call_gt : i_call > n).
@@ -2226,7 +2221,7 @@ Section proof.
                 (* Get ret_of_tag and call_of_tag *)
                 destruct (ret_of_tag_destruct ts τ1c) as [(ir & vr & Hret_eq & Hir_lookup)|Hret_none].
                 ++ rewrite Hret_eq /=.
-                   destruct (call_of_tag_destruct ts τ2c) as [(ic & vc & Hcall_eq & Hic_lookup)|Hcall_none].
+                   destruct (call_of_tag_destruct ts τ2c) as [(ic & nvc & vc & Hcall_eq & Hic_lookup)|Hcall_none].
                    ** rewrite Hcall_eq /=.
                       (* ir ≤ i_ret < n < i_call, and ic ≤ i_call *)
                       (* Also ir is the FIRST ret, so ir ≤ i_ret *)
@@ -2241,7 +2236,7 @@ Section proof.
                         assert (Hic_ge : ic ≥ n).
                         { destruct (decide (ic < n)) as [Hlt | ?]; last lia.
                           exfalso. apply Hτ2c_no_call.
-                          apply (list_elem_of_fmap_2 fst _ (τ2c, Call vc)).
+                          apply (list_elem_of_fmap_2 fst _ (τ2c, Call nvc vc)).
                           apply list_elem_of_filter_2; first by (simpl; auto).
                           eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hic_lookup | lia]. }
                         destruct (decide (ic = n)) as [Heq_n | ?]; last lia.
@@ -2254,7 +2249,7 @@ Section proof.
                    ** exfalso. rewrite /call_of_tag in Hcall_none.
                       apply list_find_None in Hcall_none.
                       rewrite Forall_forall in Hcall_none.
-                      apply (Hcall_none (τ2c, Call (encode_request Pop))).
+                      apply (Hcall_none (τ2c, Call Pop #())).
                       { eapply list_elem_of_lookup_2. exact Hi_call. }
                       split; [done | simpl; auto].
                 ++ exfalso. rewrite /ret_of_tag in Hret_none.
@@ -2286,7 +2281,7 @@ Section proof.
                assert (Hτ₀_pending_old: τ₀ ∈ trace_pendingOp (drop n ts)).
                { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
                  rewrite Hdrop_eq.
-                 assert (Hsubset := trace_pendingOp_call τ (encode_request Pop)
+                 assert (Hsubset := trace_pendingOp_call τ Pop #()
                                       (drop (Datatypes.S n) ts)).
                  clear -Hsubset Hτ₀_pending Hne_τ₀_τ.
                  set_solver. }
@@ -2304,11 +2299,11 @@ Section proof.
             assert (Hτ₀_pending_old: τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
               rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ Pop #()
                                    (drop (Datatypes.S n) ts)).
               assert (Hne_τ₀ : τ₀ ≠ τ). {
                 intros <-.
-                exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin).
+                exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin).
               }
               clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
             destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin) Hτ₀_push)
@@ -2342,15 +2337,14 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            apply (pop_lin_consistent_extend_call _ _ _ _ Hpop_lin_consistent).
+            apply (pop_lin_consistent_extend_call _ _ _ _ _ Hpop_lin_consistent).
           (**************** End LLM-generated code. *****************)
       + (* Call Pop NonEmpty *)
         rename τ into τ2.
         pose proof (Hin':= elem_of_prefix _ _ _ Hin_filter_tag Hprefix).
         rewrite !elem_of_cons elem_of_nil right_id in Hin'.
         destruct Hin' as [Heq | HFalse]; last discriminate HFalse.
-        injection Heq as Heq.
-        subst v.
+        injection Heq as -> ->.
         assert (Hτ2_in_m: τ2 ∈ m.*2).
         { destruct Hclosed as [_ Hclosed_pop].
           rewrite Forall_forall in Hclosed_pop.
@@ -2365,7 +2359,7 @@ Section proof.
             rewrite !elem_of_cons elem_of_nil right_id in HFalse'.
             destruct HFalse'; discriminate.
           - contradict HFalse.
-            destruct (Hcomplete τ2) as (v&v'&[Heq|Heq]).
+            destruct (Hcomplete τ2) as (nv&v&v'&[Heq|Heq]).
             + rewrite Heq in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
             + apply (list_elem_of_fmap_2 fst _ (τ2,Ret v')).
               apply list_elem_of_filter_2; first done.
@@ -2381,9 +2375,9 @@ Section proof.
         last destruct (decide (τ1 ∈ (filter (is_call∘snd) (drop n ts)).*1)) as [Hτ1_not_started | Hτ1_finished];
         last destruct (decide (s∖{[+ v_pop +]} = ∅)) as [Hemp_after_pop|Hnot_emp_after_pop].
         * (* If the matched Push is pending, linearize both operations *)
-          exists (ts'_head ++ [(τ2,Call (encode_request Pop));
-            (τ1,Lin (encode_request (Push v_pop)) #());
-            (τ2,Lin (encode_request Pop) (encode_response (NonEmpty v_pop)))]), s.
+          exists (ts'_head ++ [(τ2,Call Pop #());
+            (τ1,Lin Push v_pop #());
+            (τ2,Lin Pop #() (encode_response (NonEmpty v_pop)))]), s.
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
           --(* Hfilter *)
@@ -2397,20 +2391,20 @@ Section proof.
           --(* Hper_tag_lin *)
             intro τ₀.
             pose proof (Hper_tag_lin' := Hper_tag_lin).
-            specialize (Hper_tag_lin' τ₀) as (v₀ & v₀' & Hprefix₀).
+            specialize (Hper_tag_lin' τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ2)) as [-> | Hτ₀_ne_τ2];
             last destruct (decide (τ₀ = τ1)) as [-> | Hτ₀_ne_τ1].
-            ++exists (encode_request Pop), (encode_response (NonEmpty v_pop)).
+            ++exists Pop, #(), (encode_response (NonEmpty v_pop)).
               rewrite filter_cons_True // filter_cons_False // filter_cons_True //.
               rewrite filter_nil.
-              rewrite (call_at_n_no_events n τ2 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+              rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
               eexists. reflexivity.
-            ++exists (encode_request (Push v_pop)), #().
+            ++exists Push, v_pop, #().
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_cons_True // filter_cons_False; [|simpl; auto].
               rewrite filter_nil.
-              assert (filter (λ x, x.1 = τ1) ts'_head = [(τ1, Call (encode_request (Push v_pop)))]) as ->.
+              assert (filter (λ x, x.1 = τ1) ts'_head = [(τ1, Call Push v_pop)]) as ->.
               { (* τ1 is pending: it was called before. Same argument as in Call Push case. *)
                 destruct (filter (λ x, x.1 = τ1) ts'_head) as [|hd [|hd2 rest2]] eqn:Hfilt1.
                 - (* Empty: τ1 has no events. *)
@@ -2421,7 +2415,7 @@ Section proof.
                   { intros ->. rewrite Hlookup in Hj. discriminate. }
                   assert (j < length ts) by (eapply lookup_lt_Some; eauto).
                   destruct (decide (j < n)) as [Hjn|Hjn].
-                  -- assert (Hin_take : (τ1, Call (encode_request (Push vp))) ∈ take n ts).
+                  -- assert (Hin_take : (τ1, Call Push vp) ∈ take n ts).
                      { eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
                      rewrite Hfilter in Hin_take.
                      apply list_elem_of_filter in Hin_take as [_ Hin_head].
@@ -2442,10 +2436,10 @@ Section proof.
                   assert (Hcall_push := valid_match_call_push _ _ _ _ Hvalid Hin_m).
                   destruct Hcall_push as [vp Hcp].
                   apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hcp as Hcp_filt; last done.
-                  assert (Hcv_in_ts : (τ1, Call v₀) ∈ ts).
-                  { assert (Hin_head : (τ1, Call v₀) ∈ ts'_head).
+                  assert (Hcv_in_ts : (τ1, Call nv₀ v₀) ∈ ts).
+                  { assert (Hin_head : (τ1, Call nv₀ v₀) ∈ ts'_head).
                     { apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). rewrite Hfilt1. set_solver. }
-                    assert (Hcv_in_take : (τ1, Call v₀) ∈ take n ts).
+                    assert (Hcv_in_take : (τ1, Call nv₀ v₀) ∈ take n ts).
                     { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head]. }
                     apply list_elem_of_lookup in Hcv_in_take as [i Hi].
                     eapply list_elem_of_lookup_2.
@@ -2489,7 +2483,7 @@ Section proof.
                       apply (list_elem_of_fmap_2 fst _ (τ2, Ret (encode_response (NonEmpty v_pop)))).
                       apply list_elem_of_filter_2; [simpl; eexists; done|].
                       (* (τ2, Ret NonEmpty v_pop) ∈ ts from Hprefix + Hcomplete *)
-                      destruct (Hcomplete τ2) as (vc & vc' & [Heq_c2 | Heq_c2]).
+                      destruct (Hcomplete τ2) as (nvc & vc & vc' & [Heq_c2 | Heq_c2]).
                       { rewrite Heq_c2 in Hin_filter_tag. clear -Hin_filter_tag. set_solver. }
                       apply (list_elem_of_filter_1 (λ x, x.1 = τ2)).
                       rewrite Heq_c2 in Hprefix.
@@ -2505,15 +2499,15 @@ Section proof.
                     But τ2 just called (call_at_n_no_events ⇒ τ2 has no events). Contradiction. *)
                   exfalso.
                   apply prefix_cons_inv_2 in Hprefix₀.
-                  apply prefix_cons_inv_1 in Hprefix₀ as ->. (* hd2 = (τ1, Lin v₀ v₀') *)
+                  apply prefix_cons_inv_1 in Hprefix₀ as ->. (* hd2 = (τ1, Lin nv₀ v₀ v₀') *)
                   assert (Hτ1_lin_old : τ1 ∈ (filter (is_lin ∘ snd) ts'_head).*1).
-                  { apply (list_elem_of_fmap_2 fst _ (τ1, Lin v₀ v₀')).
+                  { apply (list_elem_of_fmap_2 fst _ (τ1, Lin nv₀ v₀ v₀')).
                     apply list_elem_of_filter_2; [done|].
                     apply (list_elem_of_filter_1 (λ x, x.1 = τ1)).
                     rewrite Hfilt1. set_solver. }
                   assert (Hτ1_push_of : τ1 ∈ push_of_trace ts).
                   { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcp].
-                    apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp)))).
+                    apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp)).
                     apply list_elem_of_filter_2; [eexists; done|exact Hcp]. }
                   destruct (Hpush_alap τ1 (conj Hτ1_pending Hτ1_lin_old) Hτ1_push_of)
                     as (τ2' & Hin_m' & Hτ2'_lin).
@@ -2523,13 +2517,13 @@ Section proof.
                   subst τ2'.
                   (* τ2 linearized in old ts'_head. But call_at_n_no_events says
                      filter(tag=τ2) ts'_head = []. So τ2 has no events ⇒ not linearized. *)
-                  pose proof (call_at_n_no_events n τ2 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) as Hτ2_none.
+                  pose proof (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) as Hτ2_none.
                   apply (list_elem_of_fmap_1) in Hτ2'_lin as ([? ev'] & [= <-] & Hin').
                   apply list_elem_of_filter in Hin' as [_ Hin'].
                   apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hin'; last done.
                   rewrite Hτ2_none in Hin'. clear -Hin'. set_solver. }
               eexists. reflexivity.
-            ++exists v₀, v₀'.
+            ++exists nv₀, v₀, v₀'.
               do 3 rewrite filter_cons_False //.
               rewrite filter_nil right_id. assumption.
           --(* Hlin_sound *)
@@ -2540,10 +2534,9 @@ Section proof.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
             eapply linearized_sound_cons.
-            { (* valid_request (encode_request (Push v_pop)) — derive
+            { (* valid_request (encode_response (NonEmpty v_pop)) — derive
                  valid_value v_pop from Hwf and the matching Push call. *)
-              left. exists v_pop. split; last reflexivity.
-              destruct (Hcomplete τ2) as (v & v' & [HFalse|Hfilter_eq]).
+              destruct (Hcomplete τ2) as (nv & v & v' & [HFalse|Hfilter_eq]).
               { apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hin; last done.
                 rewrite HFalse in Hin.
                 clear -Hin. set_solver. }
@@ -2569,11 +2562,9 @@ Section proof.
                 rewrite filter_nil.
                 apply list_elem_of_singleton.
                 reflexivity. }
-            { eexists. split; first reflexivity.
-              split; reflexivity. }
-            eapply (linearized_sound_cons _ s); first by (right; reflexivity).
-            { eexists. split; first reflexivity.
-              right. eexists v_pop.
+            { split; reflexivity. }
+            eapply (linearized_sound_cons _ s); first by reflexivity.
+            { right. eexists v_pop.
               split_and!.
               - set_solver.
               - clear. multiset_solver.
@@ -2598,7 +2589,7 @@ Section proof.
               apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hτ1_pop; last done.
               destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hτ1_push].
               apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hτ1_push; last done.
-              destruct (Hcomplete τ1) as (vc & vc' & [Heq_c | Heq_c]).
+              destruct (Hcomplete τ1) as (nvc & vc & vc' & [Heq_c | Heq_c]).
               { rewrite Heq_c in Hτ1_push. clear -Hτ1_push. set_solver. }
               rewrite Heq_c in Hτ1_push, Hτ1_pop.
               rewrite !elem_of_cons !elem_of_nil !right_id in Hτ1_push, Hτ1_pop.
@@ -2633,7 +2624,7 @@ Section proof.
             destruct (list_elem_of_split _ _ Hin2) as (l3 & l4 & Heq2).
             pose proof (take_drop n ts) as Heq.
             rewrite Heq1 Heq2 in Heq.
-            destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (?&?&Hprefix').
+            destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (?&?&?&Hprefix').
             apply (f_equal (filter (λ x, x.1 = τ1))) in Heq.
             rewrite -Heq in Hprefix'. clear -Hprefix'.
             rewrite !filter_app !filter_cons_True // in Hprefix'.
@@ -2658,7 +2649,7 @@ Section proof.
             assert (Hτ₀_ne_τ2 : τ₀ ≠ τ2) by (clear -Hτ₀_not_lin; set_solver).
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ2.
               set_solver. }
@@ -2696,7 +2687,7 @@ Section proof.
               destruct (list_elem_of_split_length _ _ _ Hlookup_ret) as (l1 & l2 & Heq1 & _).
               destruct (list_elem_of_split _ _ Hin2) as (l3 & l4 & Heq2).
               rewrite Heq1 Heq2 in Heq_ts.
-              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (?&?&Hprefix').
+              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (?&?&?&Hprefix').
               apply (f_equal (filter (λ x, x.1 = τ1))) in Heq_ts.
               rewrite -Heq_ts !filter_app !filter_cons_True // in Hprefix'.
               assert (filter (λ x, x.1 = τ1) l1 = []) as Hrw.
@@ -2719,11 +2710,11 @@ Section proof.
             ++ (* τ₀ was already linearized *)
               assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
               { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-                assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+                assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                      (drop (Datatypes.S n) ts)).
                 assert (Hne_τ₀ : τ₀ ≠ τ2).
                 { intros <-.
-                  exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
+                  exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
                 clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
               destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin_old) Hτ₀_push)
                 as (τ2_0 & Hin_m₀ & Hτ2_0_lin).
@@ -2747,7 +2738,7 @@ Section proof.
                 exfalso.
                 eapply push_xor_pop_of_trace; [exact Hwf|exact Hτ₀_push|].
                 rewrite /pop_of_trace.
-                apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+                apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                 apply list_elem_of_filter_2; [done|exact Hin].
           --(* Hpop as early as possible *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ1₀_called Hτ2₀_called.
@@ -2777,9 +2768,9 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             rewrite !elem_of_cons elem_of_nil in Hlin_new.
             destruct Hlin_new as [Habs | [Habs | [Heq_lin | []]]].
             ++ discriminate.
@@ -2789,7 +2780,7 @@ Section proof.
                exact (push_xor_pop_of_trace ts _ _ _ Hwf
                  (matched_push_in_push_of_trace _ _ Hin_m) Hτ₀_pop).
             ++ (* (τ2,Lin Pop NonEmpty) — τ₀ = τ2, matched *)
-               injection Heq_lin as -> _ ->.
+               injection Heq_lin as -> -> _ ->.
                rewrite bool_decide_eq_true_2; last by (apply (list_elem_of_fmap_2 snd _ (τ1,τ2)); exact Hin_m).
                exists τ1, v_pop. split_and!; [exact Hin_m| |done].
                destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcp].
@@ -2818,7 +2809,7 @@ Section proof.
                       rewrite !elem_of_cons !elem_of_nil in Hin1.
                       destruct Hin1 as [Hin1|[Hin1|[]]]; apply (f_equal snd) in Hin1; by simpl in Hin1.
                ** exfalso. apply Hno_ret.
-                  destruct (Hcomplete τ2) as (vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
+                  destruct (Hcomplete τ2) as (nvc2 & vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
                   { pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp2.
                     apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hcp2; last done.
                     rewrite Hfilt_empty2 in Hcp2. clear -Hcp2. set_solver. }
@@ -2827,7 +2818,7 @@ Section proof.
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hfilt_eq2. clear. set_solver.
           (**************** End LLM-generated code. *****************)
         * (* If the matched Push hasn't started, linearize nothing *)
-          exists (ts'_head ++ [(τ2,Call (encode_request Pop))]), s.
+          exists (ts'_head ++ [(τ2,Call Pop #())]), s.
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
           --(* Hfilter *)
@@ -2838,15 +2829,15 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀0.
-            destruct (Hper_tag_lin τ₀0) as (v₀0 & v₀0' & Hprefix₀0).
+            destruct (Hper_tag_lin τ₀0) as (nv₀0 & v₀0 & v₀0' & Hprefix₀0).
             rewrite filter_app.
             destruct (decide (τ₀0 = τ2)) as [-> | Hne0]; last first.
-            { exists v₀0, v₀0'.
+            { exists nv₀0, v₀0, v₀0'.
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_nil right_id. assumption. }
-            exists (encode_request Pop), (encode_response (NonEmpty v_pop)).
+            exists Pop, #(), (encode_response (NonEmpty v_pop)).
             rewrite filter_cons_True // filter_nil.
-            rewrite (call_at_n_no_events n τ2 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+            rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
           --(* Hlin_sound *)
             rewrite /ts'_head_lin filter_app.
@@ -2872,13 +2863,13 @@ Section proof.
               apply list_elem_of_fmap_1 in Hτ1_not_started as ([τ1'' ev_c] & Heq_c & Hin_c).
               simpl in Heq_c. subst τ1''.
               apply list_elem_of_filter in Hin_c as [His_call Hin_c].
-              destruct ev_c as [v_call| |]; [|by simpl in His_call..].
-              (* (τ1, Call v_call) ∈ drop n ts *)
-              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hprefix_τ1).
+              destruct ev_c as [nv_call v_call| |]; [|by simpl in His_call..].
+              (* (τ1, Call nv_call v_call) ∈ drop n ts *)
+              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hprefix_τ1).
               rewrite -(take_drop n ts) filter_app in Hprefix_τ1.
               assert (Hin1_f : (τ1, Ret v1) ∈ filter (λ x, x.1 = τ1) (take n ts)).
               { apply list_elem_of_filter_2; [done|exact Hin1]. }
-              assert (Hin_c_f : (τ1, Call v_call) ∈ filter (λ x, x.1 = τ1) (drop n ts)).
+              assert (Hin_c_f : (τ1, Call nv_call v_call) ∈ filter (λ x, x.1 = τ1) (drop n ts)).
               { apply list_elem_of_filter_2; [done|exact Hin_c]. }
               destruct (filter (λ x, x.1 = τ1) (take n ts)) as [|hd tl] eqn:Hfilt_take.
               { clear -Hin1_f. set_solver. }
@@ -2913,7 +2904,7 @@ Section proof.
               destruct Hin' as [Hin'|Hin']; apply (f_equal snd) in Hin'; simpl in Hin'; discriminate. }
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ2.
               set_solver. }
@@ -2951,10 +2942,10 @@ Section proof.
               apply list_elem_of_fmap_1 in Hτ1_not_started as ([τ1'' ev_c] & Heq_c & Hin_c).
               simpl in Heq_c. subst τ1''.
               apply list_elem_of_filter in Hin_c as [His_call_c Hin_c].
-              destruct ev_c as [v_call| |]; [|by simpl in His_call_c..].
-              assert (Hin_call_f : (τ1, Call v_call) ∈ filter (λ x, x.1 = τ1) (drop n ts)).
+              destruct ev_c as [nv_call v_call| |]; [|by simpl in His_call_c..].
+              assert (Hin_call_f : (τ1, Call nv_call v_call) ∈ filter (λ x, x.1 = τ1) (drop n ts)).
               { apply list_elem_of_filter_2; [done|exact Hin_c]. }
-              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hprefix_τ1).
+              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hprefix_τ1).
               rewrite -(take_drop n ts) filter_app in Hprefix_τ1.
               destruct (filter (λ x, x.1 = τ1) (take n ts)) as [|hd tl] eqn:Hfilt_take.
               { clear -Hin_ret_f. set_solver. }
@@ -2977,11 +2968,11 @@ Section proof.
             rewrite filter_nil right_id in Hτ₀_lin.
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                    (drop (Datatypes.S n) ts)).
               assert (Hne_τ₀ : τ₀ ≠ τ2).
               { intros <-.
-                exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin). }
+                exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin). }
               clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
             destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin) Hτ₀_push)
               as (τ2_0 & Hin_m₀ & Hτ2_0_lin).
@@ -3015,7 +3006,7 @@ Section proof.
                apply list_elem_of_fmap_1 in Hτ1_not_started as ([τ1'' ev_drop] & Heq_τ1'' & Hin_drop).
                simpl in Heq_τ1''. subst τ1''.
                apply list_elem_of_filter in Hin_drop as [Hcall_drop Hin_drop].
-               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc_u & vc_u' & Hpfx_u).
+               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc_u & vc_u & vc_u' & Hpfx_u).
                apply (prefix_filter (is_call∘snd)) in Hpfx_u.
                rewrite filter_cons_True in Hpfx_u; last done.
                rewrite filter_cons_False in Hpfx_u; last by simpl; auto.
@@ -3043,16 +3034,16 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            apply (pop_lin_consistent_extend_call _ _ _ _ Hpop_lin_consistent).
+            apply (pop_lin_consistent_extend_call _ _ _ _ _ Hpop_lin_consistent).
           (**************** End LLM-generated code. *****************)
         * (* If the matched Push has finished and the new state is empty,
           linearize the pop and all pending pop(empty)'s *)
           pose (pending_pop_emptys := filter (λ τ,
             τ ∈ trace_pendingOp (drop n ts) ∧ τ ∉ (filter (is_lin ∘ snd) ts'_head).*1)
             (pop_emp_of_trace ts)).
-          exists (ts'_head ++ [(τ2,Call (encode_request Pop));
-            (τ2,Lin (encode_request Pop) (encode_response (NonEmpty v_pop)))]
-            ++ ((λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys)).
+          exists (ts'_head ++ [(τ2,Call Pop #());
+            (τ2,Lin Pop #() (encode_response (NonEmpty v_pop)))]
+            ++ ((λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys)).
           exists ∅.
           (*************** Begin LLM-generated code. ****************)
           (* Derive shared facts before split_and! using extracted helpers *)
@@ -3083,7 +3074,7 @@ Section proof.
               rewrite !elem_of_cons !elem_of_nil right_id in Hin_pfx₀.
               destruct Hin_pfx₀ as [Hin_pfx₀|Hin_pfx₀]; simplify_eq.
             - (* pop prefix — get Call Pop from filter(tag=τ₀)(ts) via prefix *)
-              apply (list_elem_of_fmap_2 fst _ (τ₀, Call (encode_request Pop))).
+              apply (list_elem_of_fmap_2 fst _ (τ₀, Call Pop #())).
               apply list_elem_of_filter_2; [done|].
               apply (list_elem_of_filter_1 (λ x, x.1 = τ₀)).
               pose proof (elem_of_prefix _ _ _ Hin₀ Hpfx₀) as Hret_in_pfx.
@@ -3127,8 +3118,8 @@ Section proof.
               pose proof (prefix_cons_inv_1 _ _ _ _ Hpfx₀) as ->. clear. set_solver. }
           (* Shared: filter(is_lin)(fmap pending) = fmap pending *)
           assert (Hfilt_ppe_id : filter (is_lin ∘ snd)
-            ((λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys)
-            = (λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys).
+            ((λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys)
+            = (λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys).
           { clear. induction pending_pop_emptys as [|h t IH]; first done.
             rewrite !fmap_cons filter_cons_True; [|done]. by f_equal. }
           intros ts'_head_lin. split_and!.
@@ -3146,13 +3137,13 @@ Section proof.
             by f_equal.
           --(* Hper_tag_lin *)
             intro τ₀0.
-            destruct (Hper_tag_lin τ₀0) as (v₀0 & v₀0' & Hprefix₀0).
+            destruct (Hper_tag_lin τ₀0) as (nv₀0 & v₀0 & v₀0' & Hprefix₀0).
             rewrite filter_app filter_app.
             destruct (decide (τ₀0 = τ2)) as [-> | Hne0].
             { (* τ₀0 = τ2 *)
-              exists (encode_request Pop), (encode_response (NonEmpty v_pop)).
+              exists Pop, #(), (encode_response (NonEmpty v_pop)).
               do 2 rewrite filter_cons_True //. rewrite filter_nil.
-              rewrite (call_at_n_no_events n τ2 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+              rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
               (* τ2 ∉ pending_pop_emptys *)
               (* filter(tag=τ2)(fmap pending) = [] because τ2 ∉ pending *)
               rewrite filter_False_nil; last first.
@@ -3168,10 +3159,10 @@ Section proof.
             rewrite filter_nil.
             destruct (decide (τ₀0 ∈ pending_pop_emptys)) as [Hin_ppe|Hnotin_ppe].
             { (* τ₀0 ∈ pending_pop_emptys: old filter = [(τ₀0, Call Pop)], adds Lin *)
-              exists (encode_request Pop), (encode_response IsEmpty).
+              exists Pop, #(), (encode_response IsEmpty).
               (* old filter: τ₀0 is pending in drop n, not linearized. *)
               assert (Hτ₀0_pop := Hppe_pop _ Hin_ppe).
-              assert (Hτ₀0_call_in : (τ₀0, Call (encode_request Pop)) ∈ ts'_head).
+              assert (Hτ₀0_call_in : (τ₀0, Call Pop #()) ∈ ts'_head).
               { rewrite /pending_pop_emptys in Hin_ppe.
                 apply list_elem_of_filter in Hin_ppe as [[Hpending Hnot_lin] Hin_emp].
                 rewrite /pop_of_trace in Hτ₀0_pop.
@@ -3193,7 +3184,7 @@ Section proof.
                   rewrite filter_cons_False in Hpending; last by (simpl; congruence).
                   rewrite -filter_tag_trace_pendingOp in Hpending.
                   (* τ₀0 pending in drop (S n) ts. But Call at j > n (hence j ≥ S n). *)
-                  assert (Hj_drop : drop (Datatypes.S n) ts !! (j - Datatypes.S n) = Some (τ₀0, Call (encode_request Pop))).
+                  assert (Hj_drop : drop (Datatypes.S n) ts !! (j - Datatypes.S n) = Some (τ₀0, Call Pop #())).
                   { rewrite lookup_drop. replace (Datatypes.S n + (j - Datatypes.S n)) with j by lia. exact Hj. }
                   destruct (list_elem_of_split_length _ _ _ Hj_drop) as (l1_d & l2_d & Hdrop_split & Hl1_len).
                   rewrite Hdrop_split in Hpending.
@@ -3201,7 +3192,7 @@ Section proof.
                   eapply per_tag_partial_wellformed_suffix; first by (rewrite -Hdrop_split; apply suffix_drop).
                   apply per_tag_wellformed_per_tag_partial_wellformed.
                   apply per_tag_complete_per_tag_wellformed. done. }
-                assert (Hin_take : (τ₀0, Call (encode_request Pop)) ∈ take n ts).
+                assert (Hin_take : (τ₀0, Call Pop #()) ∈ take n ts).
                 { eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
                 rewrite Hfilter in Hin_take.
                 apply list_elem_of_filter in Hin_take as [_ ?]. done. }
@@ -3209,26 +3200,26 @@ Section proof.
               { rewrite /pending_pop_emptys in Hin_ppe.
                 apply list_elem_of_filter in Hin_ppe as [[_ Hnot_lin] _]. exact Hnot_lin. }
               (* filter(tag=τ₀0)(ts'_head) = [(τ₀0, Call Pop)] *)
-              assert (Hfilt_eq : filter (λ x, x.1 = τ₀0) ts'_head = [(τ₀0, Call (encode_request Pop))]).
+              assert (Hfilt_eq : filter (λ x, x.1 = τ₀0) ts'_head = [(τ₀0, Call Pop #())]).
               { apply (list_elem_of_filter_2 (λ x, x.1 = τ₀0)) in Hτ₀0_call_in as Hτ₀0_in_filt; last done.
                 destruct (filter (λ x, x.1 = τ₀0) ts'_head) as [|hd [|hd2 rest2]] eqn:Hf.
                 - exfalso. clear -Hτ₀0_in_filt. set_solver.
                 - f_equal. apply prefix_cons_inv_1 in Hprefix₀0.
                   rewrite Hprefix₀0.
-                  assert (Hcv : (τ₀0, Call v₀0) ∈ ts'_head).
+                  assert (Hcv : (τ₀0, Call nv₀0 v₀0) ∈ ts'_head).
                   { apply (list_elem_of_filter_1 (λ x, x.1 = τ₀0)). rewrite Hf. rewrite Hprefix₀0. clear. set_solver. }
-                  assert (Hcv_in_ts : (τ₀0, Call v₀0) ∈ ts).
-                  { assert (Hin_take : (τ₀0, Call v₀0) ∈ take n ts).
+                  assert (Hcv_in_ts : (τ₀0, Call nv₀0 v₀0) ∈ ts).
+                  { assert (Hin_take : (τ₀0, Call nv₀0 v₀0) ∈ take n ts).
                     { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hcv]. }
                     eapply elem_of_prefix; last apply prefix_take. exact Hin_take. }
                   apply (list_elem_of_filter_2 (λ x, x.1 = τ₀0)) in Hcv_in_ts; last done.
                   destruct (Hwf τ₀0) as [(vp₀ & _ & Hpfx₀)|(vp₀ & _ & Hpfx₀)].
                   + exfalso.
-                    (* (τ₀0, Call v₀0) ∈ push prefix for τ₀0 → v₀0 = Push vp₀.
+                    (* (τ₀0, Call nv₀0 v₀0) ∈ push prefix for τ₀0 → v₀0 = Push vp₀.
                        But τ₀0 has Call Pop → Call Pop ∈ push prefix → discriminate. *)
-                    assert (Hcall_pop_in_ts : (τ₀0, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ₀0) ts).
+                    assert (Hcall_pop_in_ts : (τ₀0, Call Pop #()) ∈ filter (λ x, x.1 = τ₀0) ts).
                     { apply list_elem_of_filter_2; [done|].
-                      assert (Hin_take : (τ₀0, Call (encode_request Pop)) ∈ take n ts).
+                      assert (Hin_take : (τ₀0, Call Pop #()) ∈ take n ts).
                       { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hτ₀0_call_in]. }
                       eapply elem_of_prefix; last apply prefix_take. exact Hin_take. }
                     pose proof (elem_of_prefix _ _ _ Hcall_pop_in_ts Hpfx₀) as Hin_pfx₀'.
@@ -3244,15 +3235,15 @@ Section proof.
                   exfalso. apply Hτ₀0_not_lin.
                   apply prefix_cons_inv_2 in Hprefix₀0.
                   pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀0) as ->.
-                  apply (list_elem_of_fmap_2 fst _ (τ₀0, Lin v₀0 v₀0')).
+                  apply (list_elem_of_fmap_2 fst _ (τ₀0, Lin nv₀0 v₀0 v₀0')).
                   apply list_elem_of_filter_2; [done|].
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ₀0)). rewrite Hf. clear. set_solver. }
               rewrite Hfilt_eq.
               (* fmap filter for τ₀0 in pending *)
               assert (Hfilt_fmap_ppe :
                 filter (λ x, x.1 = τ₀0)
-                  ((λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys)
-                  = [(τ₀0, Lin (encode_request Pop) (encode_response IsEmpty))]).
+                  ((λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys)
+                  = [(τ₀0, Lin Pop #() (encode_response IsEmpty))]).
               { (* τ₀0 appears exactly once in pending_pop_emptys *)
                 assert (Hppe_once : filter (λ τ, τ = τ₀0) pending_pop_emptys = [τ₀0]).
                 { (* NoDup pending_pop_emptys from per_tag_wellformed *)
@@ -3261,7 +3252,7 @@ Section proof.
                     - intros τ_a ev_a ev_b Hin_a Hin_b.
                       apply list_elem_of_filter in Hin_a as [Ha_emp Hin_a].
                       apply list_elem_of_filter in Hin_b as [Hb_emp Hin_b].
-                      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ_a) as (vc_a & vc_a' & Hpfx_a).
+                      destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ_a) as (nvc_a & vc_a & vc_a' & Hpfx_a).
                       apply (list_elem_of_filter_2 (λ x, x.1 = τ_a)) in Hin_a; last done.
                       apply (list_elem_of_filter_2 (λ x, x.1 = τ_a)) in Hin_b; last done.
                       pose proof (elem_of_prefix _ _ _ Hin_a Hpfx_a) as Hin_pfx_a.
@@ -3305,9 +3296,9 @@ Section proof.
               rewrite Hfilt_fmap_ppe /=.
               eexists. reflexivity. }
             (* τ₀0 ∉ pending_pop_emptys: no new events *)
-            exists v₀0, v₀0'.
+            exists nv₀0, v₀0, v₀0'.
             assert (Hfilt_fmap_none : filter (λ x, x.1 = τ₀0)
-              ((λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys) = []).
+              ((λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys) = []).
             { rewrite filter_False_nil; [done|]. rewrite Forall_fmap. apply Forall_forall.
               intros τ_p Hin_p. simpl. intros <-. exact (Hnotin_ppe Hin_p). }
             rewrite Hfilt_fmap_none right_id. assumption.
@@ -3317,14 +3308,13 @@ Section proof.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ ∅); first by (right; reflexivity).
-            { eexists. split; first reflexivity.
-              right. eexists v_pop.
+            eapply (linearized_sound_cons _ ∅); first by reflexivity.
+            { right. eexists v_pop.
               split_and!; [exact Hvpop_in_s|rewrite Hemp_after_pop; done|done]. }
             (* Now linearize all pending pop(∅)s from state ∅ *)
             assert (Hfilt_id : filter (is_lin ∘ snd)
-              ((λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys)
-              = (λ τ, (τ, Lin (encode_request Pop) (encode_response IsEmpty))) <$> pending_pop_emptys).
+              ((λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys)
+              = (λ τ, (τ, Lin Pop #() (encode_response IsEmpty))) <$> pending_pop_emptys).
             { clear. induction pending_pop_emptys as [|h t IH]; first done.
               rewrite !fmap_cons filter_cons_True; [|done]. by f_equal. }
             rewrite Hfilt_id.
@@ -3357,9 +3347,8 @@ Section proof.
             { rewrite fmap_nil. apply linearized_sound_nil. }
             rewrite fmap_cons.
             eapply linearized_sound_cons.
-            ++ right. reflexivity.
-            ++ eexists. split; first reflexivity.
-               left. destruct rme; first done.
+            ++ reflexivity.
+            ++ left. destruct rme; first done.
                exfalso.
                assert (Hin_τ_pe_hd : τ_pe_hd ∈ τ_pe_hd :: rest)
                  by (apply elem_of_cons; left; reflexivity).
@@ -3383,8 +3372,8 @@ Section proof.
                assert (Heq_τ1: τ1₀ = τ1) by (by eapply valid_match_inj_call). subst τ1₀.
                (* τ1 must be linearized in old ts'_head (same argument as "not empty" case) *)
                assert (Hτ1_lin : τ1 ∈ (filter (is_lin ∘ snd) ts'_head).*1).
-               { destruct (Hper_tag_lin τ1) as (v₁_a & v₁_b & Hprefix₁_a).
-                 assert (Hcall_in_take : ∃ vc, (τ1, Call vc) ∈ take n ts).
+               { destruct (Hper_tag_lin τ1) as (nv₁_a & v₁_a & v₁_b & Hprefix₁_a).
+                 assert (Hcall_in_take : ∃ nc vc, (τ1, Call nc vc) ∈ take n ts).
                  { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp' Hcp'].
                    apply list_elem_of_lookup_1 in Hcp' as [j_p Hj_p].
                    assert (j_p < n).
@@ -3392,20 +3381,20 @@ Section proof.
                      assert (j_p ≠ n) by (intros ->; rewrite Hlookup in Hj_p; discriminate).
                      destruct (decide (j_p < n)); [lia|].
                      exfalso. apply Hτ1_finished.
-                     apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp')))).
+                     apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp')).
                      apply list_elem_of_filter_2; [done|].
                      apply (list_elem_of_lookup_2 _ (j_p - n)).
                      rewrite lookup_drop. replace (n + (j_p - n)) with j_p by lia. exact Hj_p. }
-                   eexists. eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj_p|lia]. }
+                   do 2 eexists. eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj_p|lia]. }
                  assert (Hret_in_take : ∃ vr, (τ1, Ret vr) ∈ take n ts).
                  { apply list_elem_of_fmap_1 in Hτ1_ret as ([τ1' ev1] & Heq1 & Hin1).
                    simpl in Heq1. subst τ1'.
                    apply list_elem_of_filter in Hin1 as [Hret1 Hin1'].
-                   destruct ev1 as [|v1' v1''|]; try by destruct Hret1.
+                   destruct ev1 as [|nv1' v1' v1''|]; try by destruct Hret1.
                    eexists. exact Hin1'. }
-                 destruct Hcall_in_take as [vc Hcall_in].
+                 destruct Hcall_in_take as (nvc & vc & Hcall_in).
                  destruct Hret_in_take as [vr Hret_in].
-                 assert (Hcall_in_head : (τ1, Call vc) ∈ ts'_head).
+                 assert (Hcall_in_head : (τ1, Call nvc vc) ∈ ts'_head).
                  { rewrite Hfilter in Hcall_in. apply list_elem_of_filter in Hcall_in as [_ ?]. done. }
                  assert (Hret_in_head : (τ1, Ret vr) ∈ ts'_head).
                  { rewrite Hfilter in Hret_in. apply list_elem_of_filter in Hret_in as [_ ?]. done. }
@@ -3416,7 +3405,7 @@ Section proof.
                    - exfalso. clear -Hcall_in_head. set_solver.
                    - destruct rest1 as [|a2 rest2].
                      + exfalso.
-                       assert (Htmp : (τ1, Call vc) = (τ1, Ret vr) → False).
+                       assert (Htmp : (τ1, Call nvc vc) = (τ1, Ret vr) → False).
                        { intros Habs. apply (f_equal snd) in Habs. simpl in Habs. discriminate. }
                        clear -Hcall_in_head Hret_in_head Htmp. set_solver.
                      + simpl. lia. }
@@ -3426,7 +3415,7 @@ Section proof.
                  - simpl in Hprefix₁_a.
                    apply prefix_cons_inv_2 in Hprefix₁_a.
                    pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₁_a) as Heq_lin.
-                   apply (list_elem_of_fmap_2 fst _ (τ1, Lin v₁_a v₁_b)).
+                   apply (list_elem_of_fmap_2 fst _ (τ1, Lin nv₁_a v₁_a v₁_b)).
                    apply list_elem_of_filter_2; [done|].
                    apply (list_elem_of_filter_1 (λ x, x.1 = τ1)).
                    rewrite Hfilt_eq Heq_lin. clear. set_solver. }
@@ -3457,7 +3446,7 @@ Section proof.
               clear. set_solver. }
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ2. set_solver. }
             assert (Hτ₀_not_lin_old : τ₀ ∉ (filter (is_lin ∘ snd) ts'_head).*1).
@@ -3490,7 +3479,7 @@ Section proof.
                  Hence τ₀ must be in old lin tags. *)
               assert (Hτ₀_ne_τ2 : τ₀ ≠ τ2).
               { intros ->. eapply push_xor_pop_of_trace; [exact Hwf|exact Hτ₀_push|].
-                apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+                apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                 apply list_elem_of_filter_2; [done|exact Hin]. }
               assert (Hτ₀_notin_ppe : τ₀ ∉ pending_pop_emptys).
               { intros Hin_ppe.
@@ -3498,11 +3487,11 @@ Section proof.
               clear -Hτ₀_lin Hτ₀_ne_τ2 Hτ₀_notin_ppe. set_solver. }
             ++ assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
                 { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-                  assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+                  assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                        (drop (Datatypes.S n) ts)).
                   assert (Hne_τ₀ : τ₀ ≠ τ2).
                   { intros <-.
-                    exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
+                    exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
                   clear -Hsubset Hτ₀_pending Hne_τ₀. set_solver. }
                 destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin_old) Hτ₀_push)
                   as (τ2_0 & Hin_m₀ & Hτ2_0_lin).
@@ -3538,14 +3527,14 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             apply elem_of_app in Hlin_new as [Hlin_mid | Hlin_ppe].
             { rewrite !elem_of_cons elem_of_nil in Hlin_mid.
               destruct Hlin_mid as [Habs | [Heq_lin | []]].
               - discriminate.
-              - injection Heq_lin as -> _ ->.
+              - injection Heq_lin as -> -> _ ->.
                 rewrite bool_decide_eq_true_2; last by (apply (list_elem_of_fmap_2 snd _ (τ1,τ2)); exact Hin_m).
                 exists τ1, v_pop. split_and!; [exact Hin_m|exact Hcp|done]. }
             (* Lin in pending_pop_emptys suffix *)
@@ -3555,8 +3544,8 @@ Section proof.
           (**************** End LLM-generated code. *****************)
         * (* If the matched Push has finished and the new state is not empty,
           only linearize the pop *)
-          exists (ts'_head ++ [(τ2,Call (encode_request Pop));
-            (τ2,Lin (encode_request Pop) (encode_response (NonEmpty v_pop)))]).
+          exists (ts'_head ++ [(τ2,Call Pop #());
+            (τ2,Lin Pop #() (encode_response (NonEmpty v_pop)))]).
           exists (s∖{[+ v_pop +]}).
           (*************** Begin LLM-generated code. ****************)
           (* Derive shared facts before split_and! using extracted helpers *)
@@ -3579,16 +3568,16 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀0.
-            destruct (Hper_tag_lin τ₀0) as (v₀0 & v₀0' & Hprefix₀0).
+            destruct (Hper_tag_lin τ₀0) as (nv₀0 & v₀0 & v₀0' & Hprefix₀0).
             rewrite filter_app.
             destruct (decide (τ₀0 = τ2)) as [-> | Hne0]; last first.
-            { exists v₀0, v₀0'.
+            { exists nv₀0, v₀0, v₀0'.
               rewrite filter_cons_False; [|simpl; congruence].
               rewrite filter_cons_False; [|simpl; congruence].
               rewrite filter_nil right_id. assumption. }
-            exists (encode_request Pop), (encode_response (NonEmpty v_pop)).
+            exists Pop, #(), (encode_response (NonEmpty v_pop)).
             do 2 rewrite filter_cons_True //. rewrite filter_nil.
-            rewrite (call_at_n_no_events n τ2 _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
+            rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
           --(* Hlin_sound *)
             rewrite /ts'_head_lin filter_app.
@@ -3596,9 +3585,8 @@ Section proof.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ (s∖{[+ v_pop +]})); first by (right; reflexivity).
-            { eexists. split; first reflexivity.
-              right. eexists v_pop.
+            eapply (linearized_sound_cons _ (s∖{[+ v_pop +]})); first by reflexivity.
+            { right. eexists v_pop.
               split_and!; [exact Hvpop_in_s|reflexivity..]. }
             apply linearized_sound_nil.
           --(* Hval_then_not_pr *)
@@ -3616,9 +3604,9 @@ Section proof.
             (* τ1 must be linearized in old ts'_head because τ1 finished before n:
                filter(tag=τ1)(ts'_head) = [(Call); (Lin); (Ret)] by Hper_tag_lin + Hfilter *)
             assert (Hτ1_lin : τ1 ∈ (filter (is_lin ∘ snd) ts'_head).*1).
-            { destruct (Hper_tag_lin τ1) as (v₁ & v₁' & Hprefix₁).
+            { destruct (Hper_tag_lin τ1) as (nv₁ & v₁ & v₁' & Hprefix₁).
               (* filter(tag=τ1)(take n ts) has both Call and Ret *)
-              assert (Hcall_in_take : ∃ vc, (τ1, Call vc) ∈ take n ts).
+              assert (Hcall_in_take : ∃ nc vc, (τ1, Call nc vc) ∈ take n ts).
               { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp' Hcp'].
                 apply list_elem_of_lookup_1 in Hcp' as [j Hj].
                 assert (j < n).
@@ -3626,21 +3614,21 @@ Section proof.
                   assert (j ≠ n) by (intros ->; rewrite Hlookup in Hj; discriminate).
                   destruct (decide (j < n)); [lia|].
                   exfalso. apply Hτ1_finished.
-                  apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp')))).
+                  apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp')).
                   apply list_elem_of_filter_2; [done|].
                   apply (list_elem_of_lookup_2 _ (j - n)).
                   rewrite lookup_drop. replace (n + (j - n)) with j by lia. exact Hj. }
-                eexists. eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
+                do 2 eexists. eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
               assert (Hret_in_take : ∃ vr, (τ1, Ret vr) ∈ take n ts).
               { apply list_elem_of_fmap_1 in Hτ1_ret as ([τ1' ev1] & Heq1 & Hin1).
                 simpl in Heq1. subst τ1'.
                 apply list_elem_of_filter in Hin1 as [Hret1 Hin1'].
-                destruct ev1 as [|v1 v1'|]; try by destruct Hret1.
+                destruct ev1 as [|nv1 v1 v1'|]; try by destruct Hret1.
                 eexists. exact Hin1'. }
-              destruct Hcall_in_take as [vc Hcall_in].
+              destruct Hcall_in_take as (nvc & vc & Hcall_in).
               destruct Hret_in_take as [vr Hret_in].
               (* These are in ts'_head via Hfilter *)
-              assert (Hcall_in_head : (τ1, Call vc) ∈ ts'_head).
+              assert (Hcall_in_head : (τ1, Call nvc vc) ∈ ts'_head).
               { rewrite Hfilter in Hcall_in. apply list_elem_of_filter in Hcall_in as [_ ?]. done. }
               assert (Hret_in_head : (τ1, Ret vr) ∈ ts'_head).
               { rewrite Hfilter in Hret_in. apply list_elem_of_filter in Hret_in as [_ ?]. done. }
@@ -3653,20 +3641,20 @@ Section proof.
                 - exfalso. clear -Hcall_in_head. set_solver.
                 - destruct rest1 as [|a2 rest2].
                   + exfalso.
-                    assert (Hin1 : (τ1, Call vc) ∈ [a1]) by exact Hcall_in_head.
+                    assert (Hin1 : (τ1, Call nvc vc) ∈ [a1]) by exact Hcall_in_head.
                     assert (Hin2 : (τ1, Ret vr) ∈ [a1]) by exact Hret_in_head.
-                    assert (Htmp : (τ1, Call vc) = (τ1, Ret vr) → False).
+                    assert (Htmp : (τ1, Call nvc vc) = (τ1, Ret vr) → False).
                     { intros Habs. apply (f_equal snd) in Habs. simpl in Habs. discriminate. }
                     clear -Hcall_in_head Hret_in_head Htmp. set_solver.
                   + simpl. lia. }
-              destruct (Hper_tag_lin τ1) as (v₁_a & v₁_b & Hprefix₁_a).
+              destruct (Hper_tag_lin τ1) as (nv₁_a & v₁_a & v₁_b & Hprefix₁_a).
               destruct (filter (λ x, x.1 = τ1) ts'_head) as [|b1 [|b2 rest2']] eqn:Hfilt_eq.
               - simpl in Hlen_filt. lia.
               - simpl in Hlen_filt. lia.
               - simpl in Hprefix₁_a.
                 apply prefix_cons_inv_2 in Hprefix₁_a.
                 pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₁_a) as Heq_lin.
-                apply (list_elem_of_fmap_2 fst _ (τ1, Lin v₁_a v₁_b)).
+                apply (list_elem_of_fmap_2 fst _ (τ1, Lin nv₁_a v₁_a v₁_b)).
                 apply list_elem_of_filter_2; [done|].
                 apply (list_elem_of_filter_1 (λ x, x.1 = τ1)).
                 rewrite Hfilt_eq Heq_lin. clear. set_solver. }
@@ -3690,7 +3678,7 @@ Section proof.
             assert (Hτ₀_ne_τ2 : τ₀ ≠ τ2) by (clear -Hτ₀_not_lin; set_solver).
             assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
             { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-              assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+              assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                    (drop (Datatypes.S n) ts)).
               clear -Hsubset Hτ₀_pending Hτ₀_ne_τ2. set_solver. }
             destruct (Hempty_aeap τ₀ (conj Hτ₀_pending_old Hτ₀_not_lin_old) Hτ₀_pop_emp)
@@ -3749,7 +3737,7 @@ Section proof.
                      pose proof (valid_match_call_pop ts m τ1w τ2w Hvalid Hin_mw) as Hcall_pop_w.
                      apply list_elem_of_lookup_1 in Hcall_pop_w as [j_c Hj_c].
                      rewrite /call_of_tag list_find_None Forall_forall in Hcall_w.
-                     apply (Hcall_w (τ2w, Call (encode_request Pop))).
+                     apply (Hcall_w (τ2w, Call Pop #())).
                      { exact (list_elem_of_lookup_2 _ _ _ Hj_c). }
                      simpl. done.
               ** (* ret_of_tag τ1w = None: contradiction, τ1w has Ret in take (S n) ts *)
@@ -3772,11 +3760,11 @@ Section proof.
             apply elem_of_app in Hτ₀_lin as [Hτ₀_lin_old | Hτ₀_lin_new].
             ++ assert (Hτ₀_pending_old : τ₀ ∈ trace_pendingOp (drop n ts)).
               { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
-                assert (Hsubset := trace_pendingOp_call τ2 (encode_request Pop)
+                assert (Hsubset := trace_pendingOp_call τ2 Pop #()
                                      (drop (Datatypes.S n) ts)).
                 assert (Hne_τ₀ : τ₀ ≠ τ2).
                 { intros <-.
-                  exact (call_at_n_not_linearized n τ₀ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
+                  exact (call_at_n_not_linearized n τ₀ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin Hτ₀_lin_old). }
                 clear -Hsubset Hτ₀_pending Hne_τ₀.
                 set_solver. }
               destruct (Hpush_alap τ₀ (conj Hτ₀_pending_old Hτ₀_lin_old) Hτ₀_push)
@@ -3791,7 +3779,7 @@ Section proof.
               exfalso.
               eapply push_xor_pop_of_trace; [exact Hwf|exact Hτ₀_push|].
               rewrite /pop_of_trace.
-              apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+              apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
               apply list_elem_of_filter_2; [done|exact Hin].
           --(* Hpop as early as possible *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ1₀_called Hτ2₀_called.
@@ -3819,13 +3807,13 @@ Section proof.
                exfalso. refine (valid_match_ne _ _ _ _ _ Hvalid Hin_m₀ eq_refl).
                apply per_tag_complete_per_tag_wellformed, Hcomplete.
           --(* Hpop_lin_consistent *)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             rewrite !elem_of_cons elem_of_nil in Hlin_new.
             destruct Hlin_new as [Habs | [Heq_lin | []]].
             ++ discriminate.
-            ++ injection Heq_lin as -> _ ->.
+            ++ injection Heq_lin as -> -> _ ->.
                rewrite bool_decide_eq_true_2; last by (apply (list_elem_of_fmap_2 snd _ (τ1,τ2)); exact Hin_m).
                exists τ1, v_pop. split_and!; [exact Hin_m|exact Hcp|done].
           (**************** End LLM-generated code. *****************)
@@ -3845,7 +3833,7 @@ Section proof.
         { destruct Hclosed as [Hclosed_push _].
           eapply list_elem_of_weaken; last exact Hclosed_push.
           rewrite /push_of_trace.
-          apply (list_elem_of_fmap_2 fst _ (τ1,Call (encode_request (Push v_push)))).
+          apply (list_elem_of_fmap_2 fst _ (τ1,Call Push v_push)).
           apply list_elem_of_filter_2.
           - eexists. done.
           - (*************** Begin LLM-generated code. ****************)
@@ -3860,9 +3848,9 @@ Section proof.
         simpl in Heqτ1. subst τ1'.
         opose proof (valid_match_ne _ _ _ _ _ Hvalid Hin_m) as Hτ1_ne_τ2.
         { apply per_tag_complete_per_tag_wellformed, Hcomplete. }
-        destruct (decide ((τ2,Call (encode_request Pop)) ∈ drop n ts)) as [Hτ2_not_started|Hτ2_started].
+        destruct (decide ((τ2,Call Pop #()) ∈ drop n ts)) as [Hτ2_not_started|Hτ2_started].
         * (* The matched Pop hasn't started -- linearize τ1 here *)
-          exists (ts'_head ++ [(τ1,Lin (encode_request (Push v_push)) #());
+          exists (ts'_head ++ [(τ1,Lin Push v_push #());
             (τ1,Ret #())]), ({[+ v_push +]} ⊎ s).
           intros ts'_head_lin. split_and!.
           (*************** Begin LLM-generated code. ****************)
@@ -3876,16 +3864,16 @@ Section proof.
           --(* Hper_tag_lin *)
             intro τ₀.
             pose proof (Hper_tag_lin' := Hper_tag_lin).
-            specialize (Hper_tag_lin' τ₀) as (v₀ & v₀' & Hprefix₀).
+            specialize (Hper_tag_lin' τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ1)) as [-> | Hne]; last first.
-            { exists v₀, v₀'.
+            { exists nv₀, v₀, v₀'.
               rewrite filter_cons_False; [|simpl; congruence].
               rewrite filter_cons_False; [|simpl; congruence].
               rewrite filter_nil right_id. assumption. }
-            exists (encode_request (Push v_push)), #().
+            exists Push, v_push, #().
             do 2 rewrite filter_cons_True //. rewrite filter_nil.
-            assert (filter (λ x, x.1 = τ1) ts'_head = [(τ1, Call (encode_request (Push v_push)))]) as ->.
+            assert (filter (λ x, x.1 = τ1) ts'_head = [(τ1, Call Push v_push)]) as ->.
             { destruct (filter (λ x, x.1 = τ1) ts'_head) as [|hd [|hd2 rest2]] eqn:Hfilt1.
               - (* Empty: τ1's Call must be in ts'_head *)
                 exfalso.
@@ -3893,7 +3881,7 @@ Section proof.
                 apply list_elem_of_lookup_1 in Hcall_push as [j Hj].
                 destruct (decide (j < n)) as [Hjn|Hjn].
                 + (* j < n: Call in take n ts, hence in ts'_head. filter ≠ []. *)
-                  assert (Hin_take : (τ1, Call (encode_request (Push vp))) ∈ take n ts).
+                  assert (Hin_take : (τ1, Call Push vp) ∈ take n ts).
                   { eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
                   rewrite Hfilter in Hin_take.
                   apply list_elem_of_filter in Hin_take as [_ Hin_head].
@@ -3904,17 +3892,17 @@ Section proof.
                 + (* j ≥ n: Call after Ret. filter(drop) starts with Ret, not Call. Contradicts prefix. *)
                   assert (j ≠ n) by (intros ->; rewrite Hlookup in Hj; discriminate).
                   assert (Hj_gt : j > n) by lia.
-                  destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hpfx).
+                  destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hpfx).
                   rewrite -(take_drop n ts) filter_app Hfilter list_filter_comm Hfilt1 left_id in Hpfx.
                   pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
                   rewrite Hdrop_eq filter_cons_True // in Hpfx.
                   apply prefix_cons_inv_1 in Hpfx. discriminate.
-              - (* Singleton: hd = Call v₀. Show v₀ = Push v_push. *)
+              - (* Singleton: hd = Call nv₀ v₀. Show v₀ = Push v_push. *)
                 apply prefix_cons_inv_1 in Hprefix₀ as ->. f_equal.
-                assert (Hcv_in_ts : (τ1, Call v₀) ∈ ts).
-                { assert (Hin_head : (τ1, Call v₀) ∈ ts'_head).
+                assert (Hcv_in_ts : (τ1, Call nv₀ v₀) ∈ ts).
+                { assert (Hin_head : (τ1, Call nv₀ v₀) ∈ ts'_head).
                   { apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). rewrite Hfilt1. clear. set_solver. }
-                  assert (Hcv_in_take : (τ1, Call v₀) ∈ take n ts).
+                  assert (Hcv_in_take : (τ1, Call nv₀ v₀) ∈ take n ts).
                   { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head]. }
                   apply list_elem_of_lookup_1 in Hcv_in_take as [i Hi].
                   apply lookup_take_Some in Hi as [Hi _].
@@ -3929,12 +3917,12 @@ Section proof.
                 apply prefix_cons_inv_2 in Hprefix₀.
                 pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as ->. (* hd2 = Lin *)
                 assert (Hτ1_lin_old : τ1 ∈ (filter (is_lin ∘ snd) ts'_head).*1).
-                { apply (list_elem_of_fmap_2 fst _ (τ1, Lin v₀ v₀')).
+                { apply (list_elem_of_fmap_2 fst _ (τ1, Lin nv₀ v₀ v₀')).
                   apply list_elem_of_filter_2; [done|].
                   apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). rewrite Hfilt1. clear. set_solver. }
                 assert (Hτ1_push_of : τ1 ∈ push_of_trace ts).
                 { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcp].
-                  apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp)))).
+                  apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp)).
                   apply list_elem_of_filter_2; [eexists; done|exact Hcp]. }
                 assert (Hτ1_pending : τ1 ∈ trace_pendingOp (drop n ts)).
                 { pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq. rewrite Hdrop_eq.
@@ -3944,12 +3932,12 @@ Section proof.
                   as (τ2' & Hin_m' & Hτ2'_lin).
                 assert (τ2' = τ2) by (by eapply valid_match_inj_ret). subst τ2'.
                 (* τ2 linearized but has no events in ts'_head *)
-                pose proof (Hper_tag_lin τ2) as (v₂ & v₂' & Hprefix₂).
+                pose proof (Hper_tag_lin τ2) as (nv₂ & v₂ & v₂' & Hprefix₂).
                 assert (Hτ2_no_ev : filter (λ x, x.1 = τ2) ts'_head = []).
                 { destruct (filter (λ x, x.1 = τ2) ts'_head) as [|c cs] eqn:Hft2; [done|].
                   exfalso.
                   pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₂) as Hc_eq. subst c.
-                  assert (Hτ2_t: (τ2, Call v₂) ∈ filter (not ∘ is_lin ∘ snd) ts'_head).
+                  assert (Hτ2_t: (τ2, Call nv₂ v₂) ∈ filter (not ∘ is_lin ∘ snd) ts'_head).
                   { apply list_elem_of_filter_2; [simpl; auto|].
                     apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hft2. clear. set_solver. }
                   rewrite -Hfilter in Hτ2_t.
@@ -3957,7 +3945,7 @@ Section proof.
                   apply (list_elem_of_filter_2 (is_call∘snd)) in Hτ2_t; last done.
                   apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hτ2_not_started as Hτ2_d; last done.
                   apply (list_elem_of_filter_2 (is_call∘snd)) in Hτ2_d; last done.
-                  destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (vc3 & vc3' & Hpfx3).
+                  destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (nvc3 & vc3 & vc3' & Hpfx3).
                   rewrite -(take_drop n ts) filter_app in Hpfx3.
                   apply (prefix_filter (is_call∘snd)) in Hpfx3.
                   apply prefix_length in Hpfx3.
@@ -3983,9 +3971,8 @@ Section proof.
             rewrite filter_nil.
             eapply linearized_sound_app; first eassumption.
             eapply linearized_sound_cons.
-            { left. exists v_push. split; [assumption|reflexivity]. }
-            { eexists. split; first reflexivity.
-              split; reflexivity. }
+            { assumption. }
+            { split; reflexivity. }
             apply linearized_sound_nil.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
@@ -4014,7 +4001,7 @@ Section proof.
             subst vp.
             assert (Hτ2_not_in_call_take : τ2 ∉ (filter (is_call∘snd) (take n ts)).*1).
             { intro Habs.
-              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (vc & vc' & Hprefix_τ2).
+              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (nvc & vc & vc' & Hprefix_τ2).
               apply list_elem_of_fmap_1 in Habs as ([τ2' ev2] & Heq2 & Hin2).
               simpl in Heq2. subst τ2'.
               apply list_elem_of_filter in Hin2 as [_ Hin2].
@@ -4025,7 +4012,7 @@ Section proof.
               { set_solver. }
               destruct (filter (λ x, x.1 = τ2) (drop n ts)) as [|hd_d tl_d].
               { set_solver. }
-              pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix_τ2) as ->. (* hd_t = (τ2, Call vc) *)
+              pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix_τ2) as ->. (* hd_t = (τ2, Call nvc vc) *)
               apply prefix_cons_inv_2 in Hprefix_τ2.
               destruct tl_t as [|? ?]; last first.
               { exfalso. apply prefix_length in Hprefix_τ2.
@@ -4106,7 +4093,7 @@ Section proof.
                  τ1's Ret at position n makes τ1 complete, not pending. *)
               exfalso.
               assert (Hfilt_empty : filter (λ x, x.1 = τ1) (drop (Datatypes.S n) ts) = []).
-              { pose proof (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hprefix_τ1).
+              { pose proof (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hprefix_τ1).
                 assert (Hret_take : (τ1, Ret #()) ∈ filter (λ x, x.1 = τ1) (take (Datatypes.S n) ts)).
                 { apply list_elem_of_filter_2; [done|].
                   eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hlookup|lia]. }
@@ -4138,9 +4125,9 @@ Section proof.
             apply elem_of_app. left.
             exact (Hpop_aeap _ _ Hin_m₀ Hτ1₀_called Hτ2₀_called).
           --(* Hpop_lin_consistent *)
-            intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+            intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
             apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-            { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+            { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
             rewrite !elem_of_cons elem_of_nil in Hlin_new.
             destruct Hlin_new as [Heq_lin | [Habs | []]]; [|discriminate].
             (* τ₀ = τ1 but τ1 is push and τ₀ is pop *)
@@ -4162,20 +4149,20 @@ Section proof.
             f_equal. done.
           --(* Hper_tag_lin *)
             intro τ₀.
-            destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hprefix₀).
+            destruct (Hper_tag_lin τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
             rewrite filter_app.
             destruct (decide (τ₀ = τ1)) as [-> | Hne]; last first.
-            { exists v₀, v₀'.
+            { exists nv₀, v₀, v₀'.
               rewrite filter_cons_False; [|simpl; congruence].
               rewrite filter_nil right_id. assumption. }
-            exists (encode_request (Push v_push)), #().
+            exists Push, v_push, #().
             rewrite filter_cons_True // filter_nil.
             destruct (filter (λ x, x.1 = τ1) ts'_head) as [|hd [|hd2 [|hd3 rest3]]] eqn:Hfilt1.
             { exfalso.
               destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcall_push].
               apply list_elem_of_lookup_1 in Hcall_push as [j Hj].
               destruct (decide (j < n)) as [Hjn|Hjn].
-              - assert (Hin_take_vp : (τ1, Call (encode_request (Push vp))) ∈ take n ts).
+              - assert (Hin_take_vp : (τ1, Call Push vp) ∈ take n ts).
                 { eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
                 rewrite Hfilter in Hin_take_vp.
                 apply list_elem_of_filter in Hin_take_vp as [_ Hin_head].
@@ -4183,27 +4170,27 @@ Section proof.
                 rewrite Hfilt1 in Hin_head.
                 clear -Hin_head. set_solver.
               - assert (j ≠ n) by (intros ->; rewrite Hlookup in Hj; discriminate).
-                destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hpfx).
+                destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hpfx).
                 rewrite -(take_drop n ts) filter_app Hfilter list_filter_comm Hfilt1 left_id in Hpfx.
                 pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
                 rewrite Hdrop_eq filter_cons_True // in Hpfx.
                 apply prefix_cons_inv_1 in Hpfx. discriminate. }
             { (* Singleton: τ1 NOT linearized. Use Hpop_aeap to derive contradiction. *)
               exfalso.
-              (* Determine hd = (τ1, Call v₀) *)
+              (* Determine hd = (τ1, Call nv₀ v₀) *)
               pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as Hhd_eq.
               (* τ1 ∈ call_tags(take n ts) *)
               assert (Hτ1_called : τ1 ∈ (filter (is_call ∘ snd) (take n ts)).*1).
-              { apply (list_elem_of_fmap_2 fst _ (τ1, Call v₀)).
+              { apply (list_elem_of_fmap_2 fst _ (τ1, Call nv₀ v₀)).
                 apply list_elem_of_filter_2; [done|].
-                assert (Hin_head : (τ1, Call v₀) ∈ ts'_head).
+                assert (Hin_head : (τ1, Call nv₀ v₀) ∈ ts'_head).
                 { apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). rewrite Hfilt1 Hhd_eq. clear. set_solver. }
-                assert (Hin_take_v₀ : (τ1, Call v₀) ∈ take n ts).
+                assert (Hin_take_v₀ : (τ1, Call nv₀ v₀) ∈ take n ts).
                 { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head]. }
                 exact Hin_take_v₀. }
               (* τ2 ∈ call_tags(take n ts) *)
               assert (Hτ2_called : τ2 ∈ (filter (is_call ∘ snd) (take n ts)).*1).
-              { apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+              { apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                 apply list_elem_of_filter_2; [done|].
                 pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp.
                 rewrite -(take_drop n ts) in Hcp. apply elem_of_app in Hcp as [Hcp_take|Hcp_drop]; [done|].
@@ -4217,7 +4204,7 @@ Section proof.
               simpl in Heq_τ1'. subst τ1'.
               apply list_elem_of_filter in Hin_lin as [His_lin Hin_lin].
               apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hin_lin; last done.
-              (* Hin_lin : (τ1, ev_lin) ∈ filter(tag=τ1)(ts'_head) = [hd] = [(τ1, Call v₀)] *)
+              (* Hin_lin : (τ1, ev_lin) ∈ filter(tag=τ1)(ts'_head) = [hd] = [(τ1, Call nv₀ v₀)] *)
               subst hd.
               rewrite Hfilt1 elem_of_cons elem_of_nil in Hin_lin.
               destruct Hin_lin as [Hin_lin|[]].
@@ -4226,10 +4213,10 @@ Section proof.
             { apply prefix_cons_inv_1 in Hprefix₀ as ?. subst hd.
               apply prefix_cons_inv_2 in Hprefix₀.
               pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as ->.
-              assert (Hcv_in_ts : (τ1, Call v₀) ∈ ts).
-              { assert (Hin_head' : (τ1, Call v₀) ∈ ts'_head).
+              assert (Hcv_in_ts : (τ1, Call nv₀ v₀) ∈ ts).
+              { assert (Hin_head' : (τ1, Call nv₀ v₀) ∈ ts'_head).
                 { apply (list_elem_of_filter_1 (λ x, x.1 = τ1)). rewrite Hfilt1. clear. set_solver. }
-                assert (Hin_take' : (τ1, Call v₀) ∈ take n ts).
+                assert (Hin_take' : (τ1, Call nv₀ v₀) ∈ take n ts).
                 { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head']. }
                 apply list_elem_of_lookup_1 in Hin_take' as [i Hi].
                 apply lookup_take_Some in Hi as [Hi _].
@@ -4238,9 +4225,9 @@ Section proof.
               pose proof (elem_of_prefix _ _ _ Hcv_in_ts Hprefix) as Hin_pfx.
               rewrite !elem_of_cons elem_of_nil right_id in Hin_pfx.
               destruct Hin_pfx as [Hin_pfx|Hin_pfx]; last discriminate Hin_pfx.
-              injection Hin_pfx as ->.
+              injection Hin_pfx as -> ->.
               enough (v₀' = #()) by (subst v₀'; exists []; reflexivity).
-              assert ((τ1, Lin (InjRV v_push) v₀') ∈ filter (is_lin ∘ snd) ts'_head)
+              assert ((τ1, Lin Push v_push v₀') ∈ filter (is_lin ∘ snd) ts'_head)
                 as (l1 & l2 & Heq_τ1_lin)%list_elem_of_split.
               { apply list_elem_of_filter_2; first by simpl.
                 apply (list_elem_of_filter_1 (λ x, x.1=τ1)).
@@ -4248,7 +4235,6 @@ Section proof.
               rewrite Heq_τ1_lin in Hlin_sound.
               apply linearized_sound_app_inv in Hlin_sound as (? & _ & Hlin_sound).
               apply linearized_sound_cons_inv in Hlin_sound as (? & ? & Hrr & _).
-              destruct Hrr as ([v_push'|] & Henc & Hrr); last discriminate Henc.
               destruct Hrr as [_ ?].
               assumption. }
             { (* 3+ elements: Ret ∈ ts'_head but only 1 Ret for τ1, at position n ∉ take n ts. *)
@@ -4266,7 +4252,7 @@ Section proof.
               { apply list_elem_of_filter_2; [done|].
                 pose proof (drop_S _ _ _ Hlookup) as ->. clear. set_solver. }
               apply (list_elem_of_filter_2 (is_ret∘snd)) in Hrn_f; last done.
-              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hpfx).
+              destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hpfx).
               apply (prefix_filter (is_ret∘snd)) in Hpfx.
               rewrite -(take_drop n ts) !filter_app in Hpfx.
               apply prefix_length in Hpfx. rewrite length_app in Hpfx.
@@ -4293,7 +4279,7 @@ Section proof.
           --(* Hstate_of_trace *)
             rewrite Hstate_of_trace.
             assert (Hτ2_in_call_take : τ2 ∈ (filter (is_call∘snd) (take n ts)).*1).
-            { apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+            { apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
               apply list_elem_of_filter_2; [done|].
               pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp.
               rewrite -(take_drop n ts) in Hcp. apply elem_of_app in Hcp as [?|?]; [done|].
@@ -4381,7 +4367,7 @@ Section proof.
           apply prefix_cons_inv_1 in Hprefix. subst x.
           set_solver.
         * (* Hper_tag_lin *)intro τ₀.
-          specialize (Hper_tag_lin τ₀) as (v₀ & v₀' & Hprefix₀).
+          specialize (Hper_tag_lin τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
           rewrite filter_app.
           destruct (decide (τ₀ = τ)) as [-> | Hτ₀_ne_τ].
           -- assert (Hv'_eq : v' = encode_response IsEmpty).
@@ -4389,12 +4375,12 @@ Section proof.
                rewrite !elem_of_cons elem_of_nil right_id in Hin'.
                destruct Hin' as [Hin'|Hin']; [discriminate|by injection Hin']. }
              subst v'.
-             exists (encode_request Pop), (encode_response IsEmpty).
+             exists Pop, #(), (encode_response IsEmpty).
              rewrite filter_cons_True //.
              rewrite filter_nil.
              destruct (filter (λ x, x.1 = τ) ts'_head) as [|hd [|hd2 [|hd3 rest3]]] eqn:Hfilt1.
              { exfalso.
-               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (vc & vc' & Hpfx_τ).
+               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (nvc & vc & vc' & Hpfx_τ).
                rewrite -(take_drop n ts) filter_app Hfilter list_filter_comm Hfilt1 left_id in Hpfx_τ.
                pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
                rewrite Hdrop_eq filter_cons_True // in Hpfx_τ.
@@ -4428,7 +4414,7 @@ Section proof.
                { destruct (decide (icall = icall')); [lia|].
                  exfalso.
                  (* Two Calls for τ at different positions. Contradiction with per_tag_wellformed. *)
-                 destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (vc_u & vc_u' & Hpfx_u).
+                 destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (nvc_u & vc_u & vc_u' & Hpfx_u).
                  apply (prefix_filter (is_call∘snd)) in Hpfx_u.
                  rewrite filter_cons_True in Hpfx_u; last done.
                  rewrite filter_cons_False in Hpfx_u; last by simpl; auto.
@@ -4439,12 +4425,12 @@ Section proof.
                  pose proof (list_elem_of_lookup_2 _ _ _ Hicall') as Hin_c2.
                  rewrite -(take_drop split_pos ts) !filter_app in Hpfx_u.
                  apply prefix_length in Hpfx_u. rewrite !length_app length_cons length_nil in Hpfx_u.
-                 assert (Hin_take : (τ, Call (encode_request Pop)) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ) (take split_pos ts))).
+                 assert (Hin_take : (τ, Call Pop #()) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ) (take split_pos ts))).
                  { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|].
                    destruct (decide (icall < icall')).
                    - eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hicall_lookup|]. subst split_pos. lia.
                    - eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hicall'|]. subst split_pos. lia. }
-                 assert (Hin_drop : (τ, Call (encode_request Pop)) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ) (drop split_pos ts))).
+                 assert (Hin_drop : (τ, Call Pop #()) ∈ filter (is_call ∘ snd) (filter (λ x, x.1 = τ) (drop split_pos ts))).
                  { apply list_elem_of_filter_2; [done|]. apply list_elem_of_filter_2; [done|].
                    destruct (decide (icall < icall')).
                    - replace icall' with (split_pos + (icall' - split_pos)) in Hicall' by (subst split_pos; lia).
@@ -4462,7 +4448,7 @@ Section proof.
                assert (iret = n).
                { destruct (decide (iret = n)); [lia|exfalso].
                  (* Two Rets at different positions. Same take/drop argument. *)
-                 destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (vc_r & vc_r' & Hpfx_r).
+                 destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (nvc_r & vc_r & vc_r' & Hpfx_r).
                  apply (prefix_filter (is_ret∘snd)) in Hpfx_r.
                  rewrite filter_cons_False in Hpfx_r; last by simpl; auto.
                  rewrite filter_cons_True in Hpfx_r; last by simpl; auto.
@@ -4499,7 +4485,7 @@ Section proof.
                (* No push_pop_covers at n. But from the Hempty_aeap proof for step n+1,
                   we showed coverage at n using icall_c ≠ n. Re-derive: *)
                assert (icall < n).
-               { exact (call_pos_lt_ret_pos _ _ _ _ _ Hwf Hicall_lookup Hlookup). }
+               { exact (call_pos_lt_ret_pos _ _ _ _ _ _ Hwf Hicall_lookup Hlookup). }
                destruct (Hicall_covers (n-1) ltac:(lia)) as (τ1c & τ2c & Hinm_c & Hcover_c).
                rewrite /push_pop_covers in Hcover_c.
                destruct (ret_of_tag ts τ1c) as [[iret_c [? tret_c]]|] eqn:Hiret_c; [|done].
@@ -4516,14 +4502,14 @@ Section proof.
                   So push_pop_covers at n: iret_c ≤ n ≤ icall_c. *)
                apply (Hno_cover τ1c τ2c Hinm_c).
                rewrite /push_pop_covers Hiret_c Hicall_c /=. lia. }
-             { destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (vc & vc' & Hpfx_τ).
+             { destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (nvc & vc & vc' & Hpfx_τ).
                apply prefix_cons_inv_1 in Hprefix₀ as ?. subst hd.
                apply prefix_cons_inv_2 in Hprefix₀.
                pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as ->.
-               assert (Hcv_in_ts : (τ, Call v₀) ∈ ts).
-               { assert (Hin_head' : (τ, Call v₀) ∈ ts'_head).
+               assert (Hcv_in_ts : (τ, Call nv₀ v₀) ∈ ts).
+               { assert (Hin_head' : (τ, Call nv₀ v₀) ∈ ts'_head).
                  { apply (list_elem_of_filter_1 (λ x, x.1 = τ)). rewrite Hfilt1. clear. set_solver. }
-                 assert (Hin_take' : (τ, Call v₀) ∈ take n ts).
+                 assert (Hin_take' : (τ, Call nv₀ v₀) ∈ take n ts).
                  { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head']. }
                  apply list_elem_of_lookup_1 in Hin_take' as [i Hi].
                  apply lookup_take_Some in Hi as [Hi _].
@@ -4532,20 +4518,20 @@ Section proof.
                pose proof (elem_of_prefix _ _ _ Hcv_in_ts Hprefix) as Hin_pfx.
                rewrite !elem_of_cons elem_of_nil right_id in Hin_pfx.
                destruct Hin_pfx as [Hin_pfx|Hin_pfx]; last discriminate Hin_pfx.
-               injection Hin_pfx as ->.
+               injection Hin_pfx as -> ->.
                enough (v₀' = encode_response IsEmpty) by (subst v₀'; exists []; reflexivity).
-               assert (Hlin_in : (τ, Lin (encode_request Pop) v₀') ∈ ts'_head).
+               assert (Hlin_in : (τ, Lin Pop #() v₀') ∈ ts'_head).
                { apply (list_elem_of_filter_1 (λ x, x.1 = τ)).
                  rewrite Hfilt1. clear. set_solver. }
                assert (Hτ_pop_ret : τ ∈ pop_of_trace ts).
-               { apply (list_elem_of_fmap_2 fst _ (τ, Call (encode_request Pop))).
+               { apply (list_elem_of_fmap_2 fst _ (τ, Call Pop #())).
                  apply list_elem_of_filter_2; [done|].
                  apply (list_elem_of_filter_1 (λ x, x.1 = τ)).
                  destruct (filter (λ x, x.1 = τ) ts) as [|x_filt xs_filt] eqn:Hfilt_empty.
                  { exfalso. apply (list_elem_of_filter_2 (λ x, x.1 = τ)) in Hin; last done.
                    rewrite Hfilt_empty in Hin. clear -Hin. set_solver. }
                  pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix) as ->. clear. set_solver. }
-               pose proof (Hpop_lin_consistent _ _ _ Hτ_pop_ret Hlin_in) as Hcons.
+               pose proof (Hpop_lin_consistent _ _ _ _ Hτ_pop_ret Hlin_in) as Hcons.
                assert (Hτ_not_m2 : τ ∉ m.*2).
                { eapply pop_empty_not_in_m; [exact Hcomplete|exact Hvalid|exact Hwf| |exact Hprefix].
                  apply (list_elem_of_filter_1 (λ x, x.1 = τ)).
@@ -4566,7 +4552,7 @@ Section proof.
                { apply list_elem_of_filter_2; [done|].
                  pose proof (drop_S _ _ _ Hlookup) as ->. clear. set_solver. }
                apply (list_elem_of_filter_2 (is_ret∘snd)) in Hrn_f; last done.
-               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (vc & vc' & Hpfx).
+               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ) as (nvc & vc & vc' & Hpfx).
                apply (prefix_filter (is_ret∘snd)) in Hpfx.
                rewrite -(take_drop n ts) !filter_app in Hpfx.
                apply prefix_length in Hpfx. rewrite length_app in Hpfx.
@@ -4579,7 +4565,7 @@ Section proof.
                destruct (filter (is_ret ∘ snd) (filter (λ x, x.1 = τ) (take n ts))).
                - clear -Hrt_f. set_solver.
                - simpl. lia. }
-          -- exists v₀, v₀'.
+          -- exists nv₀, v₀, v₀'.
              rewrite filter_cons_False; last by simpl; auto.
              rewrite filter_nil right_id. assumption.
         * (* Hlin_sound *)
@@ -4679,9 +4665,9 @@ Section proof.
           rewrite filter_nil right_id.
           exact (Hpop_aeap _ _ Hin_m₀ Hτ1₀_called Hτ2₀_called).
         * (* Hpop_lin_consistent *)
-          intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+          intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
           apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-          { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+          { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
           rewrite elem_of_cons elem_of_nil in Hlin_new.
           destruct Hlin_new as [Habs|[]]. discriminate.
         (**************** End LLM-generated code. *****************)
@@ -4696,7 +4682,7 @@ Section proof.
         { destruct Hclosed as [_ Hclosed_pop].
           rewrite Forall_forall in Hclosed_pop.
           opose proof (Hclosed_pop τ2 _) as [?|[HFalse | HFalse]].
-          { apply (list_elem_of_fmap_2 fst _ (τ2,Call (encode_request Pop))).
+          { apply (list_elem_of_fmap_2 fst _ (τ2,Call Pop #())).
             eapply list_elem_of_filter_2.
             - done.
             - (*************** Begin LLM-generated code. ****************)
@@ -4713,7 +4699,7 @@ Section proof.
             rewrite !elem_of_cons elem_of_nil right_id in HFalse'.
             destruct HFalse'; discriminate.
           - contradict HFalse.
-            destruct (Hcomplete τ2) as (v&v'&[Heq|Heq]).
+            destruct (Hcomplete τ2) as (nv&v&v'&[Heq|Heq]).
             + rewrite Heq in Hin_filter_tag. clear -Hin_filter_tag. set_solver.
             + apply (list_elem_of_fmap_2 fst _ (τ2,Ret v')).
               apply list_elem_of_filter_2; first done.
@@ -4736,16 +4722,16 @@ Section proof.
           f_equal. done.
         * (* Hper_tag_lin *)
           intro τ₀.
-          specialize (Hper_tag_lin τ₀) as (v₀ & v₀' & Hprefix₀).
+          specialize (Hper_tag_lin τ₀) as (nv₀ & v₀ & v₀' & Hprefix₀).
           rewrite filter_app.
           destruct (decide (τ₀ = τ2)) as [-> | Hτ₀_ne_τ2].
           --
-             exists (encode_request Pop), (encode_response (NonEmpty v_pop)).
+             exists Pop, #(), (encode_response (NonEmpty v_pop)).
              rewrite filter_cons_True //.
              rewrite filter_nil.
              destruct (filter (λ x, x.1 = τ2) ts'_head) as [|hd [|hd2 [|hd3 rest3]]] eqn:Hfilt1.
              { exfalso.
-               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (vc & vc' & Hpfx_τ2).
+               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (nvc & vc & vc' & Hpfx_τ2).
                rewrite -(take_drop n ts) filter_app Hfilter list_filter_comm Hfilt1 left_id in Hpfx_τ2.
                pose proof (drop_S _ _ _ Hlookup) as Hdrop_eq.
                rewrite Hdrop_eq filter_cons_True // in Hpfx_τ2.
@@ -4756,7 +4742,7 @@ Section proof.
                   The Call must be before n (since per_tag_wellformed: Call before Ret). *)
                assert (Hτ1_called : τ1 ∈ (filter (is_call ∘ snd) (take n ts)).*1).
                { destruct (valid_match_call_push ts m τ1 τ2 Hvalid Hin_m) as [vp Hcp].
-                 apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push vp)))).
+                 apply (list_elem_of_fmap_2 fst _ (τ1, Call Push vp)).
                  apply list_elem_of_filter_2; [done|].
                  (* Call Push ∈ ts. Position < n because Ret at n and per_tag_wellformed says Call first. *)
                  apply list_elem_of_lookup_1 in Hcp as [j Hj].
@@ -4765,18 +4751,18 @@ Section proof.
                    assert (j < length ts) by (eapply lookup_lt_Some; eauto).
                    destruct (decide (j < n)); [lia|exfalso].
                    (* j > n: τ1's Call Push at j, τ2's Ret NonEmpty at n. Use filter order. *)
-                   destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (vc & vc' & Hpfx_τ1).
+                   destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ1) as (nvc & vc & vc' & Hpfx_τ1).
                    rewrite -(take_drop n ts) filter_app in Hpfx_τ1.
-                   pose proof (matched_push_call_le_pop_ret _ _ _ _ _ _ Hcomplete Hvalid Hwf Hin_m Hj Hlookup). lia. }
+                   pose proof (matched_push_call_le_pop_ret _ _ _ _ _ _ _ Hcomplete Hvalid Hwf Hin_m Hj Hlookup). lia. }
                  eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hj|lia]. }
                (* τ2 ∈ call_tags(take n ts): τ2's Call Pop is in take n ts (before Ret at n) *)
                assert (Hτ2_called : τ2 ∈ (filter (is_call ∘ snd) (take n ts)).*1).
-               { apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+               { apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                  apply list_elem_of_filter_2; [done|].
                  pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp2.
                  apply list_elem_of_lookup_1 in Hcp2 as [k Hk].
                  assert (k < n).
-                 { exact (call_pos_lt_ret_pos _ _ _ _ _ Hwf Hk Hlookup). }
+                 { exact (call_pos_lt_ret_pos _ _ _ _ _ _ Hwf Hk Hlookup). }
                  eapply list_elem_of_lookup_2. rewrite lookup_take_lt; [exact Hk|lia]. }
                (* By Hpop_aeap: τ2 ∈ lin_tags(ts'_head) *)
                pose proof (Hpop_aeap _ _ Hin_m Hτ1_called Hτ2_called) as Hτ2_lin.
@@ -4793,10 +4779,10 @@ Section proof.
              { apply prefix_cons_inv_1 in Hprefix₀ as ?. subst hd.
                apply prefix_cons_inv_2 in Hprefix₀.
                pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix₀) as ->.
-               assert (Hcv_in_ts : (τ2, Call v₀) ∈ ts).
-               { assert (Hin_head' : (τ2, Call v₀) ∈ ts'_head).
+               assert (Hcv_in_ts : (τ2, Call nv₀ v₀) ∈ ts).
+               { assert (Hin_head' : (τ2, Call nv₀ v₀) ∈ ts'_head).
                  { apply (list_elem_of_filter_1 (λ x, x.1 = τ2)). rewrite Hfilt1. clear. set_solver. }
-                 assert (Hin_take' : (τ2, Call v₀) ∈ take n ts).
+                 assert (Hin_take' : (τ2, Call nv₀ v₀) ∈ take n ts).
                  { rewrite Hfilter. apply list_elem_of_filter_2; [simpl; by auto|exact Hin_head']. }
                  apply list_elem_of_lookup_1 in Hin_take' as [i Hi].
                  apply lookup_take_Some in Hi as [Hi _].
@@ -4805,19 +4791,19 @@ Section proof.
                pose proof (elem_of_prefix _ _ _ Hcv_in_ts Hprefix) as Hin_pfx.
                rewrite !elem_of_cons elem_of_nil right_id in Hin_pfx.
                destruct Hin_pfx as [Hin_pfx|Hin_pfx]; last discriminate Hin_pfx.
-               injection Hin_pfx as ->.
+               injection Hin_pfx as -> ->.
                enough (v₀' = encode_response (NonEmpty v_pop)) by (subst v₀'; exists []; reflexivity).
-               assert (Hlin_in : (τ2, Lin (encode_request Pop) v₀') ∈ ts'_head).
+               assert (Hlin_in : (τ2, Lin Pop #() v₀') ∈ ts'_head).
                { apply (list_elem_of_filter_1 (λ x, x.1 = τ2)).
                  rewrite Hfilt1. clear. set_solver. }
                assert (Hτ2_pop : τ2 ∈ pop_of_trace ts).
-               { apply (list_elem_of_fmap_2 fst _ (τ2, Call (encode_request Pop))).
+               { apply (list_elem_of_fmap_2 fst _ (τ2, Call Pop #())).
                  apply list_elem_of_filter_2; [done|].
                  apply (list_elem_of_filter_1 (λ x, x.1 = τ2)).
                  destruct (filter (λ x, x.1 = τ2) ts) as [|x xs] eqn:Hfilt_empty.
                  { exfalso. clear -Hin_filter_tag Hfilt_empty. set_solver. }
                  pose proof (prefix_cons_inv_1 _ _ _ _ Hprefix) as ->. clear. set_solver. }
-               pose proof (Hpop_lin_consistent _ _ _ Hτ2_pop Hlin_in) as Hcons.
+               pose proof (Hpop_lin_consistent _ _ _ _ Hτ2_pop Hlin_in) as Hcons.
                assert (Hτ2_m2 : τ2 ∈ m.*2).
                { apply (list_elem_of_fmap_2 snd _ (τ1, τ2)). exact Hin_m. }
                rewrite bool_decide_eq_true_2 in Hcons; last exact Hτ2_m2.
@@ -4850,7 +4836,7 @@ Section proof.
                       destruct Hin3 as [Hin3|Hin3]; first discriminate.
                       by simplify_eq.
                   --- exfalso. apply Hno_ret.
-                      destruct (Hcomplete τ2) as (vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
+                      destruct (Hcomplete τ2) as (nvc2 & vc2 & vc2' & [Hfilt_empty2|Hfilt_eq2]).
                       { pose proof (valid_match_call_pop ts m τ1 τ2 Hvalid Hin_m) as Hcp2.
                         apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hcp2; last done.
                         rewrite Hfilt_empty2 in Hcp2. clear -Hcp2. set_solver. }
@@ -4874,7 +4860,7 @@ Section proof.
                { apply list_elem_of_filter_2; [done|].
                  pose proof (drop_S _ _ _ Hlookup) as ->. clear. set_solver. }
                apply (list_elem_of_filter_2 (is_ret∘snd)) in Hrn_f; last done.
-               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (vc & vc' & Hpfx).
+               destruct (per_tag_wellformed_bag_wellformed _ _ _ Hwf τ2) as (nvc & vc & vc' & Hpfx).
                apply (prefix_filter (is_ret∘snd)) in Hpfx.
                rewrite -(take_drop n ts) !filter_app in Hpfx.
                apply prefix_length in Hpfx. rewrite length_app in Hpfx.
@@ -4887,7 +4873,7 @@ Section proof.
                destruct (filter (is_ret ∘ snd) (filter (λ x, x.1 = τ2) (take n ts))).
                - clear -Hrt_f. set_solver.
                - simpl. lia. }
-          -- exists v₀, v₀'.
+          -- exists nv₀, v₀, v₀'.
              rewrite filter_cons_False; last by simpl; auto.
              rewrite filter_nil right_id. assumption.
         * (* Hlin_sound *)
@@ -4969,9 +4955,9 @@ Section proof.
           rewrite filter_nil right_id.
           exact (Hpop_aeap _ _ Hin_m₀ Hτ1₀_called Hτ2₀_called).
         * (* Hpop_lin_consistent *)
-          intros τ₀ v₀_c v₀'_c Hτ₀_pop Hin_lin.
+          intros τ₀ nl₀_c v₀_c v₀'_c Hτ₀_pop Hin_lin.
           apply elem_of_app in Hin_lin as [Hlin_old | Hlin_new].
-          { exact (Hpop_lin_consistent _ _ _ Hτ₀_pop Hlin_old). }
+          { exact (Hpop_lin_consistent _ _ _ _ Hτ₀_pop Hlin_old). }
           rewrite elem_of_cons elem_of_nil in Hlin_new.
           destruct Hlin_new as [Habs|[]]. discriminate.
         (**************** End LLM-generated code. *****************)
@@ -4984,7 +4970,7 @@ Section proof.
     τ ∈ (filter (is_lin ∘ snd) ts').*1.
   Proof.
     intros Hfilter Hper_tag_lin Hin.
-    destruct (Hcomplete τ) as (v&v'&[HFalse|Heq]).
+    destruct (Hcomplete τ) as (nv&v&v'&[HFalse|Heq]).
     { exfalso.
       destruct (list_elem_of_fmap_1 fst ts τ Hin) as ([τ' t] & Heq & Hin').
       simpl in Heq. subst τ'. clear Hin.
@@ -4993,7 +4979,7 @@ Section proof.
       rewrite HFalse in Hin_filter_tag. set_solver. }
     (* rewrite Heq in Hin_filter_tag.
     rewrite !elem_of_cons elem_of_nil right_id in Hin_filter_tag. *)
-    destruct (Hper_tag_lin τ) as (v_&v'_&[l Heq']).
+    destruct (Hper_tag_lin τ) as (nv_&v_&v'_&[l Heq']).
 
     (* show that filter (not ∘ is_lin ∘ snd) l = nil *)
     rewrite Hfilter list_filter_comm in Heq.
@@ -5003,9 +4989,9 @@ Section proof.
     rewrite filter_cons_False in Heq''; last by simpl; auto.
     rewrite filter_cons_True in Heq''; last by simpl; auto.
     rewrite filter_nil in Heq''.
-    rewrite -(right_id_L [] (++) [(τ, Call v_); (τ, Ret v'_)]) in Heq''.
+    rewrite -(right_id_L [] (++) [(τ, Call nv_ v_); (τ, Ret v'_)]) in Heq''.
     apply app_inj_1 in Heq'' as [Heq''1 Heq''2]; last done.
-    injection  Heq''1 as -> ->.
+    injection  Heq''1 as -> -> ->.
 
     (* show that l = nil *)
     destruct l as [|x l _] using rev_ind; last first.
@@ -5019,11 +5005,11 @@ Section proof.
       discriminate. }
     rewrite right_id_L in Heq'.
 
-    (* now we know (τ,Lin v v') ∈ ts' *)
-    assert (Hin': (τ,Lin v v') ∈ ts').
+    (* now we know (τ,Lin nv v v') ∈ ts' *)
+    assert (Hin': (τ,Lin nv v v') ∈ ts').
     { apply (list_elem_of_filter_1 (λ t, t.1 = τ)).
       rewrite -Heq'. set_solver. }
-    change (τ) with (τ,Lin v v').1.
+    change (τ) with (τ,Lin nv v v').1.
     apply list_elem_of_fmap_2.
     apply list_elem_of_filter_2; done.
   Qed.

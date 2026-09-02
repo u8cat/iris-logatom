@@ -31,7 +31,7 @@ Section bq_skeleton_new_queue.
     ∀ `(!heapGS Σ), init_spec_type bq_repr NotStuck init_bq.
   Proof.
     iIntros (Hheap Φ) "_ HΦ".
-    rewrite /init_bq. wp_pures.
+    rewrite /init_bq.
     rewrite /new_queue. wp_pures.
     (* Allocate the dummy node — a 2-cell block. *)
     rewrite /new_node. wp_pures.

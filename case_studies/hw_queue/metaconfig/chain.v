@@ -17,12 +17,13 @@ From case_studies.hw_queue.metaconfig Require Import defs init enq deq.
 Lemma call_ret_wrapper_spec `{!heapGS Σ, !traceG Σ, !hwqMcG Σ} :
   call_ret_wrapper_spec_type
     hwq_repr NotStuck
-    (@valid_request hwq_model) op.
+    (@valid_requests hwq_model) ops.
 Proof.
-  intros γ tracer q req Hreq.
-  destruct Hreq as [(v_push & Hunboxed & ->) | ->].
-  - exact (push_wrapper_spec γ tracer q v_push Hunboxed).
-  - exact (pop_wrapper_spec γ tracer q).
+  intros n γ tracer q req Hreq.
+  (* [hwq_model] declares exactly the two operations [Push] and [Pop]. *)
+  destruct n as [|[|n]]; last by (simpl in Hreq; destruct Hreq).
+  - exact (push_wrapper_spec γ tracer q req Hreq).
+  - simpl in Hreq. subst req. exact (pop_wrapper_spec γ tracer q).
 Qed.
 
 (* ====================================================================== *)
@@ -30,7 +31,7 @@ Qed.
 
 Lemma hwq_library_il sz :
   (0 < sz)%Z →
-  library_initializable_linearizable (M := hwq_model) (init_hwq sz) op.
+  library_initializable_linearizable (M := hwq_model) (init_hwq sz) ops.
 Proof.
   set (Σ := #[heapΣ; traceΣ; hwqMcΣ]).
   intros Hsz. split.
@@ -43,9 +44,9 @@ Proof.
     wp_pures.
     wp_alloc l' as "_".
     wp_pures. done.
-  - (* Linearizability of [op]. *)
+  - (* Linearizability of [impl.ops]. *)
     intros obj σ₀ t σ config' ts Hsteps Hadv_steps.
-    opose proof (bdgjst_free (Σ:=Σ) hwq_repr _ _ op σ₀ obj t σ config' ts
+    opose proof (bdgjst_free (Σ:=Σ) hwq_repr _ _ ops σ₀ obj t σ config' ts
                    _ _ I_lang_hwq_init Hsteps Hadv_steps)
       as (Hnot_stuck & Hilang).
     + intros ?. by apply init_spec.
@@ -63,25 +64,27 @@ Section client_specs.
   Context `{!heapGS Σ}.
   Context `{!linearizabilityG (M := hwq_model) Σ}.
 
-  Definition is_hwq_atomic γ q := is_P (M := hwq_model) op γ q.
+  Definition is_hwq_atomic γ q := is_P (M := hwq_model) ops γ q.
   Definition hwq_content γ (ls : list val) := P_state (M := hwq_model) γ ls.
 
-  Definition enqueue_wrapper : val := λ: "q" "v", wrap_op op "q" (SOME "v").
-  Definition dequeue_wrapper : val := λ: "q", unwrap (wrap_op op "q" NONEV).
+  Definition new_queue_wrapper: val := λ: "sz", wrap_init (new_queue "sz").
+  Definition enqueue_wrapper : val := λ: "q" "v", wrap_op Push (ops !!! Push : val) "q" "v".
+  Definition dequeue_wrapper : val := λ: "q", unwrap (wrap_op Pop (ops !!! Pop : val) "q" #()).
 
   Lemma new_queue_spec sz :
     (0 < sz)%Z →
     {{{ True }}}
-      wrap_init (init_hwq sz) #()
+      new_queue_wrapper #sz
     {{{ γ q, RET q; is_hwq_atomic γ q ∗ hwq_content γ [] }}}.
   Proof.
     intros Hsz.
-    assert (Hseq : ∀ σ, sequential (init_hwq sz #()) σ).
+    assert (Hnv : to_val (init_hwq sz) = None) by done.
+    assert (Hseq : ∀ σ, sequential (init_hwq sz) σ).
     { intros ?. apply fork_free_sequential. compute_done. }
-    pose proof (init_spec_full := logatom_complete_init _ _ Hseq
+    pose proof (init_spec_full := logatom_complete_init _ _ Hnv Hseq
                   (hwq_library_il sz Hsz)).
-    simpl in init_spec_full.
-    apply init_spec_full.
+    iIntros (Φ) "HT HΦ".
+    wp_lam. iApply (init_spec_full with "HT HΦ").
   Qed.
 
   Lemma enqueue_spec γ (q v : val) :
@@ -93,17 +96,14 @@ Section client_specs.
   Proof.
     iIntros (Hunboxed) "#His_hwq %Φ AU".
     wp_lam. wp_pures.
-    opose proof (logatom_complete_op _ _ (hwq_library_il 1 _) γ q (SOMEV v) _)
+    opose proof (logatom_complete_op _ _ Push (hwq_library_il 1 _) γ q v _)
       as op_full_spec; first lia.
-    { rewrite /valid_request. left. exists v. done. }
+    { exact Hunboxed. }
     awp_apply (op_full_spec with "His_hwq").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (s) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (SOMEV v) with (encode_request (Push v)) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct Hrr as [-> ->].
     iFrame "Hcontent". auto.
   Qed.
@@ -116,17 +116,14 @@ Section client_specs.
   Proof.
     iIntros "#His_hwq %Φ AU".
     wp_lam.
-    opose proof (logatom_complete_op _ _ (hwq_library_il 1 _) γ q NONEV _)
+    opose proof (logatom_complete_op _ _ Pop (hwq_library_il 1 _) γ q #() _)
       as op_full_spec; first lia.
-    { rewrite /valid_request. right. done. }
+    { done. }
     awp_apply (op_full_spec with "His_hwq").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (ls) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (NONEV) with (encode_request Pop) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct ls as [|l ls].
     { destruct Hrr. }
     destruct Hrr as [-> ->].

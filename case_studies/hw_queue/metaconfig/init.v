@@ -2,6 +2,7 @@
 
 From stdpp Require Import base gmap propset.
 From iris_logatom.pure_logic Require Import linear.
+From iris_logatom.pure_logic.models Require Import bag_like.
 From iris_logatom.pure_logic.metaconfig Require Import tracking.
 From iris.proofmode Require Import proofmode.
 From iris.base_logic Require Import invariants ghost_map ghost_var.
@@ -20,7 +21,7 @@ Section init_spec.
   Proof.
     iIntros (Hsz Φ) "_ HΦ".
     rewrite /init_hwq.
-    wp_pures. wp_lam.
+    wp_lam.
     wp_apply (wp_allocN with "[//]") as (ar) "[Har _]"; first done.
     wp_pures.
     wp_alloc back as "Hback".
@@ -51,7 +52,7 @@ Section init_spec.
       - lia.
       - rewrite set_to_propset_singleton. apply mcfg_steps_nil.
       - by apply non_empty_singleton_L.
-      - intros τ. exists #(), #(). rewrite filter_nil. apply prefix_nil.
+      - intros τ. exists Push, #(), #(). rewrite filter_nil. apply prefix_nil.
       - intros τ. rewrite lookup_empty.
         intros s π Hin. clear -Hin.
         apply elem_of_set_to_propset in Hin.

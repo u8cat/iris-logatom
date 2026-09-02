@@ -1,6 +1,7 @@
 (* atomic_sound.v *)
 
 From iris_logatom.lib Require Import list namespace.
+From iris_logatom.pure_logic Require Import encodable.
 From iris.proofmode Require Import base ltac_tactics.
 From iris.base_logic Require Import invariants ghost_map.
 From iris.program_logic Require Import atomic.
@@ -8,8 +9,8 @@ From iris.heap_lang Require Import adequacy primitive_laws notation proofmode.
 From iris_logatom.heap_lang Require Import mgc.
 
 Inductive tag_state :=
-  | AfterCall: val → tag_state
-  | AfterLin: val → val → tag_state
+  | AfterCall: nat → val → tag_state
+  | AfterLin: nat → val → val → tag_state
   | AfterRet.
 
 Class logicatomicityG Σ := {
@@ -44,7 +45,7 @@ Local Lemma tag_in_filter_not_lin (τ : positive) (ts : list (positive*trace)) :
   τ ∈ (filter (not ∘ is_lin ∘ snd) ts).*1.
 Proof.
   intros Hper_tag Hin.
-  destruct (Hper_tag τ) as (v & v' & [k Hk]).
+  destruct (Hper_tag τ) as (n & v & v' & [k Hk]).
   destruct (filter (λ x, x.1 = τ) ts) as [|hd rest] eqn:Hfilter.
   - exfalso. apply elem_of_list_to_set in Hin.
     apply list_elem_of_fmap in Hin as ([τ' t] & Heq & Hin).
@@ -53,10 +54,10 @@ Proof.
     { apply list_elem_of_filter. split; done. }
     rewrite Hfilter in Hcontra. by apply not_elem_of_nil in Hcontra.
   - rewrite -app_comm_cons in Hk. injection Hk as Hhd _. subst hd.
-    assert (Hcall : (τ, Call v) ∈ ts).
+    assert (Hcall : (τ, Call n v) ∈ ts).
     { eapply (list_elem_of_filter_1 (λ x : positive*trace, x.1 = τ)).
       rewrite Hfilter. rewrite elem_of_cons. by left. }
-    apply list_elem_of_fmap. exists (τ, Call v). split; first done.
+    apply list_elem_of_fmap. exists (τ, Call n v). split; first done.
     apply list_elem_of_filter. split; last exact Hcall.
     by intros HF.
 Qed.
@@ -76,8 +77,8 @@ Section def.
       ∗ ⌜linearized_sound (filter (is_lin∘snd) ts') s_init s⌝
       ∗ ⌜per_tag_linearized ts'⌝
       ∗ [∗ map] τ↦st ∈ ST, ⌜ match st with
-        | AfterCall v => filter (λ x, x.1 = τ) ts' = [(τ, Call v)]
-        | AfterLin v v' => filter (λ x, x.1 = τ) ts' = [(τ, Call v); (τ, Lin v v')]
+        | AfterCall n v => filter (λ x, x.1 = τ) ts' = [(τ, Call n v)]
+        | AfterLin n v v' => filter (λ x, x.1 = τ) ts' = [(τ, Call n v); (τ, Lin n v v')]
         | AfterRet => True
         end⌝.
 
@@ -92,7 +93,7 @@ End def.
 
 Section spec.
   Context `{M : model} `{!logicatomicityG Σ, !traceG Σ}
-    (init op : val)
+    (init : expr) (ops : list val)
     (N : namespace)
     (is_P : heapGS Σ → gname → val → iProp Σ)
     (P_state : heapGS Σ → gname → S → iProp Σ)
@@ -102,15 +103,15 @@ Section spec.
 
   Hypothesis init_spec :
     ∀ `(!heapGS Σ),
-    {{{ True }}} init #() {{{ γ r, RET r; is_P _ γ r ∗ P_state _ γ s_init }}}.
+    {{{ True }}} init {{{ γ r, RET r; is_P _ γ r ∗ P_state _ γ s_init }}}.
 
   Hypothesis op_spec :
-    ∀ `(!heapGS Σ) γ (x y: val), valid_request y → is_P _ γ x ⊢
+    ∀ `(!heapGS Σ) n γ (x y: val), default default_vr (valid_requests!!n) y → is_P _ γ x ⊢
       <<{ ∀∀ s, P_state _ γ s }>>
-        op x y @ ↑N
-      <<{ ∃∃ s' y', P_state _ γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>.
+        (ops!!!n : val) x y @ ↑N
+      <<{ ∃∃ s' y', P_state _ γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>.
 
-  Lemma mgc_init_spec `{!heapGS Σ} : mgc.init_spec_type (logatom_repr N is_P P_state) NotStuck init.
+  Lemma mgc_init_spec `{!heapGS Σ} : init_spec_type (logatom_repr N is_P P_state) NotStuck init.
   Proof.
     iIntros (Φ) "_ HΦ".
     iApply wp_fupd.
@@ -130,15 +131,16 @@ Section spec.
     - apply map_Forall_empty.
   Qed.
 
-  Lemma call_ret_wrapper_spec `{!heapGS Σ} : call_ret_wrapper_spec_type (logatom_repr N is_P P_state) NotStuck valid_request op.
+  Lemma call_ret_wrapper_spec `{!heapGS Σ} : call_ret_wrapper_spec_type (logatom_repr N is_P P_state) NotStuck valid_requests ops.
   Proof.
     destruct (fresh_namespace2_disjoint _ _ Hdisj) as [Hdisj1 Hdisj2].
-    iIntros (γ tracer obj req Hvr Φ) "[#Htrace_inv #Hmgc_inv] HΦ".
+    iIntros (n γ tracer obj req Hvr Φ) "[#Htrace_inv #Hmgc_inv] HΦ".
     iDestruct "Hmgc_inv" as (γi γm) "(Hmeta & His_P & Inv)".
 
     (* Call *)
     wp_lam. wp_pures.
-    awp_apply (trace_fresh_spec with "Htrace_inv"); first reflexivity.
+    awp_apply (trace_fresh_spec with "Htrace_inv");
+      first exact (decode_encode_val (Call n req)).
     iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hlin_sound & %Hper_tag_lin & %Hst)".
     iCombine "Hmeta Hmeta'" gives %Heq%to_agree_op_inv_L.
     injection Heq as <- <-. iClear "Hmeta'".
@@ -146,12 +148,12 @@ Section spec.
     iApply fupd_mask_intro; first set_solver. iIntros "Hclose".
     iFrame "Htrace_is". iSplit.
     { iPureIntro. intros τ Hfresh.
-      split; last (exists (ts'++[(τ,Call req)]); split_and!).
+      split; last (exists (ts'++[(τ,Call n req)]); split_and!).
       - rewrite /call_valid Forall_app Forall_singleton //.
       - rewrite filter_app filter_cons_True; last by auto.
         done.
       - intros τ₀. destruct (decide (τ=τ₀)) as [<- | Hne].
-        + exists req, inhabitant.
+        + exists n, req, inhabitant.
           rewrite filter_app filter_False_nil.
           * rewrite left_id_L filter_cons_True // filter_nil.
             eexists. done.
@@ -161,8 +163,8 @@ Section spec.
             apply tag_in_filter_not_lin; first done.
             apply elem_of_list_to_set, list_elem_of_fmap.
             exists (τ, t). split; done.
-        + destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hfilter).
-          exists v₀, v₀'.
+        + destruct (Hper_tag_lin τ₀) as (n₀ & v₀ & v₀' & Hfilter).
+          exists n₀, v₀, v₀'.
           rewrite filter_app filter_cons_False // filter_nil right_id_L.
           done.
       - exists s.
@@ -177,10 +179,10 @@ Section spec.
     assert (Hτ_notin_ST : ST !! τ = None).
     { apply not_elem_of_dom. rewrite Hdom.
       intros Hin. apply Hfresh. by apply tag_in_filter_not_lin. }
-    iMod (ghost_map_insert τ (AfterCall req) with "HM●") as "[HM● HM◯]"; first done.
+    iMod (ghost_map_insert τ (AfterCall n req) with "HM●") as "[HM● HM◯]"; first done.
     iModIntro. iSplitR "HΦ HM◯".
     { iNext. iFrame "Hmeta HM● HP_state".
-      iExists (ts'++[(τ,Call req)]).
+      iExists (ts'++[(τ,Call n req)]).
       iSplit.
       { iPureIntro. rewrite dom_insert_L Hdom /events_of_trace fmap_app list_to_set_app_L /=.
         set_solver. }
@@ -195,13 +197,13 @@ Section spec.
       - rewrite filter_app filter_cons_False; last by intros HF.
         rewrite filter_nil app_nil_r. exact Hlin_sound.
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
-        + exists req, inhabitant.
+        + exists n, req, inhabitant.
           rewrite filter_app (fresh_tag_filter_eq_nil τ ts').
           * rewrite left_id_L filter_cons_True // filter_nil.
             by eexists.
           * intros Hin. apply Hfresh. by apply tag_in_filter_not_lin.
-        + destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hfilter).
-          exists v₀, v₀'.
+        + destruct (Hper_tag_lin τ₀) as (n₀ & v₀ & v₀' & Hfilter).
+          exists n₀, v₀, v₀'.
           rewrite filter_app filter_cons_False // filter_nil right_id_L. done.
       - intros τ' st Hlookup'.
         destruct (decide (τ = τ')) as [<- | Hne].
@@ -229,10 +231,10 @@ Section spec.
     iCombine "HM● HM◯" gives %Hlookup.
     iAaccIntro with "HP_state"; first auto 7 with iFrame.
     iIntros (s' res) "[HP_state %Hrr]".
-    iMod (ghost_map_update (AfterLin req res) with "HM● HM◯") as "[HM● HM◯]".
+    iMod (ghost_map_update (AfterLin n req res) with "HM● HM◯") as "[HM● HM◯]".
     iModIntro. iSplitR "HΦ HM◯".
     { iNext. iFrame "Hmeta HM● HP_state".
-      iExists (ts'++[(τ,Lin req res)]).
+      iExists (ts'++[(τ,Lin n req res)]).
       iSplit.
       { iPureIntro. rewrite dom_insert_L Hdom.
         apply elem_of_dom_2 in Hlookup. rewrite Hdom in Hlookup.
@@ -248,17 +250,17 @@ Section spec.
         rewrite filter_nil.
         eapply linearized_sound_snoc; [exact Hlin_sound|exact Hvr|exact Hrr].
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
-        + exists req, res.
-          specialize (Hst τ (AfterCall req) Hlookup). simpl in Hst.
+        + exists n, req, res.
+          specialize (Hst τ (AfterCall n req) Hlookup). simpl in Hst.
           rewrite filter_app Hst filter_cons_True // filter_nil.
           by eexists [_].
-        + destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hfilter).
-          exists v₀, v₀'.
+        + destruct (Hper_tag_lin τ₀) as (n₀ & v₀ & v₀' & Hfilter).
+          exists n₀, v₀, v₀'.
           rewrite filter_app filter_cons_False // filter_nil app_nil_r. done.
       - intros τ' st Hlookup'.
         destruct (decide (τ = τ')) as [<- | Hne].
         + rewrite lookup_insert_eq in Hlookup'. injection Hlookup' as <-.
-          simpl. specialize (Hst τ (AfterCall req) Hlookup). simpl in Hst.
+          simpl. specialize (Hst τ (AfterCall n req) Hlookup). simpl in Hst.
           rewrite filter_app Hst filter_cons_True // filter_nil //.
         + rewrite lookup_insert_ne in Hlookup'; last done.
           specialize (Hst τ' st Hlookup').
@@ -286,14 +288,14 @@ Section spec.
       - rewrite filter_app filter_cons_True; last by auto.
         done.
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
-        + exists req, res.
-          specialize (Hst τ (AfterLin req res) Hlookup). simpl in Hst.
+        + exists n, req, res.
+          specialize (Hst τ (AfterLin n req res) Hlookup). simpl in Hst.
           rewrite filter_app Hst.
           rewrite filter_cons_True; last done.
           rewrite filter_nil.
           by exists [].
-        + destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hfilter).
-          exists v₀, v₀'.
+        + destruct (Hper_tag_lin τ₀) as (n₀ & v₀ & v₀' & Hfilter).
+          exists n₀, v₀, v₀'.
           rewrite filter_app filter_cons_False // filter_nil app_nil_r. done.
       - exists s.
         rewrite filter_app filter_cons_False; last auto.
@@ -324,14 +326,14 @@ Section spec.
       - rewrite filter_app filter_cons_False; last by auto.
         rewrite filter_nil app_nil_r. exact Hlin_sound.
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
-        + exists req, res.
-          specialize (Hst τ (AfterLin req res) Hlookup). simpl in Hst.
+        + exists n, req, res.
+          specialize (Hst τ (AfterLin n req res) Hlookup). simpl in Hst.
           rewrite filter_app Hst.
           rewrite filter_cons_True; last done.
           rewrite filter_nil.
           by exists [].
-        + destruct (Hper_tag_lin τ₀) as (v₀ & v₀' & Hfilter).
-          exists v₀, v₀'.
+        + destruct (Hper_tag_lin τ₀) as (n₀ & v₀ & v₀' & Hfilter).
+          exists n₀, v₀, v₀'.
           rewrite filter_app filter_cons_False // filter_nil app_nil_r. done.
       - intros τ' st Hlookup'.
         destruct (decide (τ = τ')) as [<- | Hne].
@@ -351,18 +353,18 @@ End spec.
 
 Section logatom.
   Context `{!heapGpreS Σ, M : model, !logicatomicityG Σ, traceG Σ}.
-  Context (init op : val).
+  Context (init : expr) (ops : list val).
 
   Theorem logatom_sound N
     (is_P : heapGS Σ → gname → val → iProp Σ) (P_state : heapGS Σ → gname → S → iProp Σ)
     `{!∀ H γ v, Persistent (is_P H γ v)} `{!∀ H γ s, Timeless (P_state H γ s)}:
     N ## traceN →
-    (∀ `(!heapGS Σ), {{{ True }}} init #() {{{ γ r, RET r; is_P _ γ r ∗ P_state _ γ s_init }}}) →
-    (∀ `(!heapGS Σ) γ (x y: val), valid_request y → is_P _ γ x ⊢
+    (∀ `(!heapGS Σ), {{{ True }}} init {{{ γ r, RET r; is_P _ γ r ∗ P_state _ γ s_init }}}) →
+    (∀ `(!heapGS Σ) n γ (x y: val), default default_vr (valid_requests!!n) y → is_P _ γ x ⊢
       <<{ ∀∀ s, P_state _ γ s }>>
-        op x y @ ↑N
-      <<{ ∃∃ s' y', P_state _ γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>) →
-    library_initializable_linearizable init op.
+        (ops!!!n : val) x y @ ↑N
+      <<{ ∃∃ s' y', P_state _ γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>) →
+    library_initializable_linearizable init ops.
   Proof.
     intros Hdisj init_spec op_spec.
     split.

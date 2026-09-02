@@ -4,7 +4,7 @@ theorem is verifed by Birkedal et al's Free Theorem. Then by our result,
 we obtain a logatom triple of HWQ. *)
 From iris_logatom.lib Require Import list.
 From iris_logatom.pure_logic.aspect Require Import bag queue.
-From iris_logatom.pure_logic Require Import linear.
+From iris_logatom.pure_logic Require Import encodable linear.
 From iris.proofmode Require Import proofmode.
 From iris.algebra Require Import gset agree mono_list mono_nat.
 From iris.base_logic Require Import invariants ghost_map.
@@ -57,7 +57,7 @@ Section inv.
 
   Definition allocated_ar_inv_core γ_ar γ_tkn γ_slot ts m i a s_arr ts_prefix τ v ɛ : iProp Σ :=
       (* Push must have started *)
-      hist tracer (ts_prefix++[(τ,Call (encode_request (Push v)))])
+      hist tracer (ts_prefix++[(τ,Call Push v)])
       (* The pushed value is unboxed (matches push_wrapper_spec's premise) *)
     ∗ ⌜val_is_unboxed (SOMEV v)⌝
       (* This push locates after any precedence pushes *)
@@ -81,17 +81,17 @@ Section inv.
 
   Definition allocated_ar_inv' γ_ar γ_tkn γ_slot ts m i a s_arr : iProp Σ :=
     ∃ ts_prefix τ v ɛ,
-      ⌜ts_prefix++[(τ,Call (encode_request (Push v)))] `prefix_of` ts⌝
+      ⌜ts_prefix++[(τ,Call Push v)] `prefix_of` ts⌝
     ∗ allocated_ar_inv_core γ_ar γ_tkn γ_slot ts m i a s_arr ts_prefix τ v ɛ.
 
   Definition trace_per_tag_inv ts τ s_op :=
     let ts_τ := filter (λ x, x.1 = τ) ts in
     match s_op with
-    | PushCalled => ∃ v, ts_τ = [(τ,Call (encode_request (Push v)))]
-    | PushStored => ∃ v, ts_τ = [(τ,Call (encode_request (Push v)))]
-    | PushReturned => ∃ v, ts_τ = [(τ,Call (encode_request (Push v))); (τ,Ret #())]
-    | PopCalled => ts_τ = [(τ,Call (encode_request Pop))]
-    | PopReturned => ∃ v, ts_τ = [(τ,Call (encode_request Pop)); (τ,Ret (encode_response (NonEmpty v)))]
+    | PushCalled => ∃ v, ts_τ = [(τ,Call Push v)]
+    | PushStored => ∃ v, ts_τ = [(τ,Call Push v)]
+    | PushReturned => ∃ v, ts_τ = [(τ,Call Push v); (τ,Ret #())]
+    | PopCalled => ts_τ = [(τ,Call Pop #())]
+    | PopReturned => ∃ v, ts_τ = [(τ,Call Pop #()); (τ,Ret (encode_response (NonEmpty v)))]
     end.
 
   Definition is_hwq_inv : iProp Σ :=
@@ -228,8 +228,8 @@ Section inv.
      while two distinct Call positions would force ≥ 2 Calls in the filter. *)
   Local Lemma per_tag_wellformed_bag_call_push_pos_unique valid_value ts τ v v' i j :
     per_tag_wellformed_bag NeverEmpty valid_value ts →
-    ts !! i = Some (τ, Call (encode_request (Push v))) →
-    ts !! j = Some (τ, Call (encode_request (Push v'))) →
+    ts !! i = Some (τ, Call Push v) →
+    ts !! j = Some (τ, Call Push v') →
     i = j.
   Proof.
     intros Hwf Hi Hj.
@@ -242,15 +242,15 @@ Section inv.
   (* Two prefixes of [ts] each ending in the same τ-Call event must be equal. *)
   Local Lemma per_tag_wellformed_bag_call_push_unique_prefix valid_value ts τ v v' ts1 ts2 :
     per_tag_wellformed_bag NeverEmpty valid_value ts →
-    ts1 ++ [(τ, Call (encode_request (Push v)))] `prefix_of` ts →
-    ts2 ++ [(τ, Call (encode_request (Push v')))] `prefix_of` ts →
+    ts1 ++ [(τ, Call Push v)] `prefix_of` ts →
+    ts2 ++ [(τ, Call Push v')] `prefix_of` ts →
     ts1 = ts2 ∧ v = v'.
   Proof.
     intros Hwf [k1 Hk1] [k2 Hk2].
-    assert (Hpos1 : ts !! length ts1 = Some (τ, Call (encode_request (Push v)))).
+    assert (Hpos1 : ts !! length ts1 = Some (τ, Call Push v)).
     { rewrite Hk1 -app_assoc.
       rewrite lookup_app_r; last lia. rewrite Nat.sub_diag. reflexivity. }
-    assert (Hpos2 : ts !! length ts2 = Some (τ, Call (encode_request (Push v')))).
+    assert (Hpos2 : ts !! length ts2 = Some (τ, Call Push v')).
     { rewrite Hk2 -app_assoc.
       rewrite lookup_app_r; last lia. rewrite Nat.sub_diag. reflexivity. }
     pose proof (per_tag_wellformed_bag_call_push_pos_unique _ _ _ _ _ _ _ Hwf Hpos1 Hpos2)
@@ -260,7 +260,7 @@ Section inv.
     rewrite Hlen in Hpos1.
     rewrite Hpos1 in Hpos2. injection Hpos2 as Heq.
     assert (Hv_eq : v = v').
-    { rewrite /encode_request in Heq. by simplify_eq. }
+    { by simplify_eq. }
     subst v'.
     split; last reflexivity.
     (* Two prefixes of ts with the same length are equal. *)
@@ -296,10 +296,10 @@ Proof. compute_done. Qed.
 Section proof.
   Context `{!heapGS Σ, !traceG Σ, !hwqG Σ}.
 
-  Lemma init_spec sz : (0 < sz)%Z → init_spec_type repr_queue NotStuck (λ: <>, new_queue #sz).
+  Lemma init_spec sz : (0 < sz)%Z → init_spec_type repr_queue NotStuck (new_queue #sz).
   Proof.
     iIntros (Hsz Φ) "_ HΦ".
-    wp_pures. wp_lam.
+    wp_lam.
     wp_apply (wp_allocN with "[//]") as (l_ar) "[Har _]"; first done.
     wp_pures.
     wp_alloc l_back as "Hback".
@@ -354,14 +354,14 @@ Section proof.
    so any two such events agree on the pushed value. *)
   Local Lemma per_tag_wellformed_bag_call_push_unique valid_value ts τ v v' :
     per_tag_wellformed_bag NeverEmpty valid_value ts →
-    (τ, Call (encode_request (Push v))) ∈ ts →
-    (τ, Call (encode_request (Push v'))) ∈ ts →
+    (τ, Call Push v) ∈ ts →
+    (τ, Call Push v') ∈ ts →
     v = v'.
   Proof.
     intros Hwf Hin Hin'.
-    assert (Hin_filt : (τ, Call (encode_request (Push v))) ∈ filter (λ x, x.1 = τ) ts).
+    assert (Hin_filt : (τ, Call Push v) ∈ filter (λ x, x.1 = τ) ts).
     { apply list_elem_of_filter. done. }
-    assert (Hin_filt' : (τ, Call (encode_request (Push v'))) ∈ filter (λ x, x.1 = τ) ts).
+    assert (Hin_filt' : (τ, Call Push v') ∈ filter (λ x, x.1 = τ) ts).
     { apply list_elem_of_filter. done. }
     destruct (Hwf τ) as [(w & _ & Hpfx)|(r & _ & Hpfx)].
     - eapply elem_of_prefix in Hin_filt; last exact Hpfx.
@@ -369,7 +369,7 @@ Section proof.
       apply elem_of_cons in Hin_filt as [Heq|Hin_cons].
       + apply elem_of_cons in Hin_filt' as [Heq'|Hin_cons'].
         * injection Heq as Heq. injection Heq' as Heq'.
-          rewrite /encode_request in Heq, Heq'. by simplify_eq.
+          by simplify_eq.
         * apply elem_of_cons in Hin_cons' as [Habs|Hnil]; [discriminate|by apply elem_of_nil in Hnil].
       + apply elem_of_cons in Hin_cons as [Habs|Hnil]; [discriminate|by apply elem_of_nil in Hnil].
     - exfalso.
@@ -382,7 +382,7 @@ Section proof.
   Local Lemma pre_of_trace_ret_in_pre_cell
         valid_value ts e1 ts_pre τ v :
     per_tag_wellformed_bag NeverEmpty valid_value ts →
-    ts_pre ++ [(τ, Call (encode_request (Push v)))] `prefix_of` ts →
+    ts_pre ++ [(τ, Call Push v)] `prefix_of` ts →
     pre_of_trace ts e1 τ →
     e1 ∈ push_of_trace ts →
     (e1, Ret #()) ∈ ts_pre.
@@ -398,33 +398,33 @@ Section proof.
     apply list_find_Some in Hcall_τ as (Hi_call_lk & [Heq_τ His_call] & _).
     destruct t_ret as [τ' t_ret]. simpl in Heq_e1. subst τ'.
     destruct t_call as [τ' t_call]. simpl in Heq_τ. subst τ'.
-    destruct t_ret as [|? v_ret|v_ret]; [done|done|].
-    destruct t_call as [v_call|?|?]; [|done|done].
+    destruct t_ret as [|? ? ?|v_ret]; [done|done|].
+    destruct t_call as [n_call v_call|?|?]; [|done|done].
     (* Step 2: τ's Call value is uniquely [encode (Push v)] and its position is
        the unique [length ts_pre]. *)
-    assert (Hin_call_τ : (τ, Call v_call) ∈ ts)
+    assert (Hin_call_τ : (τ, Call n_call v_call) ∈ ts)
       by (eapply list_elem_of_lookup_2; exact Hi_call_lk).
-    assert (Hin_call_jn : (τ, Call (encode_request (Push v))) ∈ ts).
+    assert (Hin_call_jn : (τ, Call Push v) ∈ ts).
     { destruct Hpfx_cell as [k Hk]. rewrite Hk.
       apply elem_of_app. left. apply elem_of_app. right.
       apply list_elem_of_singleton. reflexivity. }
     assert (Hpos_call_τ : ts !! length ts_pre =
-                          Some (τ, Call (encode_request (Push v)))).
+                          Some (τ, Call Push v)).
     { destruct Hpfx_cell as [k Hk]. rewrite Hk -app_assoc lookup_app_r;
         last lia. by rewrite Nat.sub_diag. }
-    assert (Hv_call_eq : v_call = encode_request (Push v)).
+    assert (Hcall_eq : Call n_call v_call = Call Push v).
     { destruct (Hwf τ) as [(w & _ & Hpfx_filt)|(r & _ & Hpfx_filt)]; cycle 1.
       - exfalso.
-        assert (Hin_filt : (τ, Call (encode_request (Push v))) ∈
+        assert (Hin_filt : (τ, Call Push v) ∈
                             filter (λ x, x.1 = τ) ts)
           by (apply list_elem_of_filter; done).
         eapply elem_of_prefix in Hin_filt; last exact Hpfx_filt.
         apply elem_of_cons in Hin_filt as [Heq|Hin]; first by discriminate.
         apply elem_of_cons in Hin as [?|Habs]; [discriminate|by apply elem_of_nil in Habs].
-      - assert (Hin_filt_jn : (τ, Call (encode_request (Push v))) ∈
+      - assert (Hin_filt_jn : (τ, Call Push v) ∈
                                filter (λ x, x.1 = τ) ts)
           by (apply list_elem_of_filter; done).
-        assert (Hin_filt_call : (τ, Call v_call) ∈ filter (λ x, x.1 = τ) ts)
+        assert (Hin_filt_call : (τ, Call n_call v_call) ∈ filter (λ x, x.1 = τ) ts)
           by (apply list_elem_of_filter; done).
         eapply elem_of_prefix in Hin_filt_jn; last exact Hpfx_filt.
         eapply elem_of_prefix in Hin_filt_call; last exact Hpfx_filt.
@@ -435,7 +435,7 @@ Section proof.
               [discriminate|by apply elem_of_nil in Hnil].
         + apply elem_of_cons in Hin_jn' as [?|Hnil];
             [discriminate|by apply elem_of_nil in Hnil]. }
-    subst v_call.
+    injection Hcall_eq as -> ->.
     assert (Hi_call_eq : i_call = length ts_pre).
     { eapply per_tag_wellformed_bag_call_push_pos_unique;
         [exact Hwf|exact Hi_call_lk|exact Hpos_call_τ]. }
@@ -460,7 +460,7 @@ Section proof.
         + by apply elem_of_nil in Habs.
         + injection Heq as Heq. exact Heq.
       - exfalso.
-        assert (Hin_call_e1 : (e1, Call (encode_request (Push v_e1))) ∈
+        assert (Hin_call_e1 : (e1, Call Push v_e1) ∈
                                filter (λ x, x.1 = e1) ts)
           by (apply list_elem_of_filter; done).
         eapply elem_of_prefix in Hin_call_e1; last exact Hpfx_filt.
@@ -481,14 +481,14 @@ Section proof.
   Lemma push_wrapper_spec γ tracer (q v_push : val) :
     val_is_unboxed (SOMEV v_push) →
     {{{ trace_inv tracer I_hwq ∗ is_hwq_trace γ q tracer }}}
-      call_ret_wrapper tracer op q (encode_request (Push v_push))
+      call_ret_wrapper tracer Push enqueue q v_push
     {{{ v, RET v; True }}}.
   Proof.
     iIntros (Hunboxed Φ) "[#Itrace #Ihwp] HΦ".
     wp_lam. wp_pures.
 
     (* Call *)
-    awp_apply (trace_fresh_spec with "Itrace"); first reflexivity.
+    awp_apply (trace_fresh_spec with "Itrace"); first exact (decode_encode_val (Call Push v_push)).
     iInv "Ihwp" as (sz l_ar l_back ar back ts m γ_back γ_ar γ_op γ_tkn γ_match γ_slot M_ar M_op M_tkn M_slot)
       ">(-> & Hvalid_trace & Hpstate & Hgstate & %Hdom & %Hpush_stored_inv & Hallocated & H)".
     iDestruct "Hpstate" as "(Htrace & Har & Hback)".
@@ -611,7 +611,7 @@ Section proof.
         - iApply (big_sepM_impl with "Hop").
           iIntros "!#" (τ' s_op Hlookup) "%Htrace_inv !%".
           rewrite /trace_per_tag_inv.
-          remember (filter (λ x, x.1 = τ') (ts++[(τ,Call (SOMEV v_push))])) as ts_τ' eqn:Heq.
+          remember (filter (λ x, x.1 = τ') (ts++[(τ,Call Push v_push)])) as ts_τ' eqn:Heq.
           assert (τ ≠ τ').
           { intros <-. apply elem_of_dom_2 in Hlookup. done. }
           rewrite filter_app filter_cons_False // filter_nil right_id_L in Heq.
@@ -620,7 +620,7 @@ Section proof.
         iEval (rewrite filter_app filter_cons_False // filter_nil right_id_L).
         iExact "Hreturned". }}
 
-      wp_pures. wp_lam. wp_pures. wp_lam. wp_pures.
+      wp_pures. wp_lam. wp_pures.
 
     (* ====== Phase A: FAA on l_back to allocate a new slot. ====== *)
     wp_bind (FAA _ _).
@@ -928,11 +928,11 @@ Section proof.
       [exact Hop4_lookup|].
     destruct Htrace4_τ as [v_filt4 Hfilt4].
     iDestruct (hist_trace_is_prefix with "Htrace4 Hhist") as %Hpfx_us4.
-    assert (Hus_in_ts4 : (τ, Call (encode_request (Push v_push))) ∈ ts4).
+    assert (Hus_in_ts4 : (τ, Call Push v_push) ∈ ts4).
     { destruct Hpfx_us4 as [k Hk]. rewrite Hk. apply elem_of_app. left.
       apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
     assert (Hv_filt4_eq : v_filt4 = v_push).
-    { assert (Hus_in_filt4 : (τ, Call (encode_request (Push v_push))) ∈ filter (λ x, x.1 = τ) ts4).
+    { assert (Hus_in_filt4 : (τ, Call Push v_push) ∈ filter (λ x, x.1 = τ) ts4).
       { apply list_elem_of_filter. split; [reflexivity|exact Hus_in_ts4]. }
       rewrite Hfilt4 in Hus_in_filt4.
       apply list_elem_of_singleton in Hus_in_filt4. by simplify_eq. }
@@ -1055,14 +1055,14 @@ Section proof.
 
   Lemma pop_wrapper_spec γ tracer (q : val) :
     {{{ trace_inv tracer I_hwq ∗ is_hwq_trace γ q tracer }}}
-      call_ret_wrapper tracer op q (encode_request (Pop))
+      call_ret_wrapper tracer Pop (λ: "q" <>, SOME (dequeue "q"))%V q #()
     {{{ v, RET v; True }}}.
   Proof.
     iIntros (Φ) "[#Itrace #Ihwp] HΦ".
     wp_lam. wp_pures.
 
-    (* ====== Phase 1: trace_fresh emit (τ_pop, Call NONEV). ====== *)
-    awp_apply (trace_fresh_spec with "Itrace"); first reflexivity.
+    (* ====== Phase 1: trace_fresh emit (τ_pop, Call Pop #()). ====== *)
+    awp_apply (trace_fresh_spec with "Itrace"); first exact (decode_encode_val (Call Pop #())).
     iInv "Ihwp" as (sz l_ar l_back ar back ts m γ_back γ_ar γ_op γ_tkn γ_match γ_slot M_ar M_op M_tkn M_slot)
       ">(-> & Hvalid_trace & Hpstate & Hgstate & %Hdom & %Hpush_stored_inv & Hallocated & H)".
     iDestruct "Hpstate" as "(Htrace & Har & Hback)".
@@ -1171,7 +1171,7 @@ Section proof.
       iExact "Hreturned". }
 
     (* ====== Phase 2: wp_pures into [SOMEV (dequeue q)]. ====== *)
-    wp_pures. wp_lam. wp_pures.
+    wp_pures.
     wp_bind (dequeue _).
 
     (* ====== Phase 3: outer Löb on [dequeue q]. ====== *)
@@ -1198,8 +1198,8 @@ Section proof.
       as "[Htrace3 Hallocated3']".
     iAssert ([∗ list] j↦a ∈ take back3 ar3,
                 ∃ ts_pre_j τ_j v_j,
-                  hist tracer (ts_pre_j ++ [(τ_j, Call (encode_request (Push v_j)))]) ∗
-                  ⌜ts_pre_j ++ [(τ_j, Call (encode_request (Push v_j)))] `prefix_of` ts3⌝ ∗
+                  hist tracer (ts_pre_j ++ [(τ_j, Call Push v_j)]) ∗
+                  ⌜ts_pre_j ++ [(τ_j, Call Push v_j)] `prefix_of` ts3⌝ ∗
                   j ↪[γ_slot]□ τ_j)%I as "#Hcalls_at_outer".
     { iApply (big_sepL_impl with "Hallocated3'").
       iIntros "!#" (j a Hlk).
@@ -1458,7 +1458,7 @@ Section proof.
         (* Discharge I_queue_pre_snoc_match's order_correct_unmatched premise.
            For each preceding push e1 ≺ τ_jn, e1 ∈ m5.*1. *)
         iDestruct (hist_trace_is_prefix with "Htrace5 Hcall_jn") as %Hpfx_jn.
-        assert (Hin_jn_ts5 : (τ_jn, Call (encode_request (Push v_jn))) ∈ ts5).
+        assert (Hin_jn_ts5 : (τ_jn, Call Push v_jn) ∈ ts5).
         { destruct Hpfx_jn as [k Hk]. rewrite Hk. apply elem_of_app. left.
           apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
         iDestruct (ghost_map_lookup with "Hop●5 Hop◯") as %Hop_lookup_pop.
@@ -1476,8 +1476,8 @@ Section proof.
           assert (Hin_filt : (τ_pop, Ret v_ret) ∈ filter (λ x, x.1 = τ_pop) ts5).
           { apply list_elem_of_filter. done. }
           rewrite Htrace_pop in Hin_filt. clear -Hin_filt. set_solver. }
-        assert (Hin_pop_ts5 : (τ_pop, Call (encode_request Pop)) ∈ ts5).
-        { assert (Hin_filt : (τ_pop, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ_pop) ts5).
+        assert (Hin_pop_ts5 : (τ_pop, Call Pop #()) ∈ ts5).
+        { assert (Hin_filt : (τ_pop, Call Pop #()) ∈ filter (λ x, x.1 = τ_pop) ts5).
           { rewrite Htrace_pop. clear. set_solver. }
           apply list_elem_of_filter in Hin_filt as [_ Hin]. exact Hin. }
         (* τ_jn ∉ m5.*1: cell at j_n was StoredNotCAS, so τ_jn was not yet matched.
@@ -1533,7 +1533,7 @@ Section proof.
           simpl in Htrace_e1.
           (* Trace shape for e1 includes both Call (Push v_e1) and Ret #(); among
              the operation states only PushReturned has both events. *)
-          assert (Hcall_e1_in : (e1, Call (encode_request (Push v_e1))) ∈
+          assert (Hcall_e1_in : (e1, Call Push v_e1) ∈
                                  filter (λ x, x.1 = e1) ts5)
             by (apply list_elem_of_filter; done).
           assert (Hret_e1_in : (e1, Ret #()) ∈ filter (λ x, x.1 = e1) ts5)
@@ -1572,7 +1572,7 @@ Section proof.
           - (* Right arm: (e1, Ret #()) ∉ ts_scan. We derive contradiction via:
                (e1, Ret #()) ∈ ts_pre_cell ⊆ ts3 ⊆ ts_scan.
                Step a: from #Hcalls_at_outer's j_n entry, we get
-                 [hist tracer (ts_pre_outer_jn ++ [Call jn'])] ⊆ ts3.
+                 [hist tracer (ts_pre_outer_jn ++ [Call Push jn'])] ⊆ ts3.
                Step b: per_tag_wellformed gives ts_pre_cell = ts_pre_outer_jn.
                Step c: ts3 ⊆ ts_scan (from scan_witness). *)
             (* Look up the j_n-th entry of [Hcalls_at_outer] (j_n < back3). *)
@@ -1691,7 +1691,7 @@ Section proof.
         iDestruct (big_sepM_lookup _ _ τ_pop PopCalled with "Hop6") as %Htrace6_pop;
           [exact Hop6_lookup|].
         simpl in Htrace6_pop.
-        assert (Hpop_in_filter6 : (τ_pop, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ_pop) ts6).
+        assert (Hpop_in_filter6 : (τ_pop, Call Pop #()) ∈ filter (λ x, x.1 = τ_pop) ts6).
         { rewrite Htrace6_pop. clear. set_solver. }
         apply list_elem_of_filter in Hpop_in_filter6 as [_ Hpop_in_ts6].
         iAssert (⌜(τ_jn, τ_pop) ∈ m6⌝)%I as %Hmatch_in_m6.
@@ -1701,7 +1701,7 @@ Section proof.
           apply elem_of_app. left.
           apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
         iDestruct (hist_trace_is_prefix with "Htrace6 Hcall_jn") as %Hpfx6_jn.
-        assert (Hin_jn_ts6 : (τ_jn, Call (encode_request (Push v_jn))) ∈ ts6).
+        assert (Hin_jn_ts6 : (τ_jn, Call Push v_jn) ∈ ts6).
         { destruct Hpfx6_jn as [k Hk]. rewrite Hk. apply elem_of_app. left.
           apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
         iDestruct "Hvalid_trace6" as %[Hwf6 HI6].
@@ -1837,10 +1837,10 @@ Section proof.
          their values to coincide. *)
       iDestruct (hist_trace_is_prefix with "Htrace5 Hcall_jn") as %Hpfx_jn.
       iDestruct (hist_trace_is_prefix with "Htrace5 Hcall_jn5") as %Hpfx_jn5.
-      assert (Hin_jn : (τ_jn, Call (encode_request (Push v_jn))) ∈ ts5).
+      assert (Hin_jn : (τ_jn, Call Push v_jn) ∈ ts5).
       { destruct Hpfx_jn as [k Hk]. rewrite Hk. apply elem_of_app. left.
         apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
-      assert (Hin_jn5 : (τ_jn, Call (encode_request (Push v_jn5))) ∈ ts5).
+      assert (Hin_jn5 : (τ_jn, Call Push v_jn5) ∈ ts5).
       { destruct Hpfx_jn5 as [k Hk]. rewrite Hk. apply elem_of_app. left.
         apply elem_of_app. right. apply list_elem_of_singleton. reflexivity. }
       assert (Hv_eq : v_jn5 = v_jn).
@@ -1890,30 +1890,31 @@ Section proof.
   (* End LLM-generated code. *)
   (**********************************************************)
 
-  Lemma call_ret_wrapper_spec : call_ret_wrapper_spec_type repr_queue NotStuck (@valid_request (queue_model NeverEmpty (λ v, val_is_unboxed (SOMEV v)))) op.
+  Lemma call_ret_wrapper_spec : call_ret_wrapper_spec_type repr_queue NotStuck (@valid_requests (queue_model NeverEmpty (λ v, val_is_unboxed (SOMEV v)))) ops.
   Proof.
-    intros γ tracer q req Hreq.
-    destruct Hreq as [(v_push & Hunboxed & ->) | ->].
+    intros n γ tracer q req Hreq.
+    destruct n as [|[|n]]; last by (simpl in Hreq; destruct Hreq).
     - rewrite /I_lang /mgc_inv /=. by apply push_wrapper_spec.
-    - rewrite /I_lang /mgc_inv /=. by apply pop_wrapper_spec.
+    - simpl in Hreq. subst req.
+      rewrite /I_lang /mgc_inv /=. by apply pop_wrapper_spec.
   Qed.
 End proof.
 
 Lemma hwq_library_il sz :
   (0 < sz)%Z →
-  library_initializable_linearizable (M:=queue_model NeverEmpty (λ v, val_is_unboxed (SOMEV v))) (λ: <>, new_queue #sz) op.
+  library_initializable_linearizable (M:=queue_model NeverEmpty (λ v, val_is_unboxed (SOMEV v))) (new_queue #sz) ops.
 Proof.
   set (Σ := #[heapΣ; traceΣ; hwqΣ]).
   intros Hsz. split.
   - intros σ.
     apply (heap_adequacy Σ) => ?. iIntros "_".
-    wp_pures. wp_lam.
+    wp_lam.
     wp_apply (wp_allocN with "[//]") as (l) "_"; first done.
     wp_pures.
     wp_alloc l' as "_".
     wp_pures. done.
   - intros obj σ₀ t σ config' ts Hsteps Hadv_steps.
-    opose proof (bdgjst_free (Σ:=Σ) repr_queue _ _ op σ₀ obj t σ config' ts _ _ _ Hsteps Hadv_steps)
+    opose proof (bdgjst_free (Σ:=Σ) repr_queue _ _ ops σ₀ obj t σ config' ts _ _ _ Hsteps Hadv_steps)
       as (Hconfig_not_stuck & Hwf & Hqueue).
     + intros ?. by apply init_spec.
     + intros ?. by apply call_ret_wrapper_spec.
@@ -1928,25 +1929,27 @@ Section spec.
 
   Let M := (queue_model NeverEmpty (λ v, val_is_unboxed (SOMEV v))).
 
-  Definition is_hwq γ q := is_P (M:=M) op γ q.
+  Definition is_hwq γ q := is_P (M:=M) ops γ q.
   Definition hwq_content γ (ls : list val) := P_state (M := M) γ ls.
 
-  Definition enqueue_wrapper: val := λ: "q" "v", wrap_op op "q" (SOME "v").
-  Definition dequeue_wrapper: val := λ: "q", unwrap (wrap_op op "q" NONEV).
+  Definition new_queue_wrapper: val := λ: "sz", wrap_init (new_queue "sz").
+  Definition enqueue_wrapper: val := λ: "q" "v", wrap_op Push (ops!!!Push : val) "q" "v".
+  Definition dequeue_wrapper: val := λ: "q", unwrap (wrap_op Pop (ops!!!Pop : val) "q" #()).
 
   Lemma new_queue_spec sz :
     (0 < sz)%Z →
     {{{ True }}}
-      wrap_init (λ: <>, new_queue #sz) #()
+      new_queue_wrapper #sz
     {{{ γ q, RET q; is_hwq γ q ∗ hwq_content γ [] }}}.
   Proof.
     intros Hsz.
-    assert (Hseq : ∀ σ, sequential ((λ: <>, new_queue #sz)%V #()) σ).
+    assert (Hnv : to_val (new_queue #sz) = None) by done.
+    assert (Hseq : ∀ σ, sequential (new_queue #sz) σ).
     { intros ?. apply fork_free_sequential. compute_done. }
-    pose proof (init_spec := logatom_complete_init _ _ Hseq
+    pose proof (init_spec := logatom_complete_init _ _ Hnv Hseq
                   (hwq_library_il sz Hsz)).
-    simpl in init_spec.
-    apply init_spec.
+    iIntros (Φ) "HT HΦ".
+    wp_lam. iApply (init_spec with "HT HΦ").
   Qed.
 
   Lemma enqueue_spec γ (q v : val) :
@@ -1958,17 +1961,14 @@ Section spec.
   Proof.
     iIntros (Hunboxed) "#His_hwq %Φ AU".
     wp_lam. wp_pures.
-    opose proof (logatom_complete_op _ _ (hwq_library_il 1 _) γ q (SOMEV v) _)
+    opose proof (logatom_complete_op _ _ Push (hwq_library_il 1 _) γ q v _)
       as op_spec; first lia.
-    { rewrite /valid_request. left. exists v. done. }
+    { exact Hunboxed. }
     awp_apply (op_spec with "His_hwq").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (s) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (SOMEV v) with (encode_request (Push v)) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct Hrr as [-> ->].
     iFrame "Hcontent". auto.
   Qed.
@@ -1981,17 +1981,14 @@ Section spec.
   Proof.
     iIntros "#His_hwq %Φ AU".
     wp_lam.
-    opose proof (logatom_complete_op _ _ (hwq_library_il 1 _) γ q NONEV _)
+    opose proof (logatom_complete_op _ _ Pop (hwq_library_il 1 _) γ q #() _)
       as op_spec; first lia.
-    { rewrite /valid_request. right. done. }
+    { done. }
     awp_apply (op_spec with "His_hwq").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (ls) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (NONEV) with (encode_request Pop) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct ls as [|l ls].
     { destruct Hrr. }
     destruct Hrr as [-> ->].

@@ -264,11 +264,11 @@ Record absq_wf (valid_value : val → Prop) (s : absq_state) : Prop := AbsqWf {
   absq_wf_lt_COMP : ∀ k1 k2,
     (k1, k2) ∈ absq_lt s →
     ∃ d, absq_l s !! k1 = Some (d, COMP);
-  (** Every [ℓ]-entry carries an unboxed queue value.  The only way a
+  (** Every [ℓ]-entry carries a [valid_value] queue value.  The only way a
     value enters [ℓ] is via [CALL-ENQ], which requires its input to
     be [valid_value]; [RET-ENQ1] preserves the value.  Needed by
-    [bs_step]'s CALL-ENQ Case B and LIN-DEQ2 to discharge the new
-    [valid_value (SOMEV d)] precondition of [absq0_step_lin_enq]. *)
+    [bs_step]'s CALL-ENQ Case B and LIN-DEQ2 to discharge the
+    [valid_value d] precondition of [absq0_step_lin_enq]. *)
   absq_wf_valid_value : ∀ k d f,
     absq_l s !! k = Some (d, f) → valid_value d;
 }.
@@ -288,7 +288,7 @@ Qed.
 Lemma absq_wf_step rme valid_value s l s' :
   absq_wf valid_value s → absq_step rme valid_value s l s' → absq_wf valid_value s'.
 Proof.
-  intros [Hdom Hℓcp Hcomp Hrv Hpendo Hlt_comp Hunboxed] Hstep.
+  intros [Hdom Hℓcp Hcomp Hrv Hpendo Hlt_comp Hvalid_value] Hstep.
   inversion Hstep as
     [ O lt ℓ rv cp k d Hfresh Hd_ub
     | O lt ℓ rv cp k Hfresh
@@ -333,11 +333,12 @@ Proof.
       apply elem_of_filter in Hk'_comp as [[d' Hℓk'] _].
       assert (k' ≠ k) as Hne by (intros ->; congruence).
       exists d'. rewrite (lookup_insert_ne _ k k' _ (λ H, Hne (eq_sym H))) //.
-  - (* unboxed (CALL-ENQ): new k↦(d,PEND) has val_is_unboxed (SOMEV d). *)
+  - (* valid_value (CALL-ENQ): the new k↦(d,PEND) gets [valid_value d]
+       from the step's premise. *)
     intros k0 d0 f0 Hℓ'.
     destruct (decide (k = k0)) as [<-|Hk_ne].
     { rewrite lookup_insert_eq in Hℓ'. by inversion Hℓ'; subst. }
-    rewrite (lookup_insert_ne _ _ _ _ Hk_ne) in Hℓ'. by eapply Hunboxed.
+    rewrite (lookup_insert_ne _ _ _ _ Hk_ne) in Hℓ'. by eapply Hvalid_value.
   (* ----- CALL-DEQ ----- *)
   - rewrite dom_insert_L. set_solver.
   - intros k0 d0 f0 Hℓ.
@@ -362,7 +363,7 @@ Proof.
     rewrite (lookup_insert_ne _ _ _ _ Hne).
     by apply (Hpendo k0 d0).
   - apply Hlt_comp.
-  - (* unboxed (CALL-DEQ): ℓ unchanged. *) apply Hunboxed.
+  - (* valid_value (CALL-DEQ): ℓ unchanged. *) apply Hvalid_value.
   (* ----- RET-ENQ1 ----- *)
   - rewrite !dom_insert_L.
     assert (k ∈ dom cp) by (apply elem_of_dom; by eexists).
@@ -392,12 +393,12 @@ Proof.
     destruct (decide (k = k1)) as [<-|Hne].
     { exists d. by rewrite lookup_insert_eq. }
     exists d'. by rewrite (lookup_insert_ne _ _ _ _ Hne).
-  - (* unboxed (RET-ENQ1): new k↦(d,COMP); d was in ℓ as (d,PEND). *)
+  - (* valid_value (RET-ENQ1): new k↦(d,COMP); d was in ℓ as (d,PEND). *)
     intros k0 d0 f0 Hℓ'.
     destruct (decide (k = k0)) as [<-|Hk_ne].
     { rewrite lookup_insert_eq in Hℓ'. inversion Hℓ'; subst d0.
-      by eapply (Hunboxed _ _ PEND). }
-    rewrite (lookup_insert_ne _ _ _ _ Hk_ne) in Hℓ'. by eapply Hunboxed.
+      by eapply (Hvalid_value _ _ PEND). }
+    rewrite (lookup_insert_ne _ _ _ _ Hk_ne) in Hℓ'. by eapply Hvalid_value.
   (* ----- RET-ENQ2 ----- *)
   - rewrite dom_insert_L. set_solver.
   - intros k0 d0 f0 Hℓ.
@@ -418,7 +419,7 @@ Proof.
     rewrite (lookup_insert_ne _ _ _ _ Hne).
     by apply (Hpendo k0 d0).
   - apply Hlt_comp.
-  - (* unboxed (RET-ENQ2): ℓ unchanged. *) apply Hunboxed.
+  - (* valid_value (RET-ENQ2): ℓ unchanged. *) apply Hvalid_value.
   (* ----- RET-DEQ ----- *)
   - rewrite dom_insert_L. set_solver.
   - intros k0 d0 f0 Hℓ.
@@ -438,7 +439,7 @@ Proof.
     { specialize (Hpendo k d0 Hk0_O Hℓ'). rewrite Hcp in Hpendo. discriminate. }
     rewrite (lookup_insert_ne _ _ _ _ Hne). by apply (Hpendo k0 d0).
   - apply Hlt_comp.
-  - (* unboxed (RET-DEQ): ℓ unchanged. *) apply Hunboxed.
+  - (* valid_value (RET-DEQ): ℓ unchanged. *) apply Hvalid_value.
   (* ----- LIN-DEQ1 ----- *)
   - rewrite dom_insert_L. set_solver.
   - intros k0 d0 f0 Hℓ.
@@ -463,7 +464,7 @@ Proof.
   - intros k1 k2 Hedge.
     apply elem_of_filter in Hedge as [_ Hold].
     by apply (Hlt_comp _ _ Hold).
-  - (* unboxed (LIN-DEQ1): ℓ unchanged. *) apply Hunboxed.
+  - (* valid_value (LIN-DEQ1): ℓ unchanged. *) apply Hvalid_value.
   (* ----- LIN-DEQ2 ----- *)
   - rewrite dom_insert_L. set_solver.
   - intros k0 d0 f0 Hℓ.
@@ -484,7 +485,7 @@ Proof.
     { specialize (Hpendo k d0 Hk0_O Hℓ'). rewrite Hcp in Hpendo. discriminate. }
     rewrite (lookup_insert_ne _ _ _ _ Hne). by apply (Hpendo k0 d0).
   - apply Hlt_comp.
-  - (* unboxed (LIN-DEQ2): ℓ unchanged. *) apply Hunboxed.
+  - (* valid_value (LIN-DEQ2): ℓ unchanged. *) apply Hvalid_value.
 Qed.
 
 (** Filtering a [NoDup] list preserves the positions of the remaining

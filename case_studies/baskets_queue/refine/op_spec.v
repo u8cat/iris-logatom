@@ -3,8 +3,8 @@
   [bdgjst_free] consumes.
 
   ** Structure.
-  The [op] dispatcher uses [SOMEV d] for an enqueue request and
-  [NONEV] for a dequeue request.  This wrapper:
+  The operation index selects the branch: [Push] enqueues its request
+  value, [Pop] takes the request [#()].  This wrapper:
     1. opens the [Nbq] invariant and runs [trace_fresh] to allocate a
        fresh trace identifier [τ], simultaneously committing either
        an [absq_step_call_enq] or an [absq_step_call_deq] step in the
@@ -21,7 +21,7 @@ From iris_logatom.program_logic Require Import atomic_complete.
 From iris.heap_lang Require Import adequacy primitive_laws notation proofmode.
 From iris_logatom.heap_lang Require Import mgc fork_free.
 From iris_logatom.heap_lang.lib Require Import trace.
-From iris_logatom.pure_logic Require Import linear adequacy.
+From iris_logatom.pure_logic Require Import encodable linear adequacy.
 From iris_logatom.pure_logic.models Require Import bag_like.
 From iris_logatom.pure_logic.refine Require Import absq absq_refines_absq0
                                                     absq0_linearizable
@@ -41,15 +41,19 @@ Section bq_skeleton_op_spec.
 
   Lemma op_spec :
     ∀ `(!heapGS Σ), call_ret_wrapper_spec_type
-      bq_repr NotStuck (queue_model MayEmpty valid_value).(valid_request) op.
+      bq_repr NotStuck (queue_model MayEmpty valid_value).(valid_requests) ops.
   Proof.
-    iIntros (Hheap γ l obj req Hvalid Φ) "[#Htrace_inv #Hq] HΦ".
+    iIntros (Hheap n γ l obj req Hvalid Φ) "[#Htrace_inv #Hq] HΦ".
     iDestruct "Hq" as (head tail γ_nm γ_dq γ_del γ_calls γ_no_O γ_ls γ_w) "[%Heq #Hinv]". subst obj.
+    (* [queue_model] declares exactly the two operations [Push] and [Pop]. *)
+    assert (Hop : (n = Push ∧ valid_value req) ∨ (n = Pop ∧ req = #())).
+    { destruct n as [|[|n]]; simpl in Hvalid;
+        [by left|by right|by destruct Hvalid]. }
     rewrite /call_ret_wrapper. wp_pures.
     wp_bind (trace_fresh _ _).
-    awp_apply (trace_fresh_spec _ (Call req) (InjLV req) I_lang_bq
+    awp_apply (trace_fresh_spec _ (Call n req) (InjLV (#n, req)%V) I_lang_bq
                 with "Htrace_inv").
-    { done. }
+    { exact (decode_encode_val (Call n req)). }
     iInv Nbq as (nodes del_pref head_val tail_val dummy_loc ts s ls op_map node_map dq_map no_O_set witness_map)
       "(>Hhead & >Htail & Hchain & >Htrace & >Hauth_op & >Hauth_nm & Hfrag_nm
         & >Hauth_dq & Hfrag_dq & >Hauth_del & >Hauth_calls & >Hauth_no_O & >Hauth_ls & >Hauth_w & Hfrag_w
@@ -57,12 +61,12 @@ Section bq_skeleton_op_spec.
     destruct s as [O_s lt_s l_s rv_s cp_s].
     iAssert (trace_is l ts ∗
       ⌜∀ τ, τ ∉ ts.*1 →
-            I_lang_bq (ts ++ [(τ, Call req)])⌝)%I
+            I_lang_bq (ts ++ [(τ, Call n req)])⌝)%I
       with "[$Htrace]" as "Halpha".
     { iPureIntro. intros τ Hτ_fresh.
       assert (τ ∉ dom cp_s) as Hτ_notin_cp.
       { destruct Hsim as (_ & _ & Hcp_in_ts & _). simpl in *. set_solver. }
-      destruct Hvalid as [(d & Hd_valid & ->) | ->].
+      destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
       - eexists _, (ls ++ [(τ, ACallEnq d)]).
         split.
         + eapply lts_steps_app; [exact Hsteps|].
@@ -90,7 +94,7 @@ Section bq_skeleton_op_spec.
       apply not_elem_of_dom. set_solver. }
     assert (absq_wf valid_value (AbsQState O_s lt_s l_s rv_s cp_s)) as Hwf_s.
     { eapply absq_wf_steps; [exact Hsteps|apply absq_wf_init]. }
-    destruct Hvalid as [(d & Hd_valid & Hreq_eq) | Hreq_eq]; subst req.
+    destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
     - (* Enqueue case: CALL-ENQ commit. *)
       set (new_info := {| op_info_kind := OpEnq d;
                           op_info_node := None;
@@ -115,7 +119,7 @@ Section bq_skeleton_op_spec.
       iSplitL "Hhead Htail Hchain Htrace Hauth_op Hauth_nm Hfrag_nm Hauth_dq Hfrag_dq Hauth_del Hauth_calls Hauth_no_O Hauth_ls Hauth_w Hfrag_w".
       { iNext.
         iExists nodes, del_pref, head_val, tail_val, dummy_loc,
-          (ts ++ [(τ, Call (encode_request (Push d)))]),
+          (ts ++ [(τ, Call Push d)]),
           {| absq_O := O_s ∪ {[τ]};
              absq_lt := lt_s ∪ set_map (λ k', (k', τ)) (absq_COMP O_s l_s);
              absq_l := <[τ := (d, PEND)]> l_s;
@@ -294,7 +298,7 @@ Section bq_skeleton_op_spec.
       iSplitL "Hhead Htail Hchain Htrace Hauth_op Hauth_nm Hfrag_nm Hauth_dq Hfrag_dq Hauth_del Hauth_calls Hauth_no_O Hauth_ls Hauth_w Hfrag_w".
       { iNext.
         iExists nodes, del_pref, head_val, tail_val, dummy_loc,
-          (ts ++ [(τ, Call (encode_request Pop))]),
+          (ts ++ [(τ, Call Pop #())]),
           {| absq_O := O_s; absq_lt := lt_s; absq_l := l_s; absq_rv := rv_s;
              absq_cp := <[τ := R1]> cp_s |},
           (ls ++ [(τ, ACallDeq)]),

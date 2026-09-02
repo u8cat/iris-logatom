@@ -21,22 +21,17 @@ Definition CG_dequeue' : val :=
   λ: "q" <>,
     let: "lock" := Fst "q" in
     let: "head" := Snd "q" in
-    CG_dequeue "lock" "head" #().
+    SOME (CG_dequeue "lock" "head" #()).
 
-Definition CG_op : val :=
-  λ: "q" "req",
-    match: "req" with
-      SOME "d" => CG_enqueue' "q" "d"
-    | NONE  => SOME (CG_dequeue' "q" #())
-    end.
+Definition CG_ops : list val := [CG_enqueue'; CG_dequeue'].
 
 (** * Wrappers for the folly queue  *)
-Definition MPMC_init (size : nat) : val :=
-  λ: <>,
-    let: "slots" := array_init #size newSQueue in
+Definition MPMC_init : val :=
+  λ: "size",
+    let: "slots" := array_init "size" newSQueue in
     let: "pushTicket" := ref #0 in
     let: "popTicket"  := ref #0 in
-    ("slots", #size, "pushTicket", "popTicket").
+    ("slots", "size", "pushTicket", "popTicket").
 
 Definition MPMC_enqueue : val :=
   λ: "q" "x",
@@ -52,14 +47,9 @@ Definition MPMC_dequeue : val :=
     let: "size" := Snd (Fst (Fst "q")) in
     let: "pushTicket" := Snd (Fst "q") in
     let: "popTicket" := Snd "q" in
-    dequeue "slots" "size" "popTicket".
+    SOME (dequeue "slots" "size" "popTicket").
 
-Definition MPMC_op : val :=
-  λ: "q" "req",
-    match: "req" with
-      SOME "d" => MPMC_enqueue "q" "d"
-    | NONE  => SOME (MPMC_dequeue "q" #())
-    end.
+Definition MPMC_ops : list val := [MPMC_enqueue; MPMC_dequeue].
 
 
 (** * Lifting of refineent to wrappers  *)
@@ -73,7 +63,7 @@ Section queue_refinement.
 
   Lemma init_refinement (q : nat) (A : lrel Σ) :
     q > 0 →
-    ⊢ REL MPMC_init q #() << CG_init #() : rel_queue A.
+    ⊢ REL MPMC_init #q << CG_init #() : rel_queue A.
   Proof.
     intros Hqgt.
 
@@ -113,23 +103,22 @@ Section queue_refinement.
   Definition mpmc_model : model :=
     queue_model NeverEmpty mpmc_valid_value.
 
-  Lemma op_refinement :
-    ⊢ REL MPMC_op << CG_op :
-      rel_queue lrel_eq → lrel_req (M := mpmc_model) → (() + lrel_eq) ∪ ().
+  Lemma op_refinement (n : nat) lrel_req :
+    lrel_reqs (M := mpmc_model) !! n = Some lrel_req →
+    ⊢ REL (MPMC_ops !!! n : val) << (CG_ops !!! n : val) :
+      rel_queue lrel_eq → lrel_req → (() + lrel_eq) ∪ ().
   Proof.
-    rel_values.
+    destruct n as [|[|n]]; simpl; intros Hn; simplify_eq.
+    - (* Push *)
+      rel_values.
 
-    iIntros "!# !# %q1 %q2 Hq".
-    iDestruct "Hq" as (?????????? -> -> ?) "#Hq".
-    rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
-    rel_values.
+      iIntros "!# !# %q1 %q2 Hq".
+      iDestruct "Hq" as (?????????? -> -> ?) "#Hq".
+      rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
+      rel_values.
 
-    iIntros "!# !# %req % [<- %Hreq]".
-    rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
-    destruct Hreq as [(?&?&->) | ->] => /=.
-    - rel_pures_l. rel_pures_r.
-      rel_rec_l. rel_pures_l.
-      rel_rec_r. rel_pures_r.
+      iIntros "!# !# %req % [<- %Hreq]".
+      rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
 
       rel_bind_l (enqueue _ _ _ _).
       rel_bind_r (CG_enqueue _ _ _).
@@ -138,9 +127,17 @@ Section queue_refinement.
       iIntros (?? [-> ->]) "/=".
       rel_pures_l. rel_pures_r.
       rel_values.
-    - rel_pures_l. rel_pures_r.
-      rel_rec_l. rel_pures_l.
-      rel_rec_r. rel_pures_r.
+    - (* Pop *)
+      rel_values.
+
+      iIntros "!# !# %q1 %q2 Hq".
+      iDestruct "Hq" as (?????????? -> -> ?) "#Hq".
+      rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
+      rel_values.
+
+      iIntros "!# !# %req % [<- %Hreq]".
+      rel_rec_l; rel_pures_l; rel_rec_r; rel_pures_r.
+
       rel_bind_l (dequeue _ _ _).
       rel_bind_r (CG_dequeue _ _ _).
       iApply refines_bind; [by iApply (dequeue_refinement with "Hq")|].
@@ -176,33 +173,32 @@ Section cg_logatom.
     iExists #lk, ℓ. by iFrame.
   Qed.
 
-  Lemma CG_op_spec γ q x :
-    valid_bag_request mpmc_valid_value x →
+  Lemma CG_ops_spec n γ q x :
+    default default_vr (mpmc_model.(valid_requests) !! n) x →
     is_CG_queue γ q ⊢
     <<{ ∀∀ xs, cgQueueState γ xs }>>
-      CG_op q x @ ↑CGqueueN
-    <<{ ∃∃ xs' x', cgQueueState γ xs' ∗ ⌜mpmc_model.(request_response) xs x xs' x'⌝ | RET x'}>>.
+      (CG_ops !!! n : val) q x @ ↑CGqueueN
+    <<{ ∃∃ xs' x', cgQueueState γ xs' ∗
+          ⌜default (@default_rr mpmc_model) (mpmc_model.(request_responses) !! n) xs x xs' x'⌝
+        | RET x'}>>.
   Proof.
     iIntros (Hvr) "(%lk & %ℓ & -> & #Inv) %Φ AU".
-    wp_lam.
-    destruct Hvr as [ (v_push & Hunboxed & ->) | -> ].
-    - wp_pures. wp_lam. wp_pures.
+    destruct n as [|[|n]]; simpl in Hvr |- *; last by destruct Hvr.
+    - wp_lam. wp_pures.
       awp_apply (CG_enqueue_spec with "Inv").
       iApply (aacc_aupd_commit with "AU"); first done.
       iIntros (xs) "Hst".
       iAaccIntro with "Hst"; first auto with iFrame.
       iIntros "Hst !>".
-      iFrame "Hst". iExists #(). iSplit.
-      { iPureIntro. exists (Push v_push). auto. }
+      iFrame "Hst". iExists #(). iSplit; first by iPureIntro.
       auto.
-    - wp_pures. wp_lam. wp_pures.
+    - subst x. wp_lam. wp_pures.
       awp_apply (CG_dequeue_spec with "Inv").
       iApply (aacc_aupd_commit with "AU"); first done.
       iIntros (xs) "Hst".
       iAaccIntro with "Hst"; first auto with iFrame.
       iIntros (x xs') "[-> Hst] !>".
-      iFrame "Hst". iExists (SOMEV x). iSplit.
-      { iPureIntro. exists Pop. auto. }
+      iFrame "Hst". iExists (SOMEV x). iSplit; first by iPureIntro.
       iIntros "HΦ !>". wp_pures. auto.
   Qed.
 End cg_logatom.
@@ -213,55 +209,69 @@ Section mpmc_logatom.
   Context `{!relocPreG Σ, !logicatomicityG Σ, !traceG Σ}.
   Context `{!TSG Σ, !queueG Σ, !CGQueueG Σ}.
 
-  Definition is_mpmc γ q := is_P (M:=mpmc_model) MPMC_op γ q.
+  Definition is_mpmc γ q := is_P (M:=mpmc_model) MPMC_ops γ q.
   Definition mpmc_content γ (ls : list val) := P_state (M:=mpmc_model) γ ls.
 
-  Definition MPMC_enqueue_wrapper: val := λ: "q" "v", wrap_op MPMC_op "q" (SOME "v").
-  Definition MPMC_dequeue_wrapper: val := λ: "q", unwrap (wrap_op MPMC_op "q" NONEV).
+  Definition MPMC_init_wrapper: val := λ: "sz", wrap_init (MPMC_init "sz").
+  Definition MPMC_enqueue_wrapper: val := λ: "q" "v", wrap_op Push (MPMC_ops !!! Push : val) "q" "v".
+  Definition MPMC_dequeue_wrapper: val := λ: "q", unwrap (wrap_op Pop (MPMC_ops !!! Pop : val) "q" #()).
 
   Lemma MPMC_init_spec size :
     size > 0 →
     {{{ True }}}
-      wrap_init (MPMC_init size) #()
+      MPMC_init_wrapper #size
     {{{ γ q, RET q; is_mpmc γ q ∗ mpmc_content γ [] }}}.
   Proof.
     intros Hsize.
-    eapply (logatom_refines_init mpmc_model
+    opose proof (logatom_refines_init mpmc_model
               (λ H, rel_queue lrel_eq) (λ H, (() + lrel_eq) ∪ ())%lrel
-              (MPMC_init size) CG_init MPMC_op CG_op CGqueueN
+              (MPMC_init #size) (CG_init #()) MPMC_ops CG_ops CGqueueN
               (λ H : heapGS Σ, @is_CG_queue Σ H _)
-              (λ H : heapGS Σ, @cgQueueState Σ H _)).
+              (λ H : heapGS Σ, @cgQueueState Σ H _)
+              _ _ _ _ _ _ _ _ _ _ _ _)
+              as init_spec.
+    - done.
+    - done.
     - intros ?. apply fork_free_sequential. compute_done.
     - intros ?. apply fork_free_sequential. compute_done.
+    - done.
+    - done.
     - solve_ndisj.
     - by iIntros (??? [(?&?&[(->&->&->&->) | (->&->&->)]) | [-> ->]]).
     - intros ?. exact CG_init_spec.
-    - intros ?. exact CG_op_spec.
+    - intros ?. exact CG_ops_spec.
     - intros. by eapply init_refinement.
-    - intros. apply op_refinement.
+    - intros. by apply op_refinement.
+    - iIntros (Φ) "HT HΦ".
+      wp_lam. iApply (init_spec with "HT HΦ").
   Qed.
 
-  Lemma MPMC_op_spec γ (q y : val) :
-    mpmc_model.(valid_request) y →
+  Lemma MPMC_op_spec (n : nat) γ (q y : val) :
+    default default_vr (mpmc_model.(valid_requests) !! n) y →
     is_mpmc γ q ⊢
     <<{ ∀∀ s, mpmc_content γ s }>>
-      wrap_op MPMC_op q y @ ↑Nlogatom
+      wrap_op n (MPMC_ops !!! n : val) q y @ ↑Nlogatom
     <<{ ∃∃ s' y', mpmc_content γ s' ∗
-          ⌜mpmc_model.(request_response) s y s' y'⌝ | RET y' }>>.
+          ⌜default (@default_rr mpmc_model) (mpmc_model.(request_responses) !! n) s y s' y'⌝
+        | RET y' }>>.
   Proof.
     eapply (logatom_refines_op mpmc_model
               (λ H, rel_queue lrel_eq) (λ H, (() + lrel_eq) ∪ ())%lrel
-              (MPMC_init 1) CG_init MPMC_op CG_op CGqueueN
+              (MPMC_init #(Z.of_nat 1)) (CG_init #()) MPMC_ops CG_ops CGqueueN
               (λ H : heapGS Σ, @is_CG_queue Σ H _)
               (λ H : heapGS Σ, @cgQueueState Σ H _)).
+    - done.
+    - done.
     - intros ?. apply fork_free_sequential. compute_done.
     - intros ?. apply fork_free_sequential. compute_done.
+    - done.
+    - done.
     - solve_ndisj.
     - by iIntros (??? [(?&?&[(->&->&->&->) | (->&->&->)]) | [-> ->]]).
     - intros ?. exact CG_init_spec.
-    - intros ?. exact CG_op_spec.
+    - intros ?. exact CG_ops_spec.
     - intros. eapply init_refinement. lia.
-    - intros. apply op_refinement.
+    - intros. by apply op_refinement.
   Qed.
 
   Lemma MPMC_enqueue_spec γ (q v : val) :
@@ -273,16 +283,13 @@ Section mpmc_logatom.
   Proof.
     iIntros (Hunboxed) "#His_mpmc %Φ AU".
     wp_lam. wp_pures.
-    opose proof (MPMC_op_spec γ q (SOMEV v) _) as op_spec.
-    { rewrite /valid_request. left. exists v. done. }
+    opose proof (MPMC_op_spec Push γ q v _) as op_spec.
+    { exact Hunboxed. }
     awp_apply (op_spec with "His_mpmc").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (s) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (SOMEV v) with (encode_request (Push v)) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct Hrr as [-> ->].
     iFrame "Hcontent". auto.
   Qed.
@@ -295,16 +302,13 @@ Section mpmc_logatom.
   Proof.
     iIntros "#His_mpmc %Φ AU".
     wp_lam.
-    opose proof (MPMC_op_spec γ q NONEV _) as op_spec.
-    { rewrite /valid_request. right. done. }
+    opose proof (MPMC_op_spec Pop γ q #() _) as op_spec.
+    { done. }
     awp_apply (op_spec with "His_mpmc").
     iApply (aacc_aupd_commit with "AU"); first done.
     iIntros (ls) "Hcontent".
     iAaccIntro with "Hcontent"; first by iIntros "$ !>"; auto.
     iIntros (ls' y) "[Hcontent %Hrr] !>".
-    destruct Hrr as (r & Henc & Hrr).
-    change (NONEV) with (encode_request Pop) in Henc.
-    apply (inj encode_request) in Henc. subst r.
     destruct ls as [|l ls].
     { destruct Hrr. }
     destruct Hrr as [-> ->].
@@ -315,4 +319,3 @@ Section mpmc_logatom.
     by wp_apply unwrap_spec.
   Qed.
 End mpmc_logatom.
-

@@ -1,8 +1,9 @@
 From iris.base_logic.lib Require Import mono_nat.
 From iris_logatom.lib Require Import list.
-From iris_logatom.pure_logic Require Import linear encodable not_stuck_restrict.
+From iris_logatom.pure_logic Require Import linear encodable tactics not_stuck_restrict.
 From iris_logatom.program_logic Require Import atomic_sound atomic_complete.
-From iris_logatom.heap_lang Require Import mgc lib.trace lib.nondet_int_prealloc.
+From iris_logatom.heap_lang Require Import mgc refines_lemmas.
+From iris_logatom.heap_lang.lib Require Import trace nondet_int_prealloc rel_list.
 From iris_logatom.heap_lang.rel_logic Require Import model properness adequacy rel_tactics spec_tactics.
 From iris_logatom.heap_lang.typing Require Import contextual_refinement tychk.
 
@@ -321,48 +322,74 @@ Section mgc_of_trace_refines.
 
   Context `{M : !model}.
 
-  Definition lrel_req : lrel Σ :=
-    LRel (λ v1 v2, ⌜v1 = v2⌝ ∗ ⌜valid_request v1⌝)%I.
+  (* (REL ops << ops' : lrel_hlist ((λ lrel_req, A → lrel_req → B)%lrel <$> lrel_reqs)) -∗ *)
 
-  Lemma refines_op_mgc (A B : lrel Σ) (op op' obj obj' : expr) ts l :
+  Definition lrel_reqs : list (lrel Σ) :=
+    (λ vr, LRel (λ v1 v2, ⌜v1 = v2⌝ ∗ ⌜vr v1⌝)%I) <$> valid_requests.
+
+  Lemma refines_op_mgc (A B : lrel Σ) (ops ops' : list expr) (obj obj' : expr) ts l :
+    length ops = length valid_requests → length ops' = length valid_requests →
     call_valid ts →
     □ (∀ b b', B b b' -∗ ⌜b = b'⌝) -∗
     (REL obj << obj' : A) -∗
-    (REL op << op' : A → lrel_req → B) -∗
+    ([∗ list] n ↦ lrel_req ∈ lrel_reqs,
+      REL (ops!!!n : expr) << (ops'!!!n : expr) : A → lrel_req → B) -∗
     rel_trace_inv l -∗
-    REL mgc_of_trace l ts op obj << mgc_of_trace l ts op' obj' : lrel_trace.
+    REL mgc_of_trace l ts (dynamic_encode_list ops) obj << mgc_of_trace l ts (dynamic_encode_list ops') obj' : lrel_trace.
   Proof.
-    iIntros "%Hreq #HBeq Hobj Hop #Hinv".
-    iApply (refines_app with "[Hop] Hobj").
-    iApply (refines_app with "[] Hop").
-    rel_values. iModIntro.
-    iIntros (o o') "!# #Hop".
+    iIntros "%Hlen %Hlen' %Hreq #HBeq Hobj Hops #Hinv".
+    iApply (refines_app with "[Hops] Hobj").
+    iApply (refines_app with "[] [Hops]"); last first.
+    { iApply (refines_encode_list ((λ lrel_req, A → lrel_req → B)%lrel <$> lrel_reqs)).
+      - by rewrite /lrel_reqs !length_fmap.
+      - by rewrite /lrel_reqs !length_fmap.
+      - by rewrite big_sepL_fmap. }
     rewrite /mgc_of_trace.
+    rel_values. iModIntro.
+    iIntros (u u') "!# #Hops".
     rel_pures_l; rel_pures_r.
     rel_values. iModIntro.
     iIntros (a a') "!# #HA".
-    iSpecialize ("Hop" with "HA").
     rel_pures_l; rel_pures_r.
     rewrite 2!concurrent_call_subst.
-    iInduction ts as [|[τ [req| |]] ts IH] "IH"; simpl.
+    iInduction ts as [|[τ [n req| |]] ts IH] "IH"; simpl.
     - (* empty *)
       by iApply refines_trace_peak.
     - (* Call *)
       rewrite /concurrent_call.
+      assert (Hvr : default default_vr (valid_requests!!n) req).
+      { move: Hreq. rewrite /call_valid Forall_cons /=. by intros [? _]. }
+      assert (Hlt : n < length valid_requests).
+      { apply lookup_lt_is_Some_1. revert Hvr.
+        destruct (valid_requests !! n); [by intros _; eexists|by intros []]. }
       rel_bind_l (Fork _); rel_bind_r (Fork _).
       iApply refines_bind.
       + iApply refines_fork.
+        rel_bind_l (list_nth _ _); rel_bind_r (list_nth _ _).
+        iApply refines_bind.
+        { iApply refines_list_nth. rel_values. }
+        iIntros (o o') "#Hop_n /=".
         rel_rec_l; rel_rec_r.
         rel_pures_l; rel_pures_r.
         rel_bind_l (trace_fresh _ _); rel_bind_r (trace_fresh _ _).
         iApply refines_bind.
-        { by iApply refines_trace_fresh. }
+        { by iApply (refines_trace_fresh _ _ (Call n req)
+                      (decode_encode_val (Call n req))). }
         iIntros (?? (?&->&->)) "/=".
         rel_pures_l; rel_pures_r.
         rel_bind_l (o _ _); rel_bind_r (o' _ _).
         iApply refines_bind.
-        { iApply refines_app; [done|]. rel_values.
-          inversion Hreq; simplify_eq/=. eauto. }
+        { iApply refines_app.
+          - rewrite list_lookup_total_fmap; last first.
+            { by rewrite /lrel_reqs length_fmap. }
+            by iApply "Hop_n".
+          - rel_values.
+            iModIntro.
+            rewrite /lrel_reqs list_lookup_total_fmap; last first.
+            { by rewrite length_fmap. }
+            rewrite list_lookup_total_fmap //.
+            iPureIntro. split; first done.
+            rewrite list_lookup_lookup_total_lt // in Hvr. }
         iIntros (??) "HB /=".
         rel_pures_l; rel_pures_r.
         iDestruct ("HBeq" with "HB") as %->.
@@ -381,17 +408,18 @@ Section mgc_of_trace_refines.
 
 End mgc_of_trace_refines.
 
-Lemma mgc_of_trace_refines_adequacy `{!relocPreG Σ} (M : model) (op op' obj obj' : expr) (A B : ∀ `{relocGS Σ}, lrel Σ) ts tracer σ :
+Lemma mgc_of_trace_refines_adequacy `{!relocPreG Σ} (M : model) (ops ops' : list expr) (obj obj' : expr) (A B : ∀ `{relocGS Σ}, lrel Σ) ts tracer σ :
+  length ops = length valid_requests → length ops' = length valid_requests →
   call_valid ts →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
   (∀ `{!relocGS Σ}, ⊢ REL obj << obj' : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs!!n = Some lrel_req → ⊢ REL (ops!!!n : expr) << (ops'!!!n : expr) : A → lrel_req → B) →
   {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (σ.(heap)) →
-  adequate NotStuck (mgc_of_trace tracer ts op obj) (compose_state tracer σ [])
-    (λ v _, ∃ thp' h v', rtc erased_step ([mgc_of_trace tracer ts op' obj'], (compose_state tracer σ [])) (of_val v' :: thp', h)
+  adequate NotStuck (mgc_of_trace tracer ts (dynamic_encode_list ops) obj) (compose_state tracer σ [])
+    (λ v _, ∃ thp' h v', rtc erased_step ([mgc_of_trace tracer ts (dynamic_encode_list ops') obj'], (compose_state tracer σ [])) (of_val v' :: thp', h)
             ∧ (∃ (t : list (positive * trace)), v = encode_trace t ∧ v = v')).
 Proof.
-  intros Hvalid HB Hobj Hop Hdom.
+  intros Hlen Hlen' Hvalid HB Hobj Hops Hdom.
   eapply (refines_adequate_strong Σ (λ _, lrel_trace) _ _ _ (compose_state tracer σ [])); [auto|].
   { iIntros (??? (?& -> & ->)). eauto. }
   iIntros (?) "Hpts Hpts'".
@@ -427,9 +455,12 @@ Proof.
 
   iApply (refines_op_mgc (A _) (B _)).
   - done.
+  - done.
+  - done.
   - iIntros "!#" (??) "H". by iApply HB.
   - iApply Hobj.
-  - iApply Hop.
+  - iApply big_sepL_intro.
+    iIntros "!#" (???). by iApply Hops.
   - iFrame.
 Qed.
 
@@ -441,21 +472,22 @@ Qed.
   the same encoded trace from the analogous 2-thread initial pool, and
   (ii) per-thread [not_stuck] for every reachable LHS thread. *)
 Lemma mgc_of_trace_refines_adequacy_two `{!relocPreG Σ}
-    (M : model) (op op' obj obj' : expr) (A B : ∀ `{relocGS Σ}, lrel Σ) ts (tracer : loc) σ
+    (M : model) (ops ops' : list expr) (obj obj' : expr) (A B : ∀ `{relocGS Σ}, lrel Σ) ts (tracer : loc) σ
     (v : val) (thp : list expr) (σ' : state) :
+  length ops = length valid_requests → length ops' = length valid_requests →
   call_valid ts →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
   (∀ `{!relocGS Σ}, ⊢ REL obj << obj' : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs!!n = Some lrel_req → ⊢ REL (ops!!!n : expr) << (ops'!!!n : expr) : A → lrel_req → B) →
   {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (σ.(heap)) →
   rtc erased_step
-    ([mgc_of_trace tracer ts op obj;
+    ([mgc_of_trace tracer ts (dynamic_encode_list ops) obj;
       nondet_bool_prealloc_bg #(tracer +ₗ 2)],
      compose_state tracer σ [])
     (Val v :: thp, σ') →
   (∃ thp_rhs h_rhs v_rhs,
       rtc erased_step
-        ([mgc_of_trace tracer ts op' obj';
+        ([mgc_of_trace tracer ts (dynamic_encode_list ops') obj';
           nondet_bool_prealloc_bg #(tracer +ₗ 2)],
          compose_state tracer σ [])
         (Val v_rhs :: thp_rhs, h_rhs)
@@ -463,7 +495,7 @@ Lemma mgc_of_trace_refines_adequacy_two `{!relocPreG Σ}
             v = encode_trace t ∧ v = v_rhs)
   ∧ (∀ e2, e2 ∈ Val v :: thp → not_stuck e2 σ').
 Proof.
-  intros Hvalid HB Hobj Hop Hdom [n [κs Hnsteps]]%erased_steps_nsteps.
+  intros Hlen_ops Hlen_ops' Hvalid HB Hobj Hops Hdom [n [κs Hnsteps]]%erased_steps_nsteps.
   eapply (wp_strong_adequacy Σ heap_lang NotStuck); last exact Hnsteps.
   iIntros (Hinv).
   iMod (gen_heap_init (compose_state tracer σ []).(heap)) as (Hgh) "[Hh [Hls _]]".
@@ -471,7 +503,7 @@ Proof.
   iMod (proph_map_init κs (compose_state tracer σ []).(used_proph_id)) as (Hpm) "Hp".
   iMod (mono_nat_own_alloc 0) as (γn) "[Hsteps_n _]".
   set (HheapGS := HeapGS HasLc Σ _ _ _ _ γn _).
-  iMod (ghost_map_alloc (map_seq 0 [mgc_of_trace tracer ts op' obj';
+  iMod (ghost_map_alloc (map_seq 0 [mgc_of_trace tracer ts (dynamic_encode_list ops') obj';
                                     nondet_bool_prealloc_bg #(tracer +ₗ 2)]))
        as (γtp) "[Htp Hpts_tp]".
   iEval (cbn) in "Hpts_tp".
@@ -486,7 +518,7 @@ Proof.
   iMod (prophS_alloc (compose_state tracer σ [])) as (γp) "Hps_spec".
   set (Hcfg := RelocGS _ _ (CFGGS _ _ _ _ γtp γst γp)).
   iMod (inv_alloc specN _
-          (spec_inv ([mgc_of_trace tracer ts op' obj';
+          (spec_inv ([mgc_of_trace tracer ts (dynamic_encode_list ops') obj';
                       nondet_bool_prealloc_bg #(tracer +ₗ 2)],
                      compose_state tracer σ []))
         with "[Htp Hσ_spec Hps_spec]") as "#Hspec".
@@ -542,12 +574,13 @@ Proof.
   { iNext. iExists false. iFrame. }
   iAssert (rel_trace_inv tracer) as "#Hrel_inv".
   { iFrame "Htrace_inv Hlock_inv Hbool_inv". }
-  iAssert (REL mgc_of_trace tracer ts op obj
-              << mgc_of_trace tracer ts op' obj' : lrel_trace)%I as "Hmain_rel".
-  { iApply (refines_op_mgc (A _ ) (B _ )); [done| | | |iFrame "Hrel_inv"].
+  iAssert (REL mgc_of_trace tracer ts (dynamic_encode_list ops) obj
+              << mgc_of_trace tracer ts (dynamic_encode_list ops') obj' : lrel_trace)%I as "Hmain_rel".
+  { iApply (refines_op_mgc (A _ ) (B _ )); try done.
     - iIntros "!#" (??) "H". by iApply HB.
     - iApply Hobj.
-    - iApply Hop. }
+    - iApply big_sepL_intro.
+      iIntros "!#" (???). by iApply Hops. }
   iAssert (REL nondet_bool_prealloc_bg #(tracer +ₗ 2)
               << nondet_bool_prealloc_bg #(tracer +ₗ 2) : ())%I as "Hbg_rel".
   { iApply refines_nondet_bool_prealloc_bg. iFrame "Hrel_inv". }
@@ -635,8 +668,8 @@ Proof.
 Qed.
 (**************** End LLM-generated code. *****************)
 
-Lemma refines_init_l_initializable `{!relocPreG Σ} (init : val) (e : expr) (A : ∀ `{relocGS Σ}, lrel Σ) :
-  (∀ `{!relocGS Σ}, ⊢ REL init #() << e : A) →
+Lemma refines_init_l_initializable `{!relocPreG Σ} (init e : expr) (A : ∀ `{relocGS Σ}, lrel Σ) :
+  (∀ `{!relocGS Σ}, ⊢ REL init << e : A) →
   library_initializable init (λ _ _, True).
 Proof.
   intros Hrel σ.
@@ -645,16 +678,20 @@ Proof.
 Qed.
 
 Lemma library_initializable_linearizable_refines `{!relocPreG Σ} (M : model) (A B : ∀ `{relocGS Σ}, lrel Σ)
-  (init init' op op' : val) :
-  (∀ σ, sequential (init #()) σ) →
-  (∀ σ, sequential (init' #()) σ) →
+  (init init' : expr) (ops ops' : list val) :
+  to_val init = None →
+  to_val init' = None →
+  (∀ σ, sequential init σ) →
+  (∀ σ, sequential init' σ) →
+  length ops = length valid_requests →
+  length ops' = length valid_requests →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
-  library_initializable_linearizable init' op' →
-  (∀ `{!relocGS Σ}, ⊢ REL init #() << init' #() : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
-  library_initializable_linearizable init op.
+  library_initializable_linearizable init' ops' →
+  (∀ `{!relocGS Σ}, ⊢ REL init << init' : A) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs !! n = Some lrel_req → ⊢ REL (ops!!!n: val) << (ops'!!!n: val) : A → lrel_req → B) →
+  library_initializable_linearizable init ops.
 Proof.
-  intros Hfree Hfree' HB [Hlin1 Hlin2] Hinit Hop.
+  intros Hnv Hnv' Hfree Hfree' Hlen Hlen' HB [Hlin1 Hlin2] Hinit Hops.
   split.
   - intros ?. by eapply refines_init_l_initializable.
   - intros obj σ0 t σ cfg ts Hinit_steps Hobj.
@@ -671,38 +708,16 @@ Proof.
     clear Heq_pool.
     (*************** Begin LLM-generated code. ****************)
     (*  Claude Opus 4.7 (1M context, xhigh effort, v2.1.111)  *)
-    pose proof (mgc_match_adv_steps _ _ _ _ cfg ts tracer Htracer_disj Hobj)
-      as Hsteps.
     assert (Hcall_valid : call_valid ts)
       by by eapply adv_steps_trace_valid_req.
     assert (Hcomposable : composable_state tracer σ).
     { destruct cfg => /=. by eapply adv_steps_composable_state. }
     assert (Hcomposable' : composable_state tracer σ0).
-    { eapply erased_steps_composable_state;
-        [apply inhabitant|apply inhabitant|done|done]. }
+    { eapply erased_steps_composable_state; [done|done]. }
 
-    (* Lift the source-level [init #()] derivation into compose_state. *)
-    pose proof (simulate_erased_steps op valid_request tracer
-                  [init #()] σ0 [Val obj] σ [] Hinit_steps Hcomposable)
-      as Hinit_compose.
-    (* Adjoin the bg thread on the right, matching the position used by
-       [mgc_match_adv_steps]. *)
-    apply (erased_steps_app_r [init #()] _ [Val obj] [] _
-             [nondet_bool_prealloc_bg #(tracer +ₗ 2)] eq_refl)
-      in Hinit_compose.
-    simpl in Hinit_compose.
-    (* Wrap the [init #()] call with the [mgc_of_trace tracer ts op _]
-       outer context, so both endpoints have the [mgc_of_trace] shape. *)
-    change (mgc_of_trace tracer ts op (init #()))
-      with (fill [AppRCtx (mgc_of_trace tracer ts op)] (init #())) in *.
-    change (mgc_of_trace tracer ts op (Val obj))
-      with (fill [AppRCtx (mgc_of_trace tracer ts op)] (Val obj)) in *.
-    apply (fill_erased_steps_head [AppRCtx (mgc_of_trace tracer ts op)]
-             (init #()) _ (Val obj) _ [_] [_]) in Hinit_compose.
-    (* Combine with [Hsteps] to get the full LHS run. *)
     assert (Hsteps_with_init :
       rtc erased_step
-        ([fill [AppRCtx (mgc_of_trace tracer ts op)] (init #());
+        ([(mgc_of_trace tracer ts (dynamic_encode_list (Val <$>ops))) init;
           nondet_bool_prealloc_bg #(tracer +ₗ 2)],
          compose_state tracer σ0 [])
         (Val (encode_trace ts) ::
@@ -710,25 +725,39 @@ Proof.
            (pending_to_simulated tracer <$> cfg.(config_pendingOp)) ++
            cfg.(config_childThread),
          compose_state tracer (config_state cfg) ts)).
-    { etrans; [exact Hinit_compose|]. exact Hsteps. }
-    clear Hinit_compose Hsteps.
+    { erased_steps_apply (simulate_erased_steps tracer [init]); [done..|].
+      erased_steps_apply erased_steps_dynamic_encode_list_val.
+      by eapply mgc_match_adv_steps. }
 
     (* Apply the 2-thread refines adequacy. *)
-    pose proof (mgc_of_trace_refines_adequacy_two M op op' (init #()) (init' #())
+    opose proof (mgc_of_trace_refines_adequacy_two M (Val <$> ops) (Val <$> ops') init init'
                   A B ts tracer σ0 (encode_trace ts) _ _
-                  Hcall_valid HB Hinit Hop Hcomposable' Hsteps_with_init)
+                  _ _ Hcall_valid HB Hinit _ Hcomposable' Hsteps_with_init)
       as [(thp_rhs & h_rhs & v_rhs & Hres_rhs & t & Hv_eq & Hv_rhs_eq)
           Hthreads].
+    { by rewrite length_fmap. } { by rewrite length_fmap. }
+    { intros ??? Hlookup.
+      pose proof (lookup_lt_Some _ _ _ Hlookup) as Hn_le.
+      rewrite /lrel_reqs length_fmap in Hn_le.
+      rewrite !list_lookup_total_fmap; [auto|lia..]. }
     assert (t = ts) as -> by by symmetry; apply (inj encode_trace).
     rewrite -Hv_rhs_eq in Hres_rhs.
     clear Hsteps_with_init Hv_eq Hv_rhs_eq v_rhs.
 
     (* Reverse-engineer the RHS source-level run. *)
-    change (fill [AppRCtx (mgc_of_trace tracer ts op')] (init' #()))
-      with (mgc_of_trace tracer ts op' (init' #())) in Hres_rhs.
-    eapply adv_match_mgc_steps in Hres_rhs
+    assert (Hres_rhs':
+          rtc erased_step
+      ([mgc_of_trace tracer ts (encode_val ops')
+      init'; nondet_bool_prealloc_bg #(tracer +ₗ 2)],
+      compose_state tracer σ0 []) (Val (encode_trace ts) :: thp_rhs, h_rhs)).
+    { eapply (erased_steps_pure_steps_ctx
+                (λ e, mgc_of_trace tracer ts e init') _ (encode_val ops')).
+      - apply (pure_ctx_app_block [AppRCtx (mgc_of_trace tracer ts)] init').
+      - apply pure_steps_dynamic_encode_list_val.
+      - exact Hres_rhs. }
+    eapply adv_match_mgc_steps in Hres_rhs'
       as (ts' & Heq_ts' & obj' & efs_rhs & σ_rhs & cfg' & Hinit_rhs & Hadv_rhs);
-      [|exact Hfree'|exact Hlin1
+      [|exact Hnv'|exact Hfree'|exact Hlin1
        |by intros **; eapply Hlin2|done|done].
     apply (inj encode_trace) in Heq_ts' as <-.
     pose proof (Hfree' _ _ _ Hinit_rhs) as Heq_pool.
@@ -754,26 +783,10 @@ Proof.
       assert (Hcomp_l : composable_state l σ).
       { destruct cfg => /=. by eapply adv_steps_composable_state. }
       assert (Hcomp_l0 : composable_state l σ0).
-      { eapply erased_steps_composable_state;
-          [apply inhabitant|apply inhabitant|done|done]. }
-      pose proof (mgc_match_adv_steps _ _ _ _ cfg ts l Hl_disj Hobj)
-        as Hsteps_l.
-      pose proof (simulate_erased_steps op valid_request l
-                    [init #()] σ0 [Val obj] σ [] Hinit_steps Hcomp_l)
-        as Hinit_compose_l.
-      apply (erased_steps_app_r [init #()] _ [Val obj] [] _
-               [nondet_bool_prealloc_bg #(l +ₗ 2)] eq_refl)
-        in Hinit_compose_l.
-      simpl in Hinit_compose_l.
-      change (mgc_of_trace l ts op (init #()))
-        with (fill [AppRCtx (mgc_of_trace l ts op)] (init #())) in *.
-      change (mgc_of_trace l ts op (Val obj))
-        with (fill [AppRCtx (mgc_of_trace l ts op)] (Val obj)) in *.
-      apply (fill_erased_steps_head [AppRCtx (mgc_of_trace l ts op)]
-               (init #()) _ (Val obj) _ [_] [_]) in Hinit_compose_l.
+      { eapply erased_steps_composable_state; [done|done]. }
       assert (Hsteps_full :
         rtc erased_step
-          ([fill [AppRCtx (mgc_of_trace l ts op)] (init #());
+          ([(mgc_of_trace l ts (dynamic_encode_list (Val <$> ops))) init;
             nondet_bool_prealloc_bg #(l +ₗ 2)],
            compose_state l σ0 [])
           (Val (encode_trace ts) ::
@@ -781,13 +794,21 @@ Proof.
              (pending_to_simulated l <$> cfg.(config_pendingOp)) ++
              cfg.(config_childThread),
            compose_state l (config_state cfg) ts)).
-      { etrans; [exact Hinit_compose_l|]. exact Hsteps_l. }
-      pose proof (mgc_of_trace_refines_adequacy_two M op op'
-                    (init #()) (init' #()) A B ts l σ0
+      { erased_steps_apply (simulate_erased_steps l [init]); [done..|].
+        erased_steps_apply erased_steps_dynamic_encode_list_val.
+        by eapply mgc_match_adv_steps. }
+      opose proof (mgc_of_trace_refines_adequacy_two M (Val <$> ops) (Val <$> ops')
+                    init init' A B ts l σ0
                     (encode_trace ts) _ _
-                    Hcall_valid HB Hinit Hop Hcomp_l0 Hsteps_full)
+                    _ _ Hcall_valid HB Hinit _ Hcomp_l0 Hsteps_full)
         as [_ Hthreads_l].
-      by apply Hthreads_l. }
+      - by rewrite length_fmap.
+      - by rewrite length_fmap.
+      - intros ??? Hlookup.
+        pose proof (lookup_lt_Some _ _ _ Hlookup) as Hn_le.
+        rewrite /lrel_reqs length_fmap in Hn_le.
+        rewrite !list_lookup_total_fmap; [auto|lia..].
+      - by apply Hthreads_l. }
 
     (* Helper to convert per-l fresh-disjointness from
        [not_stuck_heap_restrict]'s premise into the form expected by
@@ -839,88 +860,102 @@ Proof.
 Qed.
 
 Theorem logatom_refines (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
-  (init init' op op' : val) N
+  (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :
-  (∀ σ, sequential (init #()) σ) →
-  (∀ σ, sequential (init' #()) σ) →
+  to_val init = None →
+  to_val init' = None →
+  (∀ σ, sequential init σ) →
+  (∀ σ, sequential init' σ) →
+  length ops = length valid_requests →
+  length ops' = length valid_requests →
   N ## traceN →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
-  (* logatom of (init',op') *)
-  (∀ `(!heapGS Σ), {{{ True }}} init' #() {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
-    (∀ `(!heapGS Σ) γ (x y: val), valid_request y → is_P' _ γ x ⊢
+  (* logatom of (init',ops') *)
+  (∀ `(!heapGS Σ), {{{ True }}} init' {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
+    (∀ `(!heapGS Σ) n γ (x y: val), default default_vr (valid_requests!!n) y → is_P' _ γ x ⊢
       <<{ ∀∀ s, P_state' _ γ s }>>
-        op' x y @ ↑N
-      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>) →
+        (ops'!!!n : val) x y @ ↑N
+      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>) →
   (* refinement *)
-  (∀ `{!relocGS Σ}, ⊢ REL init #() << init' #() : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
-  (* logatom of (init,op) *)
-  ∀ `{!heapGS Σ}, ({{{ True }}} wrap_init init #() {{{ γ r, RET r; is_P op γ r ∗ P_state γ s_init }}})
+  (∀ `{!relocGS Σ}, ⊢ REL init << init' : A) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs !! n = Some lrel_req → ⊢ REL (ops!!!n : val) << (ops'!!!n : val) : A → lrel_req → B) →
+  (* logatom of (init,ops) *)
+  ∀ `{!heapGS Σ}, ({{{ True }}} wrap_init init {{{ γ r, RET r; is_P ops γ r ∗ P_state γ s_init }}})
   ∧
-  (∀ γ (x y: val), valid_request y → is_P op γ x ⊢
+  (∀ (n : nat) γ (x y: val), default default_vr (valid_requests!!n) y → is_P ops γ x ⊢
     <<{ ∀∀ s, P_state γ s }>>
-      wrap_op op x y @ ↑Nlogatom
-    <<{ ∃∃ s' y', P_state γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>).
+      wrap_op n (ops!!!n) x y @ ↑Nlogatom
+    <<{ ∃∃ s' y', P_state γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>).
 Proof.
-  intros Hnf Hnf' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine ?.
-  apply logatom_complete; first done.
-  eapply library_initializable_linearizable_refines; try eassumption.
-  eapply (logatom_sound (Σ:=Σ)); try eassumption.
+  intros Hnv Hnv' Hnf Hnf' Hlen Hlen' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine ?.
+  assert (Hlin : library_initializable_linearizable init ops).
+  { eapply (library_initializable_linearizable_refines M A B init init' ops ops'); try eassumption.
+    eapply (logatom_sound (Σ:=Σ)); eassumption. }
+  split; first by eapply logatom_complete_init.
+  intros n. by eapply logatom_complete_op.
 Qed.
 
 Corollary logatom_refines_init (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
-  (init init' op op' : val) N
+  (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :
-  (∀ σ, sequential (init #()) σ) →
-  (∀ σ, sequential (init' #()) σ) →
+  to_val init = None →
+  to_val init' = None →
+  (∀ σ, sequential init σ) →
+  (∀ σ, sequential init' σ) →
+  length ops = length valid_requests →
+  length ops' = length valid_requests →
   N ## traceN →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
-  (* logatom of (init',op') *)
-  (∀ `(!heapGS Σ), {{{ True }}} init' #() {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
-    (∀ `(!heapGS Σ) γ (x y: val), valid_request y → is_P' _ γ x ⊢
+  (* logatom of (init',ops') *)
+  (∀ `(!heapGS Σ), {{{ True }}} init' {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
+    (∀ `(!heapGS Σ) n γ (x y: val), default default_vr (valid_requests!!n) y → is_P' _ γ x ⊢
       <<{ ∀∀ s, P_state' _ γ s }>>
-        op' x y @ ↑N
-      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>) →
+        (ops'!!!n : val) x y @ ↑N
+      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>) →
   (* refinement *)
-  (∀ `{!relocGS Σ}, ⊢ REL init #() << init' #() : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
-  (* logatom of (init,op) *)
-  ∀ `{!heapGS Σ}, ({{{ True }}} wrap_init init #() {{{ γ r, RET r; is_P op γ r ∗ P_state γ s_init }}}).
+  (∀ `{!relocGS Σ}, ⊢ REL init << init' : A) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs !! n = Some lrel_req → ⊢ REL (ops!!!n : val) << (ops'!!!n : val) : A → lrel_req → B) →
+  (* logatom of (init,ops) *)
+  ∀ `{!heapGS Σ}, ({{{ True }}} wrap_init init {{{ γ r, RET r; is_P ops γ r ∗ P_state γ s_init }}}).
 Proof.
-  intros Hnf Hnf' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
+  intros Hnv Hnv' Hnf Hnf' Hlen Hlen' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
   eapply proj1.
-  revert Hnf Hnf' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
+  revert Hnf Hnf' Hlen Hlen' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
   apply logatom_refines; eassumption.
 Qed.
 
 Corollary logatom_refines_op (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
-  (init init' op op' : val) N
+  (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :
-  (∀ σ, sequential (init #()) σ) →
-  (∀ σ, sequential (init' #()) σ) →
+  to_val init = None →
+  to_val init' = None →
+  (∀ σ, sequential init σ) →
+  (∀ σ, sequential init' σ) →
+  length ops = length valid_requests →
+  length ops' = length valid_requests →
   N ## traceN →
   (∀ `{!relocGS Σ} b b', B b b' -∗ ⌜b = b'⌝) →
-  (* logatom of (init',op') *)
-  (∀ `(!heapGS Σ), {{{ True }}} init' #() {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
-    (∀ `(!heapGS Σ) γ (x y: val), valid_request y → is_P' _ γ x ⊢
+  (* logatom of (init',ops') *)
+  (∀ `(!heapGS Σ), {{{ True }}} init' {{{ γ r, RET r; is_P' _ γ r ∗ P_state' _ γ s_init }}}) →
+    (∀ `(!heapGS Σ) n γ (x y: val), default default_vr (valid_requests!!n) y → is_P' _ γ x ⊢
       <<{ ∀∀ s, P_state' _ γ s }>>
-        op' x y @ ↑N
-      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>) →
+        (ops'!!!n : val) x y @ ↑N
+      <<{ ∃∃ s' y', P_state' _ γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>) →
   (* refinement *)
-  (∀ `{!relocGS Σ}, ⊢ REL init #() << init' #() : A) →
-  (∀ `{!relocGS Σ}, ⊢ REL op << op' : A → lrel_req → B) →
-  (* logatom of (init,op) *)
+  (∀ `{!relocGS Σ}, ⊢ REL init << init' : A) →
+  (∀ `{!relocGS Σ} n lrel_req, lrel_reqs !! n = Some lrel_req → ⊢ REL (ops!!!n : val) << (ops'!!!n : val) : A → lrel_req → B) →
+  (* logatom of (init,ops) *)
   ∀ `{!heapGS Σ},
-  (∀ γ (x y: val), valid_request y → is_P op γ x ⊢
+  (∀ (n : nat) γ (x y: val), default default_vr (valid_requests!!n) y → is_P ops γ x ⊢
     <<{ ∀∀ s, P_state γ s }>>
-      wrap_op op x y @ ↑Nlogatom
-    <<{ ∃∃ s' y', P_state γ s' ∗ ⌜request_response s y s' y'⌝ | RET y' }>>).
+      wrap_op n (ops!!!n) x y @ ↑Nlogatom
+    <<{ ∃∃ s' y', P_state γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝ | RET y' }>>).
 Proof.
-  intros Hnf Hnf' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
+  intros Hnv Hnv' Hnf Hnf' Hlen Hlen' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
   eapply proj2.
-  revert Hnf Hnf' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
+  revert Hnv Hnv' Hnf Hnf' Hlen Hlen' HN HB Hinit'_spec Hop'_spec Hinit_refine Hop_refine Hheap.
   apply logatom_refines; eassumption.
 Qed.

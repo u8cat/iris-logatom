@@ -18,7 +18,7 @@ Section relations.
 
   (* A pop(∅) is linearizable iff it is not covered by any push/pop pair at some point. *)
   Definition pop_empty_linearizable (m : list (positive*positive)) (τ : positive) :=
-    ∃ icall iret i, ts !! icall = Some (τ, Call (encode_request Pop))
+    ∃ icall iret i, ts !! icall = Some (τ, Call Pop #())
                   ∧ ts !! iret = Some (τ, Ret (encode_response IsEmpty))
                   ∧ icall ≤ i ≤ iret
                   ∧ (∀ τ1 τ2, (τ1,τ2) ∈ m → ¬ push_pop_covers τ1 τ2 i)
@@ -62,8 +62,8 @@ Section relations.
     pop_val_of_trace ts ⊆ m.*2 (* every finished pop is matched *)
   ∧ (NoDup m.*1 ∧ NoDup m.*2) (* injective in both directions *)
   ∧ Forall (λ '(τ1,τ2), ¬ pre_of_trace τ2 τ1 (* Push starts before Pop finishes *)
-      ∧ (τ2, Call (encode_request Pop)) ∈ ts (* τ2 was called *)
-      ∧ ∃ v, (τ1,Call (encode_request (Push v))) ∈ ts (* τ1 was called *)
+      ∧ (τ2, Call Pop #()) ∈ ts (* τ2 was called *)
+      ∧ ∃ v, (τ1,Call Push v) ∈ ts (* τ1 was called *)
             (* τ2 returns the same value or τ2 has not returned yet *)
            ∧ ((τ2,Ret (encode_response (NonEmpty v))) ∈ ts
               ∨ τ2 ∉ (filter (is_ret ∘ snd) ts).*1)) m.
@@ -92,7 +92,7 @@ End relations.
 (* Facts about valid match. *)
 Lemma valid_match_call_push ts m τ1 τ2 :
   valid_match ts m → (τ1,τ2) ∈ m →
-  ∃ v, (τ1,Call (encode_request (Push v))) ∈ ts.
+  ∃ v, (τ1,Call Push v) ∈ ts.
 Proof.
   intros (_ & _ & Hper_tag_valid) Hin.
   rewrite Forall_forall in Hper_tag_valid.
@@ -115,23 +115,23 @@ Proof.
   subst j. rewrite Hj in Hi. injection Hi as ->. done.
 Qed.
 
-Lemma valid_match_lookup_call_push ts m τ1 τ2 i v₀ :
+Lemma valid_match_lookup_call_push ts m τ1 τ2 i n₀ v₀ :
   per_tag_wellformed ts →
   valid_match ts m → (τ1,τ2) ∈ m →
-  ts !! i = Some (τ1,Call v₀) →
-  ∃ v, v₀ = encode_request (Push v).
+  ts !! i = Some (τ1,Call n₀ v₀) →
+  n₀ = Push.
 Proof.
   intros Hwf (_ & _ & Hper_tag_valid) Hin Hcall%list_elem_of_lookup_2.
   rewrite Forall_forall in Hper_tag_valid.
   destruct (Hper_tag_valid _ Hin) as (_ & _ & ? & Hcall' & _).
-  opose proof (per_tag_partial_wellformed_inj_call _ _ _ _ _ Hcall Hcall') as ->.
+  opose proof (per_tag_partial_wellformed_inj_call _ _ _ _ _ _ _ Hcall Hcall') as [-> ->].
   { by apply per_tag_wellformed_per_tag_partial_wellformed. }
-  eexists. done.
+  reflexivity.
 Qed.
 
 Lemma valid_match_call_pop ts m τ1 τ2 :
   valid_match ts m → (τ1,τ2) ∈ m →
-  (τ2,Call (encode_request Pop)) ∈ ts.
+  (τ2,Call Pop #()) ∈ ts.
 Proof.
   intros (_ & _ & Hper_tag_valid) Hin.
   rewrite Forall_forall in Hper_tag_valid.
@@ -154,18 +154,18 @@ Proof.
   subst j. rewrite Hj in Hi. injection Hi as ->. done.
 Qed.
 
-Lemma valid_match_lookup_call_pop ts m τ1 τ2 i v₀ :
+Lemma valid_match_lookup_call_pop ts m τ1 τ2 i n₀ v₀ :
   per_tag_wellformed ts →
   valid_match ts m → (τ1,τ2) ∈ m →
-  ts !! i = Some (τ2,Call v₀) →
-  v₀ = encode_request Pop.
+  ts !! i = Some (τ2,Call n₀ v₀) →
+  n₀ = Pop ∧ v₀ = #().
 Proof.
   intros Hwf (_ & _ & Hper_tag_valid) Hin Hcall%list_elem_of_lookup_2.
   rewrite Forall_forall in Hper_tag_valid.
   destruct (Hper_tag_valid _ Hin) as (_ & Hcall' & _).
-  opose proof (per_tag_partial_wellformed_inj_call _ _ _ _ _ Hcall Hcall') as ->.
+  opose proof (per_tag_partial_wellformed_inj_call _ _ _ _ _ _ _ Hcall Hcall') as [-> ->].
   { by apply per_tag_wellformed_per_tag_partial_wellformed. }
-  reflexivity.
+  done.
 Qed.
 
 Lemma valid_match_ne ts m τ1 τ2 :
@@ -178,7 +178,7 @@ Proof.
   pose proof (valid_match_call_pop ts m τ1 τ1 Hvalid Hin) as Hpop.
   apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hpush; last done.
   apply (list_elem_of_filter_2 (λ x, x.1 = τ1)) in Hpop; last done.
-  destruct (Hwf τ1) as (v & v' & Hprefix).
+  destruct (Hwf τ1) as (n & v & v' & Hprefix).
   eapply elem_of_prefix in Hpush; last exact Hprefix.
   eapply elem_of_prefix in Hpop; last exact Hprefix.
   rewrite !elem_of_cons !elem_of_nil !right_id in Hpush,Hpop.
@@ -196,7 +196,7 @@ Qed.
 
 Lemma valid_match_snoc_call_push ts m τ v :
   valid_match ts m → τ ∉ ts.*1 →
-  valid_match (ts ++ [(τ, Call (encode_request (Push v)))]) m.
+  valid_match (ts ++ [(τ, Call Push v)]) m.
 Proof.
   intros Hvalid_match Hfresh.
   destruct Hvalid_match as (Hpop_subset & Hnodup & Hvalid_match).
@@ -241,7 +241,7 @@ Qed.
 
 Lemma valid_match_snoc_call_pop ts m τ :
   valid_match ts m → τ ∉ ts.*1 →
-  valid_match (ts ++ [(τ, Call (encode_request Pop))]) m.
+  valid_match (ts ++ [(τ, Call Pop #())]) m.
 Proof.
   intros Hvalid_match Hfresh.
   destruct Hvalid_match as (Hpop_subset & Hnodup & Hvalid_match).
@@ -285,7 +285,7 @@ Proof.
 Qed.
 
 Lemma valid_match_snoc_ret_push ts m τ v :
-  valid_match ts m → filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request (Push v)))] →
+  valid_match ts m → filter (λ x, x.1 = τ) ts = [(τ,Call Push v)] →
   valid_match (ts ++ [(τ, Ret #())]) m.
 Proof.
   intros Hvalid_match Hfilter.
@@ -350,7 +350,7 @@ Qed.
 
 Lemma valid_match_snoc_ret_pop_empty ts m τ :
   valid_match ts m → τ ∉ m.*2 →
-  filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request Pop))] →
+  filter (λ x, x.1 = τ) ts = [(τ,Call Pop #())] →
   valid_match (ts ++ [(τ, Ret (encode_response IsEmpty))]) m.
 Proof.
   intros Hvalid_match Hunmatched Hfilter.
@@ -411,8 +411,8 @@ Lemma valid_match_snoc_ret_pop_val rme valid_value ts m τ1 τ2 v :
   per_tag_wellformed_bag rme valid_value ts →
   valid_match ts m →
   (τ1, τ2) ∈ m →
-  (τ1, Call (encode_request (Push v))) ∈ ts →
-  filter (λ x, x.1 = τ2) ts = [(τ2, Call (encode_request Pop))] →
+  (τ1, Call Push v) ∈ ts →
+  filter (λ x, x.1 = τ2) ts = [(τ2, Call Pop #())] →
   valid_match (ts ++ [(τ2, Ret (encode_response (NonEmpty v)))]) m.
 Proof.
   intros Hwf Hvalid_match Hmatched Hcall Hfilter.
@@ -465,10 +465,9 @@ Proof.
       * destruct (decide (τ2 = τ2')) as [<- | Hne].
         --left.
           pose proof (valid_match_inj_call ts m _ _ _ Hvalid_match' Hmatched Hin) as <-.
-          opose proof (per_tag_partial_wellformed_inj_call ts τ1 _ _ _ Hcall Hcall_push) as Hvv'.
+          opose proof (per_tag_partial_wellformed_inj_call ts τ1 _ _ _ _ _ Hcall Hcall_push) as [Hnn' Hvv'].
           { by eapply per_tag_wellformed_per_tag_partial_wellformed, per_tag_wellformed_bag_wellformed. }
-          apply (inj encode_request) in Hvv'.
-          injection Hvv' as <-.
+          simplify_eq.
           clear. set_solver.
         --right.
           rewrite filter_app filter_cons_True; last compute_done.
@@ -481,8 +480,8 @@ Qed.
 Lemma valid_match_snoc_match ts m τ1 τ2 v :
   valid_match ts m →
   τ1 ∉ m.*1 → τ2 ∉ m.*2 →
-  (τ1, Call (encode_request (Push v))) ∈ ts →
-  (τ2, Call (encode_request Pop)) ∈ ts →
+  (τ1, Call Push v) ∈ ts →
+  (τ2, Call Pop #()) ∈ ts →
   τ2 ∉ (filter (is_ret ∘ snd) ts).*1 →
   valid_match ts (m ++ [(τ1,τ2)]).
 Proof.
@@ -524,12 +523,12 @@ Proof. intros ?. rewrite filter_nil. set_solver. Qed.
    in ts0 (so call_of_tag is preserved) and i < length ts0 (so a "ret-in-rest"
    index is too large), push_pop_covers (ts0 ++ rest) implies push_pop_covers ts0. *)
 Local Lemma push_pop_covers_app_inv (ts0 : list (positive * trace)) rest τ_a τ_b i :
-  (∃ v, (τ_b, Call v) ∈ ts0) →
+  (∃ n v, (τ_b, Call n v) ∈ ts0) →
   i < length ts0 →
   push_pop_covers (ts0 ++ rest) τ_a τ_b i →
   push_pop_covers ts0 τ_a τ_b i.
 Proof.
-  intros (v_b & Hcall_b) Hi_lt Hcov_ext.
+  intros (n_b & v_b & Hcall_b) Hi_lt Hcov_ext.
   rewrite /push_pop_covers in Hcov_ext |- *.
   destruct (ret_of_tag (ts0 ++ rest) τ_a) as [[ir tr]|] eqn:Hret_ext;
     simpl in Hcov_ext; [|done].
@@ -567,7 +566,7 @@ Qed.
 Lemma per_tag_pop_empty_sound_snoc_call_push ts m τ v :
   valid_match ts m →
   per_tag_pop_empty_sound ts m → τ ∉ ts.*1 →
-  per_tag_pop_empty_sound (ts ++ [(τ, Call (encode_request (Push v)))]) m.
+  per_tag_pop_empty_sound (ts ++ [(τ, Call Push v)]) m.
 Proof.
   intros Hvm Hps Hfresh τ' Hτ'_in.
   rewrite filter_app filter_cons_False in Hτ'_in; last compute_done.
@@ -585,7 +584,7 @@ Proof.
     pose proof (valid_match_call_pop _ _ _ _ Hvm Hin) as Hcall_τ_b.
     apply (Hno_match τ_a τ_b Hin).
     eapply push_pop_covers_app_inv;
-      [eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
+      [do 2 eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
   - intros τ_a [Hτ_a_push Hτ_a_nm] Hcov_ext.
     rewrite /push_of_trace filter_app fmap_app in Hτ_a_push.
     rewrite filter_cons_True /= in Hτ_a_push; last by exists v.
@@ -607,7 +606,7 @@ Qed.
 Lemma per_tag_pop_empty_sound_snoc_call_pop ts m τ :
   valid_match ts m →
   per_tag_pop_empty_sound ts m → τ ∉ ts.*1 →
-  per_tag_pop_empty_sound (ts ++ [(τ, Call (encode_request Pop))]) m.
+  per_tag_pop_empty_sound (ts ++ [(τ, Call Pop #())]) m.
 Proof.
   intros Hvm Hps Hfresh τ' Hτ'_in.
   rewrite filter_app filter_cons_False in Hτ'_in; last compute_done.
@@ -625,7 +624,7 @@ Proof.
     pose proof (valid_match_call_pop _ _ _ _ Hvm Hin) as Hcall_τ_b.
     apply (Hno_match τ_a τ_b Hin).
     eapply push_pop_covers_app_inv;
-      [eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
+      [do 2 eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
   - intros τ_a [Hτ_a_push Hτ_a_nm] Hcov_ext.
     rewrite /push_of_trace filter_app fmap_app in Hτ_a_push.
     rewrite filter_cons_False in Hτ_a_push; last compute_done.
@@ -636,7 +635,7 @@ Qed.
 
 Lemma per_tag_pop_empty_sound_snoc_ret_push ts m τ v :
   valid_match ts m →
-  per_tag_pop_empty_sound ts m → filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request (Push v)))] →
+  per_tag_pop_empty_sound ts m → filter (λ x, x.1 = τ) ts = [(τ,Call Push v)] →
   per_tag_pop_empty_sound (ts ++ [(τ, Ret #())]) m.
 Proof.
   intros Hvm Hps Hfilter τ' Hτ'_in.
@@ -655,7 +654,7 @@ Proof.
     pose proof (valid_match_call_pop _ _ _ _ Hvm Hin) as Hcall_τ_b.
     apply (Hno_match τ_a τ_b Hin).
     eapply push_pop_covers_app_inv;
-      [eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
+      [do 2 eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
   - intros τ_a [Hτ_a_push Hτ_a_nm] Hcov_ext.
     rewrite /push_of_trace filter_app fmap_app in Hτ_a_push.
     rewrite filter_cons_False in Hτ_a_push; last compute_done.
@@ -666,7 +665,7 @@ Qed.
 
 Lemma per_tag_pop_empty_sound_snoc_ret_pop_val ts m τ v :
   valid_match ts m →
-  per_tag_pop_empty_sound ts m → filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request Pop))] →
+  per_tag_pop_empty_sound ts m → filter (λ x, x.1 = τ) ts = [(τ,Call Pop #())] →
   per_tag_pop_empty_sound (ts ++ [(τ, Ret (encode_response (NonEmpty v)))]) m.
 Proof.
   intros Hvm Hps Hfilter τ' Hτ'_in.
@@ -685,7 +684,7 @@ Proof.
     pose proof (valid_match_call_pop _ _ _ _ Hvm Hin) as Hcall_τ_b.
     apply (Hno_match τ_a τ_b Hin).
     eapply push_pop_covers_app_inv;
-      [eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
+      [do 2 eexists; exact Hcall_τ_b | exact Hi_lt | exact Hcov_ext].
   - intros τ_a [Hτ_a_push Hτ_a_nm] Hcov_ext.
     rewrite /push_of_trace filter_app fmap_app in Hτ_a_push.
     rewrite filter_cons_False in Hτ_a_push; last compute_done.
@@ -704,7 +703,7 @@ Qed.
 Lemma per_tag_pop_empty_sound_snoc_match ts m τ1 τ2 v :
   per_tag_pop_empty_sound ts m →
   τ1 ∉ m.*1 → τ2 ∉ m.*2 →
-  (τ1, Call (encode_request (Push v))) ∈ ts →
+  (τ1, Call Push v) ∈ ts →
   per_tag_pop_empty_sound ts (m ++ [(τ1, τ2)]).
 Proof.
   intros Hps Hτ1_nm Hτ2_nm Hcall_τ1 τ' Hτ'_in.
@@ -721,7 +720,7 @@ Proof.
     + apply list_elem_of_singleton in Hin_new. injection Hin_new as -> ->.
       apply (Hno_dangling τ1).
       * split.
-        -- apply (list_elem_of_fmap_2 fst _ (τ1, Call (encode_request (Push v)))).
+        -- apply (list_elem_of_fmap_2 fst _ (τ1, Call Push v)).
            apply list_elem_of_filter_2; [by exists v | exact Hcall_τ1].
         -- exact Hτ1_nm.
       * rewrite /push_pop_covers in Hcov.
@@ -740,11 +739,11 @@ Qed.
 
 (* Reusable lemma discovered by LLM. *)
 Lemma not_pre_of_trace_app ts ts' τ1 τ2 :
-  (∃ v, (τ2, Call v) ∈ ts) →
+  (∃ n v, (τ2, Call n v) ∈ ts) →
   ¬ pre_of_trace ts τ1 τ2 →
   ¬ pre_of_trace (ts ++ ts') τ1 τ2.
 Proof.
-  intros [vc Hcall1] Hpre Hpre'.
+  intros (nc & vc & Hcall1) Hpre Hpre'.
   rewrite /pre_of_trace in Hpre', Hpre.
   destruct (ret_of_tag (ts ++ ts') τ1) as [[i_ret t_ret]|] eqn:Hret_ext;
     simpl in Hpre'; [|done].
@@ -769,13 +768,13 @@ Proof.
     exfalso.
     apply list_find_None in Hcall_none.
     rewrite Forall_forall in Hcall_none.
-    specialize (Hcall_none (τ2, Call vc) Hcall1).
+    specialize (Hcall_none (τ2, Call nc vc) Hcall1).
     simpl in Hcall_none. apply Hcall_none. done.
 Qed.
 
 (* Reusable lemma discovered by LLM. *)
 Lemma pre_of_trace_app_inv ts ts' τ1 τ2 :
-  (∃ v, (τ2, Call v) ∈ ts) →
+  (∃ n v, (τ2, Call n v) ∈ ts) →
   pre_of_trace (ts ++ ts') τ1 τ2 →
   pre_of_trace ts τ1 τ2.
 Proof.

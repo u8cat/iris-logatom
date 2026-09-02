@@ -71,13 +71,12 @@ Section bq_skeleton_deq_cont.
                             op_info_linked := false |}]}) -∗
     (∀ v : val, True -∗ Φ v) -∗
     WP (let: "τ" := #(Z.pos τ) in
-        let: "res" := op (#head, #tail)%V NONEV in
+        let: "res" := (λ: "q" <>, dequeue "q")%V (#head, #tail)%V #() in
         trace_emit #l "τ" (InjR "res");; "res")
     {{ Φ }}.
   Proof.
     iIntros "#Hinv #Htrace_inv Hfrag HΦ".
     wp_pures.
-    rewrite /op. wp_pures.
     rewrite /dequeue. wp_pures.
     iLöb as "IH".
     wp_pures.

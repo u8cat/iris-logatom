@@ -39,14 +39,13 @@ Section hwq_skeleton_enq_cont.
                             op_info_stored := false |}]}) -∗
     (∀ v : val, True -∗ Φ v) -∗
     WP (let: "τ" := #(Z.pos τ) in
-        let: "res" := op (#sz, #ar, #back)%V (SOMEV d) in
+        let: "res" := enqueue (#sz, #ar, #back)%V d in
         trace_emit #l "τ" (InjR "res");; "res")
     {{ Φ }}.
   Proof.
     intros Hd_valid Hd_unboxed.
     iIntros "#Hinv #Htrace_inv Hfrag HΦ".
     wp_pures.
-    rewrite /op. wp_pures.
     rewrite /enqueue. wp_pures.
     (* PHASE 2: FAA on [back]. *)
     wp_bind (FAA _ _).

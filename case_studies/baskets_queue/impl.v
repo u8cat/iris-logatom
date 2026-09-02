@@ -201,13 +201,9 @@ Definition dequeue : val := λ: "q",
             "walk" "p" "next2"
       end) "head1" "next") #().
 
-(** ** Unified dispatcher (matches the [op] convention used elsewhere
-    in this development for adversarial-client lemmas). [SOME d]
-    requests an enqueue of [d], returning [#()]; [NONE] requests a
-    dequeue, returning [SOMEV v] / [NONEV] in line with
-    [bag_like.queue_model]'s [request_response]. *)
-Definition op : val := λ: "q" "req",
-  match: "req" with
-    SOME "d" => enqueue "q" "d"
-  | NONE     => dequeue "q"
-  end.
+(** ** The operations, in the order fixed by [bag_like.queue_model]:
+    index [Push] enqueues its argument and returns [#()]; index [Pop]
+    ignores its [#()] argument and returns [dequeue]'s already
+    option-encoded result, in line with [queue_model]'s
+    [request_responses]. *)
+Definition ops : list val := [enqueue; (λ: "q" <>, dequeue "q")%V].

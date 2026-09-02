@@ -506,8 +506,8 @@ Section hwq_skeleton.
   (* [dq_inv]: every recorded dequeue result [d] in [dq_map]
     corresponds to an option-encoded [SOMEV d] in [absq_rv]. The
     raw form lives in [dq_map] because [dequeue] returns the raw
-    array entry; the option wrapping is added by [op] above
-    [dequeue] and recorded in the abstract [absq_rv] by
+    array entry; the option wrapping is added by [impl.ops]'s [Pop]
+    entry around [dequeue] and recorded in the abstract [absq_rv] by
     [absq_step_lin_deq1]. Allocated at CAS-success in deq_cont
     (where [absq_step_lin_deq1] simultaneously sets [rv τ := SOMEV d]);
     preserved trivially at every other step since neither [dq_map]
@@ -559,6 +559,6 @@ Section hwq_skeleton.
 
   (* Init wrapper: [bdgjst_free] requires an [init : val] that
     takes [#()]. We partially apply [new_queue] to the desired size. *)
-  Definition init_hwq : val := (λ: <>, new_queue #sz)%V.
+  Definition init_hwq : expr := new_queue #sz.
 
 End hwq_skeleton.

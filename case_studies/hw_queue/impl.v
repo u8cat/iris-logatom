@@ -83,15 +83,5 @@ Definition dequeue : val :=
     let: "range"  := minimum !"q_back" "q_size" in
     dequeue_aux "dequeue" "q" "range" "range".
 
-(** Unified [op] dispatcher matching the shape expected by
-  [linear.v]'s adversarial client ([op obj req]). The request is a
-  tagged sum: [SOMEV d] requests enqueue of [d]; [NONVE] requests
-  dequeue. Its result is [#()] on enqueue and the dequeued value on
-  dequeue, matching [M_queue]'s [request_response]. *)
-Definition op : val :=
-  λ: "q" "req",
-    match: "req" with
-      SOME "d" => enqueue "q" "d"
-    | NONE  => SOME (dequeue "q")
-    end.
+Definition ops : list val := [enqueue; (λ: "q" <>, SOME (dequeue "q"))%V].
 

@@ -75,7 +75,7 @@ Proof.
   - exists mcfg_init, s_init, ∅. split.
     + apply mcfg_steps_nil.
     + rewrite /mcfg_init. apply elem_of_singleton. reflexivity.
-  - intros τ. exists #(), #(). rewrite filter_nil. apply prefix_nil.
+  - intros τ. exists Push, #(), #(). rewrite filter_nil. apply prefix_nil.
 Qed.
 
 (* ====================================================================== *)
@@ -135,7 +135,7 @@ Section inv.
     | Some (OpEnqPending v) =>
         (* Before any LP: all configurations agree π[τ] is pending.
            TLA+ CFTypeOK clause E1: c.fres[p] = BOT. *)
-        ∀ s π, (s, π) ∈ M_g → π !! τ = Some (encode_request (Push v), None)
+        ∀ s π, (s, π) ∈ M_g → π !! τ = Some (Push, v, None)
     | Some (OpEnqReserved v _) | Some (OpEnqStored v _) =>
         (* Post-FAA (Reserved) and post-Store (Stored): TLA+ CFTypeOK clauses
            E2/E3 say c.fres[p] ∈ {ACK, BOT} — DISJUNCTIVE per config. After
@@ -143,29 +143,29 @@ Section inv.
            Pending-τ configs. After Phase 3 Store, the branching keeps both
            forms. At least one config has τ linearized. *)
         (∀ s π, (s, π) ∈ M_g →
-          π !! τ = Some (encode_request (Push v), None)
-        ∨ π !! τ = Some (encode_request (Push v), Some #())) ∧
+          π !! τ = Some (Push, v, None)
+        ∨ π !! τ = Some (Push, v, Some #())) ∧
         (∃ s π, (s, π) ∈ M_g ∧
-          π !! τ = Some (encode_request (Push v), Some #()))
+          π !! τ = Some (Push, v, Some #()))
     | Some (OpEnqDone v _) =>
         ∀ s π, (s, π) ∈ M_g →
-          π !! τ = Some (encode_request (Push v), Some #())
+          π !! τ = Some (Push, v, Some #())
     | Some OpDeqPending =>
         (* TLA+ approach: M can have configs with τ_p speculatively LP'd.
            This is essential for D3-style rebuild at Pop's CAS LP. *)
         ∀ s π, (s, π) ∈ M_g →
-          π !! τ = Some (encode_request Pop, None) ∨
-          ∃ v, π !! τ = Some (encode_request Pop,
+          π !! τ = Some (Pop, #(), None) ∨
+          ∃ v, π !! τ = Some (Pop, #(),
                               Some (encode_response (NonEmpty v)))
     | Some (OpDeqLinearized v) =>
         (* After CmpXchg success: SOME configurations have the pop
            linearized, others may still have it pending. The "linearized"
            configurations are those whose queue had v at head. *)
         ∃ s π, (s, π) ∈ M_g ∧
-          π !! τ = Some (encode_request Pop, Some (encode_response (NonEmpty v)))
+          π !! τ = Some (Pop, #(), Some (encode_response (NonEmpty v)))
     | Some (OpDeqDone v) =>
         ∀ s π, (s, π) ∈ M_g →
-          π !! τ = Some (encode_request Pop, Some (encode_response (NonEmpty v)))
+          π !! τ = Some (Pop, #(), Some (encode_response (NonEmpty v)))
     end.
   (* The shape relating physical array to the slots ghost map. Slots are
      monotonically tracked: a slot recorded as Some v means the slot was
@@ -193,15 +193,15 @@ Section inv.
     ∀ τ, match stat !! τ with
     | None => filter (λ t, t.1 = τ) ts = []
     | Some (OpEnqPending v) | Some (OpEnqReserved v _) | Some (OpEnqStored v _) =>
-        filter (λ t, t.1 = τ) ts = [(τ, Call (encode_request (Push v)))]
+        filter (λ t, t.1 = τ) ts = [(τ, Call Push v)]
     | Some (OpEnqDone v _) =>
         filter (λ t, t.1 = τ) ts =
-          [(τ, Call (encode_request (Push v))); (τ, Ret #())]
+          [(τ, Call Push v); (τ, Ret #())]
     | Some OpDeqPending | Some (OpDeqLinearized _) =>
-        filter (λ t, t.1 = τ) ts = [(τ, Call (encode_request Pop))]
+        filter (λ t, t.1 = τ) ts = [(τ, Call Pop #())]
     | Some (OpDeqDone v) =>
         filter (λ t, t.1 = τ) ts =
-          [(τ, Call (encode_request Pop));
+          [(τ, Call Pop #());
            (τ, Ret (encode_response (NonEmpty v)))]
     end.
 
@@ -291,21 +291,21 @@ Section inv.
           (∃ τ_e v_e, stat !! τ_e = Some (OpEnqReserved v_e k) ∧ s !! n = Some v_e)) ∧
         (* Conditions on π (GoodRes from TLA+): *)
         (∀ τ_d v_d i_d, stat !! τ_d = Some (OpEnqDone v_d i_d) →
-          π !! τ_d = Some (encode_request (Push v_d), Some #())) ∧
+          π !! τ_d = Some (Push, v_d, Some #())) ∧
         (∀ τ_d v_d, stat !! τ_d = Some (OpDeqLinearized v_d) →
-          π !! τ_d = Some (encode_request Pop,
+          π !! τ_d = Some (Pop, #(),
                            Some (encode_response (NonEmpty v_d)))) ∧
         (∀ τ_d v_d, stat !! τ_d = Some (OpDeqDone v_d) →
-          π !! τ_d = Some (encode_request Pop,
+          π !! τ_d = Some (Pop, #(),
                            Some (encode_response (NonEmpty v_d)))) ∧
         (∀ τ_d, stat !! τ_d = Some OpDeqPending →
-          π !! τ_d = Some (encode_request Pop, None)) ∧
+          π !! τ_d = Some (Pop, #(), None)) ∧
         (∀ τ_e v_e i_e, stat !! τ_e = Some (OpEnqStored v_e i_e) →
-          π !! τ_e = Some (encode_request (Push v_e), Some #())) ∧
+          π !! τ_e = Some (Push, v_e, Some #())) ∧
         (* For OpEnqReserved τ_e at i_e: similar disjunction. *)
         (∀ τ_e v_e i_e, stat !! τ_e = Some (OpEnqReserved v_e i_e) →
-          (i_e ∈ A → π !! τ_e = Some (encode_request (Push v_e), Some #())) ∧
-          (i_e ∉ A → π !! τ_e = Some (encode_request (Push v_e), None))).
+          (i_e ∈ A → π !! τ_e = Some (Push, v_e, Some #())) ∧
+          (i_e ∉ A → π !! τ_e = Some (Push, v_e, None))).
 
   (* FAA-uniqueness: every stored slot index is strictly less than [back_val],
      so the next FAA result is a fresh index never yet stored. *)
@@ -348,11 +348,11 @@ Section inv.
        (Z.of_nat i < back_val)%Z).
 
   (* Extract all (τ, v) pairs where π[τ] = Pending Push v in cfg.
-     encode_request (Push v) = SOMEV v = InjRV v (per bag_like.v:17).
-     Pending = response field is None. *)
+     A push is the operation of index [Push] = 0 and carries its value as
+     the request. Pending = response field is None. *)
   Definition pending_push_of_config (cfg : single_config_q) : list (positive * val) :=
     omap (λ '(τ, v),
-      if v is (InjRV v, None) then Some (τ,v)
+      if v is (0, v, None) then Some (τ,v)
       else None) (map_to_list cfg.2).
 
   Definition lineraize_pending_push (pushes : list (positive*val)) (cfg : single_config_q) : single_config_q :=
@@ -399,7 +399,7 @@ Section inv.
       (M_g : gset single_config_q) (τ : positive) (v_push : val)
     : gset single_config_q :=
     let call_cfg := λ cfg : single_config_q,
-      (cfg.1, <[τ:=(encode_request (Push v_push), None)]> cfg.2) in
+      (cfg.1, <[τ:=(Push, v_push, None)]> cfg.2) in
     list_to_set
       (elements M_g ≫= (λ cfg,
          (λ pushes, lineraize_pending_push pushes (call_cfg cfg))
@@ -408,8 +408,8 @@ Section inv.
   Definition closure_pop (M_g : gset single_config_q) : Prop :=
     ∀ v s π τ,
       (v :: s, π) ∈ M_g →
-      π !! τ = Some (encode_request Pop, None) →
-      (s, <[τ:=(encode_request Pop, Some (encode_response (NonEmpty v)))]>π) ∈ M_g.
+      π !! τ = Some (Pop, #(), None) →
+      (s, <[τ:=(Pop, #(), Some (encode_response (NonEmpty v)))]>π) ∈ M_g.
 
   (* scan_map domain is contained in stat domain: if τ has a scan_map entry,
      then τ exists in stat. Equivalently: stat[τ] = None → scan_map[τ] = None.
@@ -489,4 +489,4 @@ Definition hwq_repr `{!traceG Σ, !hwqMcG Σ} : mgc_repr Σ := {|
 |}.
 
 (* The init wrapper expected by [bdgjst_free]: takes [#()]. *)
-Definition init_hwq (sz : Z) : val := (λ: <>, new_queue #sz)%V.
+Definition init_hwq (sz : Z) : expr := new_queue #sz.

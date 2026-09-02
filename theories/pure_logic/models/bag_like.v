@@ -4,31 +4,14 @@ From iris.heap_lang Require Export notation.
 
 (* Shared interface for bag-like containers. *)
 
-Inductive request :=
-  | Push : val → request
-  | Pop : request.
+Definition Push : nat := 0.
+Definition Pop : nat := 1.
 
 Inductive response :=
   | IsEmpty : response
   | NonEmpty : val → response.
 
 Inductive response_mayempty := MayEmpty | NeverEmpty.
-
-Definition encode_request r : val :=
-  match r with
-  | Push v => SOMEV v
-  | Pop => NONEV
-  end.
-
-Global Instance encode_request_inj : Inj (=) (=) encode_request.
-Proof.
-  intros r1 r2 Henc.
-  destruct r1, r2; simpl in Henc.
-  - by injection Henc as ->.
-  - discriminate Henc.
-  - discriminate Henc.
-  - done.
-Qed.
 
 Definition encode_response r : val :=
   match r with
@@ -46,55 +29,47 @@ Proof.
   - by injection Henc as ->.
 Qed.
 
-Definition valid_bag_request (valid_value: val → Prop) (v: val) :=
-  (∃ v_push, valid_value v_push ∧ v = encode_request (Push v_push))
-  ∨ v = encode_request Pop.
-
 Definition bag_model (rme : response_mayempty) (valid_value: val → Prop) : model := {|
   S := gmultiset val;
   s_init := ∅;
-  valid_request v := valid_bag_request valid_value v;
-  request_response s1 v1 s2 v2 := ∃ r, encode_request r = v1
-              ∧ match r with
-                | Push v => s2 = {[+ v +]} ⊎ s1 ∧ v2 = #()
-                | Pop =>
-                  (if rme then s1 = ∅ ∧ s2 = ∅ ∧ v2 = encode_response IsEmpty else False)
+  valid_requests := [valid_value; λ v, v=#()];
+  request_responses := [
+    λ s1 v1 s2 v2, s2 = {[+ v1 +]} ⊎ s1 ∧ v2 = #();
+    λ s1 v1 s2 v2, (if rme then s1 = ∅ ∧ s2 = ∅ ∧ v2 = encode_response IsEmpty else False)
                   ∨ ∃ v, v ∈ s1 ∧ s2 = s1∖{[+ v +]} ∧ v2 = encode_response (NonEmpty v)
-                end;
+  ];
 |}.
 
 Definition queue_model (rme : response_mayempty) (valid_value: val → Prop) : model := {|
   S := list val;
   s_init := [];
-  valid_request v := valid_bag_request valid_value v;
-  request_response s1 v1 s2 v2 := ∃ r, encode_request r = v1
-              ∧ match r with
-                | Push v => s2 = s1 ++ [v] ∧ v2 = #()
-                | Pop =>
-                  match s1 with
-                  | [] => (if rme then s2 = [] ∧ v2 = encode_response IsEmpty else False)
-                  | v::s1' => s2 = s1' ∧ v2 = encode_response (NonEmpty v)
-                  end
-                end;
+  valid_requests := [valid_value; λ v, v=#()];
+  request_responses := [
+    λ s1 v1 s2 v2, s2 = s1 ++ [v1] ∧ v2 = #();
+    λ s1 v1 s2 v2,
+      match s1 with
+      | [] => (if rme then s2 = [] ∧ v2 = encode_response IsEmpty else False)
+      | v::s1' => s2 = s1' ∧ v2 = encode_response (NonEmpty v)
+      end
+  ];
 |}.
 
 Definition stack_model (rme : response_mayempty) (valid_value: val → Prop) : model := {|
   S := list val;
   s_init := [];
-  valid_request v := valid_bag_request valid_value v;
-  request_response s1 v1 s2 v2 := ∃ r, encode_request r = v1
-              ∧ match r with
-                | Push v => s2 = v::s1 ∧ v2 = #()
-                | Pop =>
-                  match s1 with
-                  | [] => (if rme then s2 = [] ∧ v2 = encode_response IsEmpty else False)
-                  | v::s1' => s2 = s1' ∧ v2 = encode_response (NonEmpty v)
-                  end
-                end;
+  valid_requests := [valid_value; λ v, v=#()];
+  request_responses := [
+    λ s1 v1 s2 v2, s2 = v1::s1 ∧ v2 = #();
+    λ s1 v1 s2 v2,
+      match s1 with
+      | [] => (if rme then s2 = [] ∧ v2 = encode_response IsEmpty else False)
+      | v::s1' => s2 = s1' ∧ v2 = encode_response (NonEmpty v)
+      end
+  ];
 |}.
 
-Definition is_call_push t := ∃ v, t = Call (encode_request (Push v)).
-Definition is_call_pop t := t = Call (encode_request Pop).
+Definition is_call_push t := ∃ v, t = Call Push v.
+Definition is_call_pop t := t = Call Pop #().
 Definition is_ret_push t := t = Ret #().
 Definition is_ret_pop t := ∃ r, t = Ret (encode_response r).
 Definition is_ret_pop_val t := ∃ v, t = Ret (encode_response (NonEmpty v)).
@@ -102,8 +77,8 @@ Definition is_ret_pop_emp t := t = Ret (encode_response IsEmpty).
 
 Definition per_tag_wellformed_bag (rme : response_mayempty) (valid_value: val → Prop) (ts : list (positive*trace)) :=
   ∀ τ, let ts_τ := (filter (λ x, x.1 = τ)) ts in
-      (∃ v, valid_value v ∧ ts_τ `prefix_of` [(τ,Call (encode_request (Push v))); (τ,Ret #())])
-    ∨ (∃ r, (if rme then True else r ≠ IsEmpty) ∧ ts_τ `prefix_of` [(τ,Call (encode_request Pop)); (τ,Ret (encode_response r))]).
+      (∃ v, valid_value v ∧ ts_τ `prefix_of` [(τ,Call Push v); (τ,Ret #())])
+    ∨ (∃ r, (if rme then True else r ≠ IsEmpty) ∧ ts_τ `prefix_of` [(τ,Call 1 #()); (τ,Ret (encode_response r))]).
 
 Global Instance is_call_push_decide t : Decision (is_call_push t).
 Proof.
@@ -172,14 +147,14 @@ Section relations.
       rewrite Heq in Hprefix;
       apply prefix_cons_inv_1 in Hprefix; subst x.
     - left.
-      assert (Hin: (τ, Call (encode_request (Push v))) ∈ filter (λ x, x.1 = τ) ts).
+      assert (Hin: (τ, Call Push v) ∈ filter (λ x, x.1 = τ) ts).
       { rewrite Heq. set_solver. }
       apply list_elem_of_filter_1 in Hin.
       eapply (list_elem_of_fmap_2 fst _ (τ,_)).
       apply list_elem_of_filter_2; last exact Hin.
       compute_done.
     - right.
-      assert (Hin: (τ, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ) ts).
+      assert (Hin: (τ, Call Pop #()) ∈ filter (λ x, x.1 = τ) ts).
       { rewrite Heq. set_solver. }
       apply list_elem_of_filter_1 in Hin.
       eapply (list_elem_of_fmap_2 fst _ (τ,_)).
@@ -191,7 +166,7 @@ Section relations.
     per_tag_wellformed_bag rme valid_value ts → per_tag_wellformed ts.
   Proof.
     intros H τ.
-    destruct (H τ) as [(v & _ & Hprefix) | (r & _ & Hprefix)]; by eexists _,_.
+    destruct (H τ) as [(v & _ & Hprefix) | (r & _ & Hprefix)]; by eexists _,_,_.
   Qed.
 
   (* Reusable Lemma generated by LLM. *)
@@ -204,8 +179,7 @@ Section relations.
         context window = 1000000
         max output tokens = 128000 *)
   Lemma push_tag_in_trace τ :
-    τ ∈ push_of_trace →
-    ∃ v, (τ, Call (encode_request (Push v))) ∈ ts.
+    τ ∈ push_of_trace → ∃ v, (τ, Call Push v) ∈ ts.
   Proof.
     rewrite /push_of_trace.
     intros Hin.
@@ -218,7 +192,7 @@ Section relations.
 
   Lemma pop_tag_in_trace τ :
     τ ∈ pop_of_trace →
-    (τ, Call (encode_request Pop)) ∈ ts.
+    (τ, Call 1 #()) ∈ ts.
   Proof.
     rewrite /pop_of_trace.
     intros Hin.
@@ -236,9 +210,9 @@ Section relations.
     intros Hwf Hpush Hpop.
     apply push_tag_in_trace in Hpush as [v Hpush].
     apply pop_tag_in_trace in Hpop.
-    assert (Hin_push : (τ, Call (encode_request (Push v))) ∈ filter (λ x, x.1 = τ) ts).
+    assert (Hin_push : (τ, Call Push v) ∈ filter (λ x, x.1 = τ) ts).
     { apply list_elem_of_filter. done. }
-    assert (Hin_pop : (τ, Call (encode_request Pop)) ∈ filter (λ x, x.1 = τ) ts).
+    assert (Hin_pop : (τ, Call 1 #()) ∈ filter (λ x, x.1 = τ) ts).
     { apply list_elem_of_filter. done. }
     destruct (Hwf τ) as [(w & _ & Hpfx)|(r & _ & Hpfx)].
     - assert (Hin_pop' := Hin_pop).
@@ -269,7 +243,7 @@ Qed.
 
 Lemma per_tag_wellformed_bag_snoc_call_push rme valid_value ts τ v :
   per_tag_wellformed_bag rme valid_value ts → τ ∉ ts.*1 → valid_value v →
-  per_tag_wellformed_bag rme valid_value (ts++[(τ,Call (encode_request (Push v)))]).
+  per_tag_wellformed_bag rme valid_value (ts++[(τ,Call Push v)]).
 Proof.
   intros Hwf Hfresh Hvv τ' ts_τ'. subst ts_τ'.
   destruct (decide (τ' = τ)) as [-> | Hne].
@@ -291,7 +265,7 @@ Qed.
 
 Lemma per_tag_wellformed_bag_snoc_call_pop rme valid_value ts τ :
   per_tag_wellformed_bag rme valid_value ts → τ ∉ ts.*1 →
-  per_tag_wellformed_bag rme valid_value (ts++[(τ,Call (encode_request Pop))]).
+  per_tag_wellformed_bag rme valid_value (ts++[(τ,Call Pop #())]).
 Proof.
   intros Hwf Hfresh τ' ts_τ'. subst ts_τ'.
   destruct (decide (τ' = τ)) as [-> | Hne].
@@ -313,7 +287,7 @@ Qed.
 
 Lemma per_tag_wellformed_bag_snoc_ret_push rme valid_value ts τ v :
   per_tag_wellformed_bag rme valid_value ts →
-  filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request (Push v)))] →
+  filter (λ x, x.1 = τ) ts = [(τ,Call Push v)] →
   valid_value v →
   per_tag_wellformed_bag rme valid_value (ts++[(τ,Ret #())]).
 Proof.
@@ -334,7 +308,7 @@ Qed.
 
 Lemma per_tag_wellformed_bag_snoc_ret_pop rme valid_value ts τ r :
   per_tag_wellformed_bag rme valid_value ts →
-  filter (λ x, x.1 = τ) ts = [(τ,Call (encode_request Pop))] →
+  filter (λ x, x.1 = τ) ts = [(τ,Call Pop #())] →
   (if rme then True else r ≠ IsEmpty) →
   per_tag_wellformed_bag rme valid_value (ts++[(τ,Ret (encode_response r))]).
 Proof.
@@ -362,12 +336,11 @@ Qed.
       max output tokens = 128000 *)
 Lemma per_tag_wellformed_bag_valid_push_value rme valid_value ts τ v :
   per_tag_wellformed_bag rme valid_value ts →
-  (τ, Call (encode_request (Push v))) ∈ ts →
+  (τ, Call Push v) ∈ ts →
   valid_value v.
 Proof.
   intros Hwf Hin.
-  assert (Hin_f : (τ, Call (encode_request (Push v)))
-                      ∈ filter (λ x, x.1 = τ) ts).
+  assert (Hin_f : (τ, Call Push v) ∈ filter (λ x, x.1 = τ) ts).
   { apply list_elem_of_filter. done. }
   destruct (Hwf τ) as [(v' & Hv'_valid & Hpfx)|(r' & _ & Hpfx)].
   - eapply elem_of_prefix in Hin_f; last exact Hpfx.
@@ -388,9 +361,9 @@ Lemma trace_linearizable_per_tag_wellformed_bag rme valid_value ts :
   trace_linearizable (M:=(bag_model rme valid_value)) ts → per_tag_wellformed_bag rme valid_value ts.
 Proof.
   intros (Hcv & ts' & Hfilt & Hptl & s_end & Hls) τ.
-  destruct (Hptl τ) as (v & v' & Hpfx).
-  (* The filter on ts is a prefix of [(τ,Call v); (τ,Ret v')] *)
-  assert (Hpfx_ts : filter (λ x, x.1 = τ) ts `prefix_of` [(τ,Call v); (τ,Ret v')]).
+  destruct (Hptl τ) as (n & v & v' & Hpfx).
+  (* The filter on ts is a prefix of [(τ,Call n v); (τ,Ret v')] *)
+  assert (Hpfx_ts : filter (λ x, x.1 = τ) ts `prefix_of` [(τ,Call n v); (τ,Ret v')]).
   { rewrite Hfilt list_filter_comm.
     apply (prefix_filter (not ∘ is_lin ∘ snd)) in Hpfx.
     rewrite filter_cons_True in Hpfx; [|compute_done].
@@ -406,17 +379,18 @@ Proof.
   injection H1 as -> ->.
   (* v is a valid bag request *)
   rewrite /call_valid Forall_forall in Hcv.
-  assert (Hin : (τ, Call v) ∈ ts).
-  { assert (H : (τ, Call v) ∈ filter (λ x, x.1 = τ) ts)
+  assert (Hin : (τ, Call n v) ∈ ts).
+  { assert (H : (τ, Call n v) ∈ filter (λ x, x.1 = τ) ts)
       by (rewrite Heq; set_solver).
     by apply list_elem_of_filter in H as [_ ?]. }
   (* Refold [v] as [encode_request r] for some [r ∈ {Push w, Pop}].
      The [valid_value w] precondition is propagated into the [left]
      conclusion below. *)
-  destruct (Hcv _ Hin) as [(w & Hw_valid & ->) | ->].
-  + (* r = Push w. *)
+  specialize (Hcv _ Hin).
+  destruct n as [|[|n]]; simpl in Hcv; last contradict Hcv.
+  + (* n = Push. *)
     destruct rest' as [|[p2 t2] rest].
-    { left. exists w. split; first exact Hw_valid.
+    { left. exists v. split; first exact Hcv.
       apply prefix_cons, prefix_nil. }
     (* Second element is (τ, Ret v') *)
     assert (Hpfx2 := prefix_cons_inv_2 _ _ _ _ Hpfx_ts).
@@ -434,16 +408,16 @@ Proof.
         by apply list_elem_of_filter in H' as [_ ?]. }
       rewrite Hfilt in H. by apply list_elem_of_filter in H as [_ ?]. }
     assert (Hfilt_eq : filter (λ t, t.1 = τ) ts' =
-      [(τ, Call (encode_request (Push w))); (τ, Lin (encode_request (Push w)) v'); (τ, Ret v')]).
+      [(τ, Call Push v); (τ, Lin Push v v'); (τ, Ret v')]).
     { apply prefix_length_eq; first exact Hpfx. simpl.
       destruct (list_elem_of_lookup_1 _ _ Hret_in) as [i Hi].
       pose proof (prefix_lookup_Some _ _ _ _ Hi Hpfx) as Hi'.
       destruct i as [|[|[|i]]]; simpl in Hi'; try by simplify_eq.
       apply lookup_lt_Some in Hi. lia. }
     (* Extract Lin event from filter *)
-    assert (Hlin_in : (τ, Lin (encode_request (Push w)) v') ∈ filter (is_lin ∘ snd) ts').
+    assert (Hlin_in : (τ, Lin Push v v') ∈ filter (is_lin ∘ snd) ts').
     { apply list_elem_of_filter. split; first done.
-      assert (H : (τ, Lin (encode_request (Push w)) v') ∈ filter (λ t, t.1 = τ) ts')
+      assert (H : (τ, Lin Push v v') ∈ filter (λ t, t.1 = τ) ts')
         by (rewrite Hfilt_eq; set_solver).
       by apply list_elem_of_filter in H as [_ ?]. }
     (* Extract request_response from linearized_sound *)
@@ -451,13 +425,10 @@ Proof.
     rewrite Heq_lin in Hls.
     apply linearized_sound_app_inv in Hls as (s_mid & _ & Hls_tail).
     apply linearized_sound_cons_inv in Hls_tail as (s_next & _ & Hrr & _).
-    simpl in Hrr. destruct Hrr as (r' & Heq_r & Hmodel).
-    assert (r' = Push w) as ->.
-    { destruct r' as [w'|]; simpl in Heq_r; [|discriminate].
-      injection Heq_r as ->. reflexivity. }
-    simpl in Hmodel. destruct Hmodel as [_ ->].
-    left. exists w. split; first exact Hw_valid. reflexivity.
-  + (* r = Pop. *)
+    simpl in Hrr. destruct Hrr as [-> ->].
+    left. exists v. split; first exact Hcv. reflexivity.
+  + (* n = Pop. *)
+    subst v.
     destruct rest' as [|[p2 t2] rest].
     { right. exists (NonEmpty #()).
       split; first by (destruct rme; [done|discriminate]).
@@ -476,26 +447,23 @@ Proof.
         by apply list_elem_of_filter in H' as [_ ?]. }
       rewrite Hfilt in H. by apply list_elem_of_filter in H as [_ ?]. }
     assert (Hfilt_eq : filter (λ t, t.1 = τ) ts' =
-      [(τ, Call (encode_request Pop)); (τ, Lin (encode_request Pop) v'); (τ, Ret v')]).
+      [(τ, Call Pop #()); (τ, Lin Pop #() v'); (τ, Ret v')]).
     { apply prefix_length_eq; first exact Hpfx. simpl.
       destruct (list_elem_of_lookup_1 _ _ Hret_in) as [i Hi].
       pose proof (prefix_lookup_Some _ _ _ _ Hi Hpfx) as Hi'.
       destruct i as [|[|[|i]]]; simpl in Hi'; try by simplify_eq.
       apply lookup_lt_Some in Hi. lia. }
-    assert (Hlin_in : (τ, Lin (encode_request Pop) v') ∈ filter (is_lin ∘ snd) ts').
+    assert (Hlin_in : (τ, Lin Pop #() v') ∈ filter (is_lin ∘ snd) ts').
     { apply list_elem_of_filter. split; first done.
-      assert (H : (τ, Lin (encode_request Pop) v') ∈ filter (λ t, t.1 = τ) ts')
+      assert (H : (τ, Lin Pop #() v') ∈ filter (λ t, t.1 = τ) ts')
         by (rewrite Hfilt_eq; set_solver).
       by apply list_elem_of_filter in H as [_ ?]. }
     destruct (list_elem_of_split _ _ Hlin_in) as (l1 & l2 & Heq_lin).
     rewrite Heq_lin in Hls.
     apply linearized_sound_app_inv in Hls as (s_mid & _ & Hls_tail).
     apply linearized_sound_cons_inv in Hls_tail as (s_next & _ & Hrr & _).
-    simpl in Hrr. destruct Hrr as (r' & Heq_r & Hmodel).
-    assert (r' = Pop) as ->.
-    { destruct r' as [w'|]; simpl in Heq_r; [discriminate|reflexivity]. }
-    simpl in Hmodel.
-    destruct Hmodel as [Hempty | (w & _ & _ & ->)].
+    simpl in Hrr.
+    destruct Hrr as [Hempty | (w & _ & _ & ->)].
     * destruct rme; [|done]. destruct Hempty as (_ & _ & ->).
       right. exists IsEmpty. split; [done|reflexivity].
     * right. exists (NonEmpty w).
