@@ -693,6 +693,89 @@ Proof.
     eapply dangling_push_covers_app_inv; [exact Hi_lt | exact Hcov_ext].
 Qed.
 
+(* Appending a Ret of a pop does not change the Call positions, nor the Ret
+   positions of other tags. *)
+Local Lemma ret_of_tag_snoc_ne ts τ τ' e :
+  τ' ≠ τ → ret_of_tag (ts ++ [(τ, e)]) τ' = ret_of_tag ts τ'.
+Proof.
+  intros Hne. rewrite /ret_of_tag.
+  destruct (list_find _ ts) as [[j x]|] eqn:Hf.
+  - by apply list_find_app_l.
+  - rewrite list_find_app_r //=. case_decide as Hc; last done.
+    destruct Hc as [Hc _]. simpl in Hc. congruence.
+Qed.
+
+Local Lemma call_of_tag_snoc_ret ts τ τ' r :
+  call_of_tag (ts ++ [(τ, Ret r)]) τ' = call_of_tag ts τ'.
+Proof.
+  rewrite /call_of_tag.
+  destruct (list_find _ ts) as [[j x]|] eqn:Hf.
+  - by apply list_find_app_l.
+  - rewrite list_find_app_r //=. case_decide as Hc; last done.
+    by destruct Hc as [_ Hc].
+Qed.
+
+(* A pop may return EMPTY if, at some index i between its Call and now, no
+   matched push/pop pair covers i and no unmatched push dangles over i. *)
+Lemma per_tag_pop_empty_sound_snoc_ret_pop_empty ts m τ icall i :
+  valid_match ts m →
+  per_tag_pop_empty_sound ts m →
+  filter (λ x, x.1 = τ) ts = [(τ, Call Pop #())] →
+  ts !! icall = Some (τ, Call Pop #()) →
+  icall ≤ i ≤ length ts →
+  (∀ τ1 τ2, (τ1, τ2) ∈ m → ¬ push_pop_covers ts τ1 τ2 i) →
+  (∀ τ1, τ1 ∈ push_of_trace ts ∧ τ1 ∉ m.*1 → ¬ dangling_push_covers ts τ1 i) →
+  per_tag_pop_empty_sound (ts ++ [(τ, Ret (encode_response IsEmpty))]) m.
+Proof.
+  intros Hvm Hps Hfilter Hicall Hi Hno_match Hno_dangling τ' Hτ'_in.
+  set (e := (τ, Ret (encode_response IsEmpty))).
+  assert (Hpush_ne : ∀ τ1, τ1 ∈ push_of_trace ts → τ1 ≠ τ).
+  { intros τ1 Hpush ->. apply push_tag_in_trace in Hpush as [v Hv].
+    assert (Hin : (τ, Call Push v) ∈ filter (λ x, x.1 = τ) ts)
+      by (apply list_elem_of_filter; done).
+    rewrite Hfilter list_elem_of_singleton in Hin. discriminate. }
+  assert (Hpush_eq : push_of_trace (ts ++ [e]) = push_of_trace ts).
+  { rewrite /push_of_trace filter_app filter_cons_False; last compute_done.
+    by rewrite filter_nil right_id_L. }
+  assert (Hcov_eq : ∀ τa τb j, τa ≠ τ →
+    push_pop_covers (ts ++ [e]) τa τb j ↔ push_pop_covers ts τa τb j).
+  { intros τa τb j Hne.
+    by rewrite /push_pop_covers ret_of_tag_snoc_ne // call_of_tag_snoc_ret. }
+  assert (Hdang_eq : ∀ τa j, τa ≠ τ →
+    dangling_push_covers (ts ++ [e]) τa j ↔ dangling_push_covers ts τa j).
+  { intros τa j Hne. by rewrite /dangling_push_covers ret_of_tag_snoc_ne. }
+  assert (Hm_ne : ∀ τa τb, (τa, τb) ∈ m → τa ≠ τ).
+  { intros τa τb Hin. apply Hpush_ne.
+    destruct (valid_match_call_push _ _ _ _ Hvm Hin) as [v Hv].
+    apply (list_elem_of_fmap_2 fst _ (τa, Call Push v)).
+    apply list_elem_of_filter_2; [by exists v | exact Hv]. }
+  rewrite filter_app filter_cons_True in Hτ'_in; last done.
+  rewrite filter_nil fmap_app /= elem_of_app list_elem_of_singleton in Hτ'_in.
+  destruct Hτ'_in as [Hold | ->].
+  - destruct (Hps τ' Hold)
+      as (icall' & iret' & i' & Hcall_lkp & Hret_lkp & Hi_le & Hno_match' & Hno_dangling').
+    exists icall', iret', i'.
+    split; [|split; [|split; [|split]]].
+    + by apply lookup_app_l_Some.
+    + by apply lookup_app_l_Some.
+    + exact Hi_le.
+    + intros τa τb Hin Hcov. apply (Hno_match' τa τb Hin).
+      by apply (Hcov_eq τa τb i' (Hm_ne _ _ Hin)).
+    + intros τa [Hpush Hnm] Hcov. rewrite Hpush_eq in Hpush.
+      apply (Hno_dangling' τa (conj Hpush Hnm)).
+      by apply (Hdang_eq τa i' (Hpush_ne _ Hpush)).
+  - exists icall, (length ts), i.
+    split; [|split; [|split; [|split]]].
+    + by apply lookup_app_l_Some.
+    + by rewrite lookup_app_r // Nat.sub_diag.
+    + exact Hi.
+    + intros τa τb Hin Hcov. apply (Hno_match τa τb Hin).
+      by apply (Hcov_eq τa τb i (Hm_ne _ _ Hin)).
+    + intros τa [Hpush Hnm] Hcov. rewrite Hpush_eq in Hpush.
+      apply (Hno_dangling τa (conj Hpush Hnm)).
+      by apply (Hdang_eq τa i (Hpush_ne _ Hpush)).
+Qed.
+
 (* This lemma additionally requires (τ1, Call Push v) ∈ ts (with new arg v).
    Without it, the lemma is provably false: a counterexample exists where
    τ1's Ret is way before τ2's Call, with some empty pop in between, so the

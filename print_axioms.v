@@ -5,6 +5,7 @@ From case_studies.hw_queue.refine Require chain.
 From case_studies.hw_queue.metaconfig Require chain.
 From case_studies.baskets_queue.refine Require chain.
 From case_studies.folly_queue Require mpmc_linearizable.
+From case_studies.ts_stack.aspect Require aspect.
 
 Set Printing Width 65536.
 
@@ -45,3 +46,11 @@ Check "mpmc_linearizable.MPMC_enqueue_spec".
 Print Assumptions case_studies.folly_queue.mpmc_linearizable.MPMC_enqueue_spec.
 Check "mpmc_linearizable.MPMC_dequeue_spec".
 Print Assumptions case_studies.folly_queue.mpmc_linearizable.MPMC_dequeue_spec.
+
+Check "### Time-Stamped Stack ###".
+Check "aspect.new_stack_spec".
+Print Assumptions case_studies.ts_stack.aspect.aspect.new_stack_spec.
+Check "aspect.stack_push_spec".
+Print Assumptions case_studies.ts_stack.aspect.aspect.stack_push_spec.
+Check "aspect.stack_pop_spec".
+Print Assumptions case_studies.ts_stack.aspect.aspect.stack_pop_spec.
