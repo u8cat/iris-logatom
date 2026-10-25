@@ -4,54 +4,15 @@
   classical presentation of Lynch-Vaandrager. *)
 
 From stdpp Require Import base list.
-
-(* ========================================== *)
-(* Labeled transition systems *)
-
-(** The reflexive-transitive closure of a labeled step relation. [AbsQ]
-  and [AbsQ0] in [absq.v] each define their own copy of this relation
-  specialized to their state and label types; the form below is generic. *)
-Inductive lts_steps {Q L : Type} (step : Q → L → Q → Prop)
-  : Q → list L → Q → Prop :=
-  | lts_steps_nil s :
-    lts_steps step s [] s
-  | lts_steps_cons s0 s1 s2 l ls :
-    step s0 l s1 →
-    lts_steps step s1 ls s2 →
-    lts_steps step s0 (l :: ls) s2.
-
-Lemma lts_steps_app {Q L : Type} (step : Q → L → Q → Prop) s0 s1 s2 ls1 ls2 :
-  lts_steps step s0 ls1 s1 →
-  lts_steps step s1 ls2 s2 →
-  lts_steps step s0 (ls1 ++ ls2) s2.
-Proof.
-  intros Hsteps1.
-  induction Hsteps1 as [|??????? IH]; intros Hsteps2; first done.
-  simpl. eapply lts_steps_cons; first eassumption. by apply IH.
-Qed.
-
-(** Inverse of [lts_steps_app]: an [lts_steps] over a concatenated
-  label list splits into a prefix run and a suffix run with an
-  intermediate state. *)
-Lemma lts_steps_app_inv {Q L : Type} (step : Q → L → Q → Prop) s0 s2 ls1 ls2 :
-  lts_steps step s0 (ls1 ++ ls2) s2 →
-  ∃ s1, lts_steps step s0 ls1 s1 ∧ lts_steps step s1 ls2 s2.
-Proof.
-  revert s0. induction ls1 as [|l ls1' IH]; intros s0 Hsteps.
-  - exists s0. split; [apply lts_steps_nil|exact Hsteps].
-  - simpl in Hsteps. inversion Hsteps as [|? s_mid ? ? ? Hstep1 Hsteps_rest]; subst.
-    destruct (IH s_mid Hsteps_rest) as (s1 & Hpre & Hpost).
-    exists s1. split; [|exact Hpost].
-    eapply lts_steps_cons; eassumption.
-Qed.
+From iris_logatom.lib Require Export labeled_relations.
 
 (* ========================================== *)
 (* Γ-refinement *)
 
 Section refinement.
   Context {Q1 Q2 L : Type}.
-  Context (init1 : Q1) (step1 : Q1 → L → Q1 → Prop).
-  Context (init2 : Q2) (step2 : Q2 → L → Q2 → Prop).
+  Context (init1 : Q1) (step1 : relationL Q1 L).
+  Context (init2 : Q2) (step2 : relationL Q2 L).
   (** A decidable predicate picking out the observable labels. *)
   Context (Γ : L → Prop) `{!∀ l, Decision (Γ l)}.
 
@@ -74,8 +35,8 @@ Section refinement.
   (** Γ-refinement of [L1] by [L2]: every trace of [L1] is matched, up to
     Γ-projection, by some trace of [L2]. *)
   Definition Γ_refines : Prop :=
-    ∀ ls s, lts_steps step1 init1 ls s →
-    ∃ ls' u, lts_steps step2 init2 ls' u ∧
+    ∀ ls s, rtcL step1 init1 s ls →
+    ∃ ls' u, rtcL step2 init2 u ls' ∧
              project_labels ls = project_labels ls'.
 
   (** A Γ-backward simulation from [L1] to [L2]. This formulation is
@@ -91,20 +52,20 @@ Section refinement.
     bs_init_only : ∀ u, bs init1 u → u = init2;
     (** [bs] is total on [L1]-reachable states. *)
     bs_total : ∀ s ls,
-      lts_steps step1 init1 ls s → ∃ u, bs s u;
+      rtcL step1 init1 s ls → ∃ u, bs s u;
     (** Every step of [L1] is matched backwards by an [L2] sequence with
       the same Γ-projection. *)
-    bs_step : ∀ s l s' u',
-      step1 s l s' → bs s' u' →
-      ∃ u ls, bs s u ∧ lts_steps step2 u ls u' ∧
-              project_labels [l] = project_labels ls;
+    bs_step : ∀ s s' l u',
+      step1 s s' l → bs s' u' →
+      ∃ u ls, bs s u ∧ rtcL step2 u u' ls ∧
+              project_labels l = project_labels ls;
   }.
 
   Lemma backward_simulation_backward_steps bs :
     backward_simulation bs →
-    ∀ s s_end ls, lts_steps step1 s ls s_end →
+    ∀ s s_end ls, rtcL step1 s s_end ls →
     ∀ u_end, bs s_end u_end →
-    ∃ u ls', bs s u ∧ lts_steps step2 u ls' u_end ∧
+    ∃ u ls', bs s u ∧ rtcL step2 u u_end ls' ∧
              project_labels ls = project_labels ls'.
   Proof.
     intros Hbs s s_end ls Hsteps1.
@@ -117,9 +78,8 @@ Section refinement.
         as (u & lq & Hbs_u & Hsteps_q & Hproj_q).
       exists u, (lq ++ lp). split_and!.
       + done.
-      + by eapply lts_steps_app.
-      + change (l :: ls_mid) with ([l] ++ ls_mid).
-        rewrite !project_labels_app.
+      + by eapply rtcL_trans.
+      + rewrite !project_labels_app.
         rewrite Hproj_q. rewrite Hproj. done.
   Qed.
 
@@ -144,21 +104,21 @@ Section refinement.
     bsi_init_fwd : bs init1 init2;
     bsi_init_only : ∀ u, bs init1 u → u = init2;
     bsi_inv_init : P init1;
-    bsi_inv_step : ∀ s l s', step1 s l s' → P s → P s';
+    bsi_inv_step : ∀ s s' l, step1 s s' l → P s → P s';
     bsi_total : ∀ s ls,
-      lts_steps step1 init1 ls s → ∃ u, bs s u;
-    bsi_step : ∀ s l s' u',
-      P s → step1 s l s' → bs s' u' →
-      ∃ u ls, bs s u ∧ lts_steps step2 u ls u' ∧
-              project_labels [l] = project_labels ls;
+      rtcL step1 init1 s ls → ∃ u, bs s u;
+    bsi_step : ∀ s s' l u',
+      P s → step1 s s' l → bs s' u' →
+      ∃ u ls, bs s u ∧ rtcL step2 u u' ls ∧
+              project_labels l = project_labels ls;
   }.
 
   Lemma backward_simulation_with_inv_backward_steps bs P :
     backward_simulation_with_inv bs P →
-    ∀ s s_end ls, lts_steps step1 s ls s_end →
+    ∀ s s_end ls, rtcL step1 s s_end ls →
     P s →
     ∀ u_end, bs s_end u_end →
-    ∃ u ls', bs s u ∧ lts_steps step2 u ls' u_end ∧
+    ∃ u ls', bs s u ∧ rtcL step2 u u_end ls' ∧
              project_labels ls = project_labels ls'.
   Proof.
     intros Hbs s s_end ls Hsteps1.
@@ -172,9 +132,8 @@ Section refinement.
         as (u & lq & Hbs_u & Hsteps_q & Hproj_q).
       exists u, (lq ++ lp). split_and!.
       + done.
-      + by eapply lts_steps_app.
-      + change (l :: ls_mid) with ([l] ++ ls_mid).
-        rewrite !project_labels_app.
+      + by eapply rtcL_trans.
+      + rewrite !project_labels_app.
         rewrite Hproj_q. rewrite Hproj. done.
   Qed.
 

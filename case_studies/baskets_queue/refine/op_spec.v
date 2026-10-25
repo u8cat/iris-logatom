@@ -69,15 +69,13 @@ Section bq_skeleton_op_spec.
       destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
       - eexists _, (ls ++ [(τ, ACallEnq d)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_enq; done.
         + rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
       - eexists _, (ls ++ [(τ, ACallDeq)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_deq; done.
         + rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute. }
@@ -130,8 +128,7 @@ Section bq_skeleton_op_spec.
         iFrame "Hhead Htail Hchain Htrace Hauth_op Hauth_nm Hfrag_nm Hauth_dq Hfrag_dq Hauth_del Hauth_no_O Hauth_ls Hauth_w Hfrag_w".
         simpl. rewrite dom_insert_L. iFrame "Hauth_calls".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_enq; done.
         - rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
@@ -306,8 +303,7 @@ Section bq_skeleton_op_spec.
         iFrame "Hhead Htail Hchain Htrace Hauth_op Hauth_nm Hfrag_nm Hauth_dq Hfrag_dq Hauth_del Hauth_no_O Hauth_ls Hauth_w Hfrag_w".
         simpl. rewrite dom_insert_L. iFrame "Hauth_calls".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_deq; done.
         - rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.

@@ -1,4 +1,4 @@
-From iris_logatom.lib Require Import relation.
+From iris_logatom.lib Require Import relations.
 From iris.program_logic Require Export ectx_language language.
 
 (* TODO:rename "erased_steps" to "rtc_erased_step"

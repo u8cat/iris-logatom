@@ -126,13 +126,13 @@ Definition hwq_valid_value : val → Prop :=
   λ v, val_is_unboxed (SOMEV v).
 
 Definition I_lang_hwq (ts : list (positive * trace)) : Prop :=
-  ∃ s ls, absq_steps NeverEmpty hwq_valid_value absq_init ls s ∧
+  ∃ s ls, rtcL (absq_step NeverEmpty hwq_valid_value) absq_init s ls ∧
           ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls).
 
 Lemma I_lang_hwq_init : I_lang_hwq [].
 Proof.
   exists absq_init, []. split.
-  - apply lts_steps_nil.
+  - apply rtcL_refl.
   - by rewrite /trace_of_absq_labels /= filter_nil.
 Qed.
 
@@ -426,12 +426,12 @@ Proof.
   - intros τ obs rng_τ r. rewrite lookup_empty. done.
 Qed.
 
-(** Iterated [absq_wf_step] over [absq_steps]: every state reachable
+(** Iterated [absq_wf_step] over [rtcL absq_step]: every state reachable
   from a wellformed one is itself wellformed.  Used in [op_spec]
   to derive [dom ℓ ⊆ dom cp] at CALL-ENQ from the [Hsteps] hypothesis
   carried in the HWQ invariant. *)
 Lemma absq_wf_steps (rme : response_mayempty) (valid_value : val → Prop) (s0 : absq_state) ls s :
-  absq_steps rme valid_value s0 ls s → absq_wf valid_value s0 → absq_wf valid_value s.
+  rtcL (absq_step rme valid_value) s0 s ls → absq_wf valid_value s0 → absq_wf valid_value s.
 Proof.
   induction 1 as [|s0' s1' s2' l' ls' Hstep Hrest IH]; auto.
   intros Hwf0. apply IH. by eapply absq_wf_step.
@@ -470,7 +470,7 @@ Section hwq_skeleton.
   Hypothesis sz_pos : (0 < sz)%Z.
 
   (** Pin [valid_value] to [hwq_valid_value] inside this section so the
-    [absq_steps]/[absq_wf]/[fs1_sim] arguments line up with [I_lang_hwq]. *)
+    [rtcL absq_step]/[absq_wf]/[fs1_sim] arguments line up with [I_lang_hwq]. *)
   Local Notation valid_value := hwq_valid_value.
   Lemma valid_value_unbox d : valid_value d → val_is_unboxed (SOMEV d).
   Proof. done. Qed.
@@ -533,7 +533,7 @@ Section hwq_skeleton.
       own γ_sv (◯ to_svmap cell_val_map) ∗
       own γ_dq (● to_dqmap dq_map) ∗
       own γ_dq (◯ to_dqmap dq_map) ∗
-      ⌜absq_steps NeverEmpty valid_value absq_init ls s⌝ ∗
+      ⌜rtcL (absq_step NeverEmpty valid_value) absq_init s ls⌝ ∗
       ⌜ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls)⌝ ∗
       ⌜fs1_sim valid_value sz items back_val s op_map stored_at ts⌝ ∗
       ⌜cell_val_inv stored_at s cell_val_map⌝ ∗

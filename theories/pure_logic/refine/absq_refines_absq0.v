@@ -285,8 +285,8 @@ Proof.
   - intros k d f Hℓ. rewrite lookup_empty in Hℓ. discriminate.
 Qed.
 
-Lemma absq_wf_step rme valid_value s l s' :
-  absq_wf valid_value s → absq_step rme valid_value s l s' → absq_wf valid_value s'.
+Lemma absq_wf_step rme valid_value s s' l :
+  absq_wf valid_value s → absq_step rme valid_value s s' l → absq_wf valid_value s'.
 Proof.
   intros [Hdom Hℓcp Hcomp Hrv Hpendo Hlt_comp Hvalid_value] Hstep.
   inversion Hstep as
@@ -582,19 +582,19 @@ Section bs_step.
     Forall (λ kv, cp0 !! kv.1 = Some A1
                   ∧ in0 !! kv.1 = Some kv.2
                   ∧ valid_value kv.2) kvs →
-    absq0_steps rme valid_value
+    rtcL (absq0_step rme valid_value)
       (AbsQ0State σ in0 rv0 cp0)
-      (map (λ kv, (kv.1, ALinEnq kv.2)) kvs)
-      (AbsQ0State (σ ++ kvs) in0 rv0 (insert_all A cp0 kvs.*1)).
+      (AbsQ0State (σ ++ kvs) in0 rv0 (insert_all A cp0 kvs.*1))
+      (map (λ kv, (kv.1, ALinEnq kv.2)) kvs).
   Proof.
     revert σ cp0.
     induction kvs as [|[k0 v0] kvs IH]; intros σ cp0 Hnd Hpre.
-    - rewrite app_nil_r. apply lts_steps_nil.
+    - rewrite app_nil_r. apply rtcL_refl.
     - simpl. simpl in Hnd. apply NoDup_cons in Hnd as [Hk0_notin Hnd_ks].
       inversion Hpre as [|? ? Hhead Htail]; subst.
       destruct Hhead as (Hcp_k0 & Hin_k0 & Hv0_ub).
       simpl in Hcp_k0, Hin_k0, Hv0_ub.
-      eapply lts_steps_cons.
+      eapply rtcL_cons.
       { by apply absq0_step_lin_enq. }
       replace (σ ++ (k0, v0) :: kvs) with ((σ ++ [(k0, v0)]) ++ kvs); last first.
       { by rewrite -app_assoc. }
@@ -615,11 +615,11 @@ Section bs_step.
 
   (** The backward step condition of Definition 6, instantiated to
     [AbsQ] → [AbsQ0]. *)
-  Lemma bs_step s l s' u' :
+  Lemma bs_step s s' l u' :
     absq_wf valid_value s →
-    absq_step rme valid_value s l s' → bs s' u' →
-    ∃ u ls, bs s u ∧ absq0_steps rme valid_value u ls u' ∧
-            project_labels is_observable [l] = project_labels is_observable ls.
+    absq_step rme valid_value s s' l → bs s' u' →
+    ∃ u ls, bs s u ∧ rtcL (absq0_step rme valid_value) u u' ls ∧
+            project_labels is_observable l = project_labels is_observable ls.
   Proof.
     intros Hwf Hstep Hbs'.
     inversion Hstep as
@@ -664,7 +664,7 @@ Section bs_step.
                [(k, ACallEnq d)].
         split_and!; last first.
         * done.
-        * eapply lts_steps_cons; last apply lts_steps_nil.
+        * apply rtcL_once.
           replace cp0' with (<[k := A1]> (delete k cp0')) at 2;
             last by apply (insert_delete_id _ _ _ Hcp0'k).
           replace in0' with (<[k := d]> (delete k in0')) at 2;
@@ -914,20 +914,20 @@ Section bs_step.
                   map (λ kv, (kv.1, ALinEnq kv.2)) post_p)
             with ([(k, ACallEnq d); (k, ALinEnq d)] ++
                   map (λ kv, (kv.1, ALinEnq kv.2)) post_p).
-          eapply lts_steps_app.
+          eapply rtcL_trans.
           { (* Part 1: CALL-ENQ + LIN-ENQ(k, d). *)
-            eapply lts_steps_cons.
+            eapply rtcL_cons.
             { apply absq0_step_call_enq.
               - apply not_elem_of_dom.
                 rewrite insert_all_lookup_notin //.
                 by rewrite lookup_delete_eq.
               - exact Hd_ub. }
-            eapply lts_steps_cons.
+            eapply rtcL_cons.
             { apply absq0_step_lin_enq;
                 [by rewrite lookup_insert_eq
                 |by rewrite lookup_insert_eq
                 |exact Hd_ub]. }
-            apply lts_steps_nil. }
+            apply rtcL_refl. }
           (* Part 2: massage post-state to match the helper's output. *)
           assert (AbsQ0State σ' in0' rv0' cp0' =
                    AbsQ0State
@@ -1210,7 +1210,7 @@ Section bs_step.
              [(k, ACallDeq)].
       split_and!; last first.
       + done.
-      + eapply lts_steps_cons; last apply lts_steps_nil.
+      + apply rtcL_once.
         (* AbsQ0's CALL-DEQ step from the modified u' *)
         replace cp0' with (<[k := R1]> (delete k cp0')) at 2;
           last by apply (insert_delete_id _ _ _ HR1').
@@ -1309,7 +1309,7 @@ Section bs_step.
              [(k, ARetEnq)].
       split_and!; last first.
       + done.
-      + eapply lts_steps_cons; last apply lts_steps_nil.
+      + apply rtcL_once.
         replace cp0' with (<[k := A2]> (<[k := A]> cp0')) at 2;
           last by rewrite insert_insert_eq (insert_id _ _ _ HA2').
         apply absq0_step_ret_enq.
@@ -1417,7 +1417,7 @@ Section bs_step.
              [(k, ARetEnq)].
       split_and!; last first.
       + done.
-      + eapply lts_steps_cons; last apply lts_steps_nil.
+      + apply rtcL_once.
         replace cp0' with (<[k := A2]> (<[k := A]> cp0')) at 2;
           last by rewrite insert_insert_eq (insert_id _ _ _ HA2').
         apply absq0_step_ret_enq.
@@ -1500,7 +1500,7 @@ Section bs_step.
              [(k, ARetDeq d)].
       split_and!; last first.
       + done.
-      + eapply lts_steps_cons; last apply lts_steps_nil.
+      + apply rtcL_once.
         replace cp0' with (<[k := R3]> (<[k := R2]> cp0')) at 2;
           last by rewrite insert_insert_eq (insert_id _ _ _ HR3').
         apply absq0_step_ret_deq.
@@ -1616,7 +1616,7 @@ Section bs_step.
              [(k, ALinDeq (SOMEV d))].
       split_and!; last first.
       + done.
-      + eapply lts_steps_cons; last apply lts_steps_nil.
+      + apply rtcL_once.
         replace cp0' with (<[k := R2]>(<[k := R1]>(delete k cp0'))) at 2; last first.
         { rewrite insert_insert_eq. by apply (insert_delete_id _ _ _ Hcp0'_k_R2). }
         replace rv0' with (<[k := SOMEV d]>(delete k rv0')) at 2;
@@ -1873,7 +1873,7 @@ Section bs_step.
         induction l as [|[k0 v0] l IH]; simpl; first done.
         rewrite filter_cons_False; [|by intros []]. exact IH.
       + (* AbsQ0 trace: LIN-DEQ2 + LIN-ENQ tail (in σ' order). *)
-        eapply lts_steps_cons.
+        eapply rtcL_cons.
         { apply absq0_step_lin_deq2; first done.
           by rewrite lookup_insert_eq. }
         rewrite insert_insert_eq.
@@ -1900,7 +1900,7 @@ Section bs_step.
             rewrite insert_all_lookup_notin //.
             by rewrite lookup_delete_ne. }
         rewrite Heq.
-        apply absq0_lin_enq_seq_steps; first exact Hnd_σ'_keys.
+        apply (absq0_lin_enq_seq_steps []); first exact Hnd_σ'_keys.
         (* Build Forall over σ' from Hkeys_props. *)
         rewrite Forall_forall. intros [k_i v_i] Hkv_σ'.
         destruct (Hkv_props _ _ Hkv_σ')
@@ -2088,8 +2088,8 @@ Section bs_step.
     here need not be reachable from [u] in [AbsQ0]; we only need its
     existence so that [bs_total] can establish [bs] at every reachable
     [AbsQ] state. *)
-  Lemma bs_fwd_step s l s' u :
-    absq_wf valid_value s → absq_step rme valid_value s l s' → bs s u → ∃ u', bs s' u'.
+  Lemma bs_fwd_step s s' l u :
+    absq_wf valid_value s → absq_step rme valid_value s s' l → bs s u → ∃ u', bs s' u'.
   Proof.
     intros Hwf Hstep Hbs.
     inversion Hstep as
@@ -2721,7 +2721,7 @@ Section bs_step.
     Established by forward induction on the trace, using [bs_init]
     at the base and [bs_fwd_step] at each step. *)
   Lemma bs_fwd_steps s0 u0 ls s :
-    absq_wf valid_value s0 → bs s0 u0 → absq_steps rme valid_value s0 ls s → ∃ u, bs s u.
+    absq_wf valid_value s0 → bs s0 u0 → rtcL (absq_step rme valid_value) s0 s ls → ∃ u, bs s u.
   Proof.
     intros Hwf Hbs Hsteps.
     revert u0 Hwf Hbs.
@@ -2732,7 +2732,7 @@ Section bs_step.
   Qed.
 
   Lemma bs_total s ls :
-    absq_steps rme valid_value absq_init ls s → ∃ u, bs s u.
+    rtcL (absq_step rme valid_value) absq_init s ls → ∃ u, bs s u.
   Proof.
     intros Hsteps.
     apply (bs_fwd_steps absq_init absq0_init ls s);
@@ -2755,7 +2755,7 @@ Proof.
   - apply bs_init.
   - apply bs_init_only.
   - apply absq_wf_init.
-  - intros s l s' Hstep Hwf. by eapply absq_wf_step.
+  - intros s s' l Hstep Hwf. by eapply absq_wf_step.
   - apply (bs_total rme valid_value).
-  - intros s l s' u' Hwf Hstep Hbs'. by eapply bs_step.
+  - intros s s' l u' Hwf Hstep Hbs'. by eapply bs_step.
 Qed.

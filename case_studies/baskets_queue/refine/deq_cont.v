@@ -191,7 +191,7 @@ Section bq_skeleton_deq_cont.
     { apply mono_list_included. }
     (* Phase-1 Coq fact: encapsulate the trajectory and the dom/¬∈
        witnesses about τ_h_real (only meaningful for the non-dummy case). *)
-    iAssert (⌜∃ s_1, absq_steps MayEmpty valid_value absq_init ls s_1 ∧
+    iAssert (⌜∃ s_1, rtcL (absq_step MayEmpty valid_value) absq_init s_1 ls ∧
                      (∀ τ_h_real, τ_h_opt = Some τ_h_real → (1 ≤ i_h)%nat →
                        τ_h_real ∈ dom s_1.(absq_cp) ∧ τ_h_real ∉ s_1.(absq_O))⌝)%I
       as "#Hphase1".
@@ -714,8 +714,7 @@ Section bq_skeleton_deq_cont.
           rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R1_pre3)).
           iFrame "Hauth_calls3".
           iPureIntro. split_and!.
-          - eapply lts_steps_app; [exact Hsteps3|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          - eapply rtcL_r; [exact Hsteps3|].
             apply absq_step_lin_deq2; [done|exact Hcp_τ_R1_pre3|exact HallPend3].
           - rewrite Hts_eq3 /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_False; [by rewrite app_nil_r|].
@@ -1197,9 +1196,8 @@ Section bq_skeleton_deq_cont.
             rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R1_pre)).
             iFrame "Hauth_calls4".
             iPureIntro. split_and!.
-            - (* absq_steps with one more LIN-DEQ1 step *)
-              eapply lts_steps_app; [exact Hsteps4|].
-              eapply lts_steps_cons; [|apply lts_steps_nil].
+            - (* rtcL absq_step with one more LIN-DEQ1 step *)
+              eapply rtcL_r; [exact Hsteps4|].
               apply absq_step_lin_deq1 with (f := f_succ_2_4);
                 [exact Hcp_τ_R1_pre|exact Hτ_succ_2_min|exact Hℓ_τ_succ_2_4].
             - (* ts unchanged: ALinDeq is a lin event, filtered out *)
@@ -1687,8 +1685,7 @@ Section bq_skeleton_deq_cont.
         rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R1_pre)).
         iFrame "Hauth_calls2".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps2|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps2|].
           apply absq_step_lin_deq2; [done|exact Hcp_τ_R1_pre|exact HallPend].
         - rewrite Hts_eq2 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_False; [by rewrite app_nil_r|].
@@ -1817,8 +1814,7 @@ Section bq_skeleton_deq_cont.
         exists (AbsQState O_4 lt_4 ℓ_4 rv_4 (<[τ := R3]> cp_4)),
                (ls_4 ++ [(τ, ARetDeq NONEV)]).
         split.
-        - eapply lts_steps_app; [exact Hsteps4|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps4|].
           by apply absq_step_ret_deq.
         - rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute. }
@@ -1862,8 +1858,7 @@ Section bq_skeleton_deq_cont.
                 Hauth_dq4 Hfrag_dq4 Hauth_del4 Hauth_ls4 Hauth_no_O4 Hauth_w4 Hfrag_w4".
         rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R2)). iFrame "Hauth_calls4".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps4|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps4|].
           by apply absq_step_ret_deq.
         - rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.

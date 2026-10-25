@@ -759,16 +759,14 @@ Section hwq_skeleton_enq_cont.
         - (* RET-ENQ1 *)
           eexists _, (ls4 ++ [(τ, ARetEnq)]).
           split.
-          + eapply lts_steps_app; [exact Hsteps4|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          + eapply rtcL_r; [exact Hsteps4|].
             apply absq_step_ret_enq1 with (d := d); done.
           + rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_True; [done|]. by compute.
         - (* RET-ENQ2 *)
           eexists _, (ls4 ++ [(τ, ARetEnq)]).
           split.
-          + eapply lts_steps_app; [exact Hsteps4|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          + eapply rtcL_r; [exact Hsteps4|].
             apply absq_step_ret_enq2; done.
           + rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_True; [done|]. by compute. }
@@ -800,8 +798,7 @@ Section hwq_skeleton_enq_cont.
           dq_map4.
           iFrame "Hback4 Har4 Htrace4 Hauth4 Hauth_sv4 Hfrag_sv4 Hauth_dq4 Hfrag_dq4".
           iPureIntro. split_and!.
-          - eapply lts_steps_app; [exact Hsteps4|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          - eapply rtcL_r; [exact Hsteps4|].
             apply absq_step_ret_enq1 with (d := d); done.
           - rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_True; [done|]. by compute.
@@ -1019,8 +1016,7 @@ Section hwq_skeleton_enq_cont.
           dq_map4.
           iFrame "Hback4 Har4 Htrace4 Hauth4 Hauth_sv4 Hfrag_sv4 Hauth_dq4 Hfrag_dq4".
           iPureIntro. split_and!.
-          - eapply lts_steps_app; [exact Hsteps4|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          - eapply rtcL_r; [exact Hsteps4|].
             apply absq_step_ret_enq2; done.
           - rewrite Hts_eq4 /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_True; [done|]. by compute.

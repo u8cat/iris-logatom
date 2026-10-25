@@ -1,6 +1,7 @@
 (* linear.v: formal definition of linearizability. *)
 
 From iris_logatom.lib Require Import list.
+From iris_logatom.lib Require Export labeled_relations.
 From iris_logatom.pure_logic Require Export adequacy.
 From iris_logatom.pure_logic Require Import state_set encodable.
 From iris.heap_lang Require Import notation.
@@ -114,15 +115,16 @@ Proof. destruct t; simpl; apply _. Defined.
 (**********************************************)
 (* Definitions *)
 
-(* whether lin events are sound wrt the model *)
-Inductive linearized_sound `{M : model} : list (positive*trace) → S → S → Prop :=
-  | linearized_sound_nil s :
-    linearized_sound [] s s
-  | linearized_sound_snoc s0 s s' n τ v v' ts :
-    linearized_sound ts s0 s →
+(* a step of the model *)
+Inductive model_step `{M : model} : relationL S (positive*trace) :=
+  | model_step_lin s s' n τ v v' :
     default default_vr (valid_requests!!n) v →
     default default_rr (request_responses!!n) s v s' v' →
-    linearized_sound (ts ++ [(τ,Lin n v v')]) s0 s'.
+    model_step s s' [(τ,Lin n v v')].
+
+Global Instance model_step_singleton_relationL `{M : model} :
+  SingletonRelationL (model_step (M:=M)).
+Proof. by intros ??? []. Qed.
 
 Definition call_valid `{M : model} (ts : list (positive*trace)) :=
   Forall (λ x, if x.2 is Call n v then default default_vr (valid_requests!!n) v else True) ts.
@@ -188,142 +190,44 @@ Definition trace_pendingOp := trace_pendingOp_aux ∅.
 (**********************************************)
 (* Lemmas *)
 
-Lemma linearized_sound_is_lin `{M : model} ts s s' :
-  linearized_sound ts s s' →
+Lemma model_step_inv `{M : model} s s' τ n v v' :
+  model_step s s' [(τ,Lin n v v')] →
+  default default_vr (valid_requests!!n) v ∧ default default_rr (request_responses!!n) s v s' v'.
+Proof. inversion 1. by split. Qed.
+
+Lemma model_steps_is_lin `{M : model} s s' ts :
+  rtcL model_step s s' ts →
   Forall (is_lin∘snd) ts.
 Proof.
-  induction 1; first done.
+  induction 1 as [|????? []]; first done.
   rewrite Forall_app Forall_singleton. split; done.
 Qed.
 
-Lemma linearized_sound_nil_inv `{M : model} s s' :
-  linearized_sound [] s s' → s = s'.
-Proof.
-  intros Hlin.
-  inversion Hlin.
-  - done.
-  - rename select (_ ++ [(_,Lin _ _ _)] = []) into Hfalse.
-    apply (f_equal length) in Hfalse.
-    rewrite length_app /= in Hfalse.
-    lia.
-Qed.
-
-Lemma linearized_sound_snoc_inv `{M : model} τ n v v' (ts : list (positive*trace)) (s s' : S) :
-  linearized_sound (ts++[(τ,Lin n v v')]) s s' →
-  ∃ s_mid, linearized_sound ts s s_mid ∧ default default_vr (valid_requests!!n) v ∧ default default_rr (request_responses!!n) s_mid v s' v'.
-Proof.
-  intros Hlin.
-  inversion Hlin; simplify_eq.
-  - rename select ([] = _ ++ [_]) into HFalse.
-    symmetry in HFalse.
-    apply app_nil_r_inv in HFalse.
-    discriminate.
-  - rename select (_ ++ [_] = _ ++ [_]) into Heq.
-    opose proof (app_inj_2 _ _ _ _ _ Heq) as [-> Heq'].
-    { simpl. done. }
-    injection Heq' as <- <- <- <-.
-    eexists. split_and!; eassumption.
-Qed.
-
-Lemma linearized_sound_app_inv `{M : model} (ts1 ts2 : list (positive*trace)) (s s' : S) :
-  linearized_sound (ts1++ts2) s s' →
-  ∃ s_mid, linearized_sound ts1 s s_mid ∧ linearized_sound ts2 s_mid s'.
-Proof.
-  revert ts1 s'. induction ts2 as [|t ts2 IH] using rev_ind => ts1 s' Hlin_sound.
-  - rewrite right_id in Hlin_sound.
-    exists s'. split; first assumption.
-    apply linearized_sound_nil.
-  - rewrite assoc in Hlin_sound.
-    apply linearized_sound_is_lin in Hlin_sound as Hlin.
-    rewrite Forall_app Forall_singleton in Hlin.
-    destruct Hlin as [_ Hlin].
-    destruct t as [τ [|n v v'|]]; try solve [by simpl in Hlin].
-    destruct (linearized_sound_snoc_inv τ n v v' _ s s' Hlin_sound)
-      as (s1 & Hlin_sound_begin_1 & Hvalid & Hrr).
-    destruct (IH _ s1 Hlin_sound_begin_1)
-      as (s2 & Hlin_sound_begin_2 & Hlin_sound_2_1).
-    exists s2. split; first done.
-    eapply linearized_sound_snoc; eassumption.
-Qed.
-
-Lemma linearized_sound_cons_inv `{M : model} τ n v v' (ts : list (positive*trace)) (s s' : S) :
-  linearized_sound ((τ,Lin n v v')::ts) s s' →
-  ∃ s_mid, default default_vr (valid_requests!!n) v ∧ default default_rr (request_responses!!n) s v s_mid v' ∧ linearized_sound ts s_mid s'.
-Proof.
-  change ((τ,Lin n v v')::ts) with (([]++[(τ,Lin n v v')])++ts).
-  intros (s1 & Hlin_begin_1 & Hlin_1_end)%linearized_sound_app_inv.
-  apply linearized_sound_snoc_inv in Hlin_begin_1.
-  destruct Hlin_begin_1 as (? & Hlin_nil & Hvalid & Hrr).
-  apply linearized_sound_nil_inv in Hlin_nil as <-.
-  eexists; split_and!; eassumption.
-Qed.
-
-Lemma linearized_sound_app `{M: model} s0 s s' ts ts' :
-  linearized_sound ts s0 s →
-  linearized_sound ts' s s' →
-  linearized_sound (ts ++ ts') s0 s'.
-Proof.
-  revert s0 s s' ts.
-  induction ts' as [|t ts' IH] using rev_ind => s0 s s' ts Hlin1 Hlin2.
-  { rewrite right_id. apply linearized_sound_nil_inv in Hlin2 as ->. done. }
-  apply linearized_sound_is_lin in Hlin2 as Hlin.
-  rewrite Forall_app Forall_singleton in Hlin.
-  destruct Hlin as [_ Hlin].
-  destruct t as [τ [|v v'|]]; try solve [by simpl in Hlin].
-  apply linearized_sound_snoc_inv in Hlin2.
-  destruct Hlin2 as (s_mid & Hlin3 & ? & ?).
-  rewrite assoc.
-  eapply linearized_sound_snoc; first eapply IH; eassumption.
-Qed.
-
-Lemma linearized_sound_cons `{M: model} s0 s s' τ n v v' ts :
-  default default_vr (valid_requests!!n) v →
-  default default_rr (request_responses!!n) s0 v s v' →
-  linearized_sound ts s s' →
-  linearized_sound ((τ,Lin n v v') :: ts) s0 s'.
-Proof.
-  intros ???.
-  change ((τ, Lin n v v') :: ts) with (([]++[(τ, Lin n v v')]) ++ ts).
-  eapply linearized_sound_app;
-    first eapply linearized_sound_snoc;
-    first apply linearized_sound_nil;
-    eassumption.
-Qed.
-
-Lemma linearized_sound_valid_request `{M: model} ts s s' :
-  linearized_sound ts s s' →
+Lemma model_steps_valid_request `{M: model} s s' ts :
+  rtcL model_step s s' ts →
   Forall (λ x, if x is (_,Lin n v _) then default default_vr (valid_requests!!n) v else False) ts.
 Proof.
-  induction 1; first done.
+  induction 1 as [|????? []]; first done.
   rewrite Forall_app Forall_singleton. split; done.
 Qed.
 
-Lemma linearized_sound_remove_snoc `{M : model} ts t s :
-  (∃ s', linearized_sound (ts++[t]) s s') →
-  (∃ s', linearized_sound ts s s').
+Lemma model_steps_remove_snoc `{M : model} s ts t :
+  (∃ s', rtcL model_step s s' (ts++[t])) →
+  (∃ s', rtcL model_step s s' ts).
 Proof.
-  intros [s' Hlin_sound].
-  inversion Hlin_sound;
-    rename select (_ = ts++[t]) into Hsnoc_eq;
-    simplify_eq.
-  - apply (f_equal length) in Hsnoc_eq.
-    rewrite length_app /= in Hsnoc_eq.
-    lia.
-  - apply app_inj_tail in Hsnoc_eq as [<- <-].
-    by eexists.
+  intros [s' Hmsteps].
+  apply rtcL_app_inv in Hmsteps as (s_mid & Hmsteps & _).
+  by exists s_mid.
 Qed.
 
-Lemma linearized_sound_prefix `{M : model} ts ts' s :
+Lemma model_steps_prefix `{M : model} s ts ts' :
   ts' `prefix_of` ts →
-  (∃ s', linearized_sound ts s s') →
-  (∃ s', linearized_sound ts' s s').
+  (∃ s', rtcL model_step s s' ts) →
+  (∃ s', rtcL model_step s s' ts').
 Proof.
-  intros [k ->].
-  induction k as [|?? IHk] using rev_ind; first rewrite right_id //.
-  intros Hlin_sound.
-  apply IHk.
-  eapply linearized_sound_remove_snoc.
-  rewrite -assoc //.
+  intros [k ->] [s' Hmsteps].
+  apply rtcL_app_inv in Hmsteps as (s_mid & Hmsteps & _).
+  by exists s_mid.
 Qed.
 
 Lemma call_of_tag_snoc_Some t ts τ x :
@@ -1275,7 +1179,7 @@ Definition trace_linearizable `{M : model} ts :=
   call_valid ts ∧
   ∃ ts', ts = filter (not ∘ is_lin ∘ snd) ts'
       ∧ per_tag_linearized ts'
-      ∧ ∃ s', linearized_sound (filter (is_lin ∘ snd) ts') s_init s'.
+      ∧ ∃ s', rtcL model_step s_init s' (filter (is_lin ∘ snd) ts').
 
 Section trace_linearizable_facts.
   Context `{M : model}.
@@ -1287,7 +1191,7 @@ Section trace_linearizable_facts.
     exists []. split; last split.
     - rewrite filter_nil //.
     - apply per_tag_linearized_nil.
-    - exists s_init. apply linearized_sound_nil.
+    - exists s_init. apply rtcL_refl.
   Qed.
 
   Lemma trace_linearizable_prefix ts1 ts2 :
@@ -1295,7 +1199,7 @@ Section trace_linearizable_facts.
     trace_linearizable ts2 →
     trace_linearizable ts1.
   Proof.
-    intros [ts3 ->] (Hcall_valid & ts13' & Hfilter & Hper_tag_lin & Hlin_sound).
+    intros [ts3 ->] (Hcall_valid & ts13' & Hfilter & Hper_tag_lin & Hmsteps).
     apply filter_app_inv in Hfilter as (ts1' & ts3' & -> & Hfilter1 & Hfilter3).
     split.
     { rewrite /call_valid Forall_app in Hcall_valid. by destruct Hcall_valid. }
@@ -1305,7 +1209,7 @@ Section trace_linearizable_facts.
       exists n, v, v'.
       rewrite filter_app in Hprefix.
       by eapply prefix_app_l.
-    - eapply linearized_sound_prefix; last eassumption.
+    - eapply model_steps_prefix; last eassumption.
       rewrite filter_app. by apply prefix_app_r.
   Qed.
 
@@ -1947,7 +1851,7 @@ Section trace_linearizable_facts.
     trace_linearizable ts2 →
     trace_linearizable ts1.
   Proof.
-    intros His_add_filter (Hcall_valid & ts2' & Hfilter & Hper_tag_lin & Hlin_sound).
+    intros His_add_filter (Hcall_valid & ts2' & Hfilter & Hper_tag_lin & Hmsteps).
     pose proof His_add_filter as (Heq & Hinsert_call & Hfresh_call).
     remember (events_of_trace ts2) as τs eqn:Heqτs.
     clear Heqτs. move Heq after Hfilter. subst ts2.
@@ -1963,7 +1867,7 @@ Section trace_linearizable_facts.
         apply list_elem_of_filter_2; assumption.
     - exact (add_lins_filter_not_lin ts2' ts1 _ His_add_filter Hfilter).
     - exact (add_lins_per_tag_lin ts2' ts1 _ His_add_filter Hfilter Hper_tag_lin).
-    - rewrite (add_lins_filter_lin ts2' ts1 _ His_add_filter Hfilter). exact Hlin_sound.
+    - rewrite (add_lins_filter_lin ts2' ts1 _ His_add_filter Hfilter). exact Hmsteps.
   Qed.
   (**************** End LLM-generated code. *****************)
 
@@ -2063,13 +1967,6 @@ Section adv_step.
     | adv_step_return τ π₁ π₂ efs v σ :
       adv_step (Config (π₁++(τ,Some (Val v))::π₂) efs σ) (Config (π₁++(τ,None)::π₂) efs σ) [(τ,Ret v)].
 
-  Inductive adv_steps : configuration → configuration → list (positive*trace) → Prop :=
-    | adv_steps_nil config : adv_steps config config []
-    | adv_steps_cons config0 config1 config2 ts1 ts2 :
-      adv_step config0 config1 ts1 →
-      adv_steps config1 config2 ts2 →
-      adv_steps config0 config2 (ts1++ts2).
-
   Definition config_no_fork (config : configuration) : Prop :=
     config.(config_childThread) = [].
 
@@ -2078,23 +1975,27 @@ Section adv_step.
     ∧ Forall (λ e, not_stuck e config.(config_state)) config.(config_childThread).
 End adv_step.
 
+Global Instance adv_step_option_relationL ops obj valid_requests :
+  OptionRelationL (adv_step ops obj valid_requests).
+Proof. intros ??? []; simpl; lia. Qed.
+
 Definition library_initializable (init : expr) (valid_obj : val → state → Prop) :=
   ∀ σ, adequate NotStuck init σ valid_obj.
 
 Definition library_linearizable `{M : model} (ops : list val) (valid_obj : val → state → Prop) :=
   ∀ obj σ config' ts, valid_obj obj σ →
-    adv_steps ops obj valid_requests (Config [] [] σ) config' ts →
+    rtcL (adv_step ops obj valid_requests) (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ trace_linearizable ts.
 
 Definition library_initializable_linearizable `{M : model} (init : expr) (ops : list val) :=
   (∀ σ, adequate NotStuck init σ (λ _ _, True)) ∧
   (∀ obj σ₀ t σ config' ts,
     rtc erased_step ([init], σ₀) (Val obj::t, σ) →
-    adv_steps ops obj valid_requests (Config [] [] σ) config' ts →
+    rtcL (adv_step ops obj valid_requests) (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ trace_linearizable ts).
 
 Definition config_safe `{M : model} (ops : list val) obj π efs σ :=
-  ∀ config' ts, adv_steps ops obj valid_requests (Config π efs σ) config' ts →
+  ∀ config' ts, rtcL (adv_step ops obj valid_requests) (Config π efs σ) config' ts →
   config_not_stuck config'.
 
 Lemma pendingOp_nodup_inj (τ : positive) (π₁ : list pendingOp) (e : option expr) π₂ π₁' (e' : option expr) π₂' :
@@ -2142,7 +2043,7 @@ Lemma config_safe_call `{M : model} ops obj π efs σ (τ : positive) (n : nat) 
   config_safe ops obj (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ.
 Proof.
   intros Hfresh Hvalid Hsafe config' ts Hadv_steps.
-  eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
+  eapply Hsafe. eapply rtcL_l; last exact Hadv_steps.
   by apply adv_step_call.
 Qed.
 
@@ -2152,7 +2053,7 @@ Lemma config_safe_intermediate `{M : model} ops obj π₁ π₂ efs e₁ e₂ σ
   config_safe ops obj (π₁++(τ,Some e₂)::π₂) (efs++ef) σ₂.
 Proof.
   intros Hprim_step Hsafe config' ts Hadv_steps.
-  eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
+  eapply Hsafe. eapply rtcL_l; last exact Hadv_steps.
   by eapply adv_step_intermediate.
 Qed.
 
@@ -2161,7 +2062,7 @@ Lemma config_safe_return `{M : model} ops obj π₁ π₂ efs σ (τ : positive)
   config_safe ops obj (π₁++(τ,None)::π₂) efs σ.
 Proof.
   intros Hsafe config' ts Hadv_steps.
-  eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
+  eapply Hsafe. eapply rtcL_l; last exact Hadv_steps.
   apply adv_step_return.
 Qed.
 
@@ -2171,7 +2072,7 @@ Lemma config_safe_not_stuck `{M : model} ops obj π₁ π₂ efs e σ (τ : posi
 Proof.
   intros Hsafe.
   destruct (Hsafe (Config (π₁++(τ,Some e)::π₂) efs σ) []) as [Hnot_stuck _].
-  - apply adv_steps_nil.
+  - apply rtcL_refl.
   - rewrite /= Forall_app Forall_cons in Hnot_stuck.
     by destruct Hnot_stuck as (_ & ? & _).
 Qed.
@@ -2182,7 +2083,7 @@ Lemma config_safe_child `{M : model} ops obj π efs1 efs2 e₁ e₂ σ₁ σ₂ 
   config_safe ops obj π (efs1++e₂::efs2++ef) σ₂.
 Proof.
   intros Hprim_step Hsafe config' ts Hadv_steps.
-  eapply Hsafe. eapply adv_steps_cons; last exact Hadv_steps.
+  eapply Hsafe. eapply rtcL_l; last exact Hadv_steps.
   by eapply adv_step_child.
 Qed.
 
@@ -2192,76 +2093,9 @@ Lemma config_safe_child_not_stuck `{M : model} ops obj π efs1 efs2 e σ :
 Proof.
   intros Hsafe.
   destruct (Hsafe (Config π (efs1++e::efs2) σ) []) as [_ Hnot_stuck].
-  - apply adv_steps_nil.
+  - apply rtcL_refl.
   - rewrite /= Forall_app Forall_cons in Hnot_stuck.
     by destruct Hnot_stuck as (_ & ? & _).
-Qed.
-
-Lemma adv_steps_app ops obj valid_requests config0 config1 config2 ts1 ts2 :
-  adv_steps ops obj valid_requests config0 config1 ts1 →
-  adv_steps ops obj valid_requests config1 config2 ts2 →
-  adv_steps ops obj valid_requests config0 config2 (ts1++ts2).
-Proof.
-  intros Hstep1.
-  induction Hstep1 => Hstep2; first rewrite left_id //.
-  rewrite -assoc.
-  eapply adv_steps_cons; eauto.
-Qed.
-
-Lemma adv_steps_cons_inj ops obj valid_requests config config' t ts :
-  adv_steps ops obj valid_requests config config' (t::ts) →
-  ∃ config_mid, adv_steps ops obj valid_requests config config_mid [t]
-    ∧ adv_steps ops obj valid_requests config_mid config' ts.
-Proof.
-  intros Hadv_steps. remember (t::ts) as ts0 eqn:Heqts0.
-  induction Hadv_steps as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]; first done.
-  destruct Hadv_step eqn:Heq.
-  - (* Call *)
-    injection Heqts0 as <- ->.
-    eexists. split; last eassumption.
-    rewrite -(right_id [] (++) [(_,Call _ _)]).
-    eapply adv_steps_cons; last apply adv_steps_nil.
-    assumption.
-  - (* Intermediate *)
-    rewrite left_id in Heqts0.
-    destruct (IH Heqts0) as (config_mid & Hadv_steps0 & Hadv_steps1).
-    exists config_mid. split; [|done].
-    rewrite -(left_id [] (++) [t]).
-    eapply adv_steps_cons; last eassumption.
-    by eapply adv_step_intermediate.
-  - (* Child *)
-    rewrite left_id in Heqts0.
-    destruct (IH Heqts0) as (config_mid & Hadv_steps0 & Hadv_steps1).
-    exists config_mid. split; [|done].
-    rewrite -(left_id [] (++) [t]).
-    eapply adv_steps_cons; last eassumption.
-    by eapply adv_step_child.
-  - (* Return *)
-    injection Heqts0 as <- ->.
-    eexists. split; last eassumption.
-    rewrite -(right_id [] (++) [(_,Ret _)]).
-    eapply adv_steps_cons; last apply adv_steps_nil.
-    assumption.
-Qed.
-
-Lemma adv_steps_app_inj ops obj valid_requests config config' ts1 ts2 :
-  adv_steps ops obj valid_requests config config' (ts1++ts2) →
-  ∃ config_mid, adv_steps ops obj valid_requests config config_mid ts1
-    ∧ adv_steps ops obj valid_requests config_mid config' ts2.
-Proof.
-  revert config config'.
-  induction ts1 as [|t1 ts1 IH] => config config'.
-  - rewrite left_id => Hadv_step.
-    exists config. split; last assumption.
-    apply adv_steps_nil.
-  - rewrite -app_comm_cons => Hadv_step.
-    apply adv_steps_cons_inj in Hadv_step.
-    destruct Hadv_step as (config1 & Hadv_step0 & Hadv_step1).
-    apply IH in Hadv_step1.
-    destruct Hadv_step1 as (config2 & Hadv_step1 & Hadv_step2).
-    exists config2. split; last assumption.
-    change (t1::ts1) with ([t1]++ts1).
-    by eapply adv_steps_app.
 Qed.
 
 Lemma adv_step_heap_subdom ops obj valid_requests config config' ts :
@@ -2273,7 +2107,7 @@ Proof.
 Qed.
 
 Lemma adv_steps_heap_subdom ops obj valid_requests config config' ts :
-  adv_steps ops obj valid_requests config config' ts →
+  rtcL (adv_step ops obj valid_requests) config config' ts →
   dom (config.(config_state).(heap)) ⊆ dom (config'.(config_state).(heap)).
 Proof.
   intros Hadv_steps. induction Hadv_steps; first done.
@@ -2290,7 +2124,7 @@ Proof.
 Qed.
 
 Lemma adv_steps_proph_subset ops obj valid_requests config config' ts :
-  adv_steps ops obj valid_requests config config' ts →
+  rtcL (adv_step ops obj valid_requests) config config' ts →
   (config.(config_state).(used_proph_id)) ⊆ (config'.(config_state).(used_proph_id)).
 Proof.
   intros Hadv_steps. induction Hadv_steps; first done.
@@ -2304,7 +2138,7 @@ Lemma adv_step_trace_valid_req ops obj valid_requests config config' ts :
 Proof. intros []; rewrite ?Forall_singleton ?Forall_nil; done. Qed.
 
 Lemma adv_steps_trace_valid_req ops obj valid_requests config config' ts :
-  adv_steps ops obj valid_requests config config' ts →
+  rtcL (adv_step ops obj valid_requests) config config' ts →
   Forall (λ x, if x.2 is Call n req then default default_vr (valid_requests!!n) req else True) ts.
 Proof.
   induction 1; first by rewrite Forall_nil.

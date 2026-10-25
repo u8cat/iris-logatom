@@ -420,11 +420,11 @@ Proof.
       assert (H : (τ, Lin Push v v') ∈ filter (λ t, t.1 = τ) ts')
         by (rewrite Hfilt_eq; set_solver).
       by apply list_elem_of_filter in H as [_ ?]. }
-    (* Extract request_response from linearized_sound *)
+    (* Extract request_response from [rtcL model_step] *)
     destruct (list_elem_of_split _ _ Hlin_in) as (l1 & l2 & Heq_lin).
     rewrite Heq_lin in Hls.
-    apply linearized_sound_app_inv in Hls as (s_mid & _ & Hls_tail).
-    apply linearized_sound_cons_inv in Hls_tail as (s_next & _ & Hrr & _).
+    apply rtcL_app_inv in Hls as (s_mid & _ & Hls_tail).
+    apply rtcL_cons_inv in Hls_tail as (s_next & [_ Hrr]%model_step_inv & _).
     simpl in Hrr. destruct Hrr as [-> ->].
     left. exists v. split; first exact Hcv. reflexivity.
   + (* n = Pop. *)
@@ -460,8 +460,8 @@ Proof.
       by apply list_elem_of_filter in H as [_ ?]. }
     destruct (list_elem_of_split _ _ Hlin_in) as (l1 & l2 & Heq_lin).
     rewrite Heq_lin in Hls.
-    apply linearized_sound_app_inv in Hls as (s_mid & _ & Hls_tail).
-    apply linearized_sound_cons_inv in Hls_tail as (s_next & _ & Hrr & _).
+    apply rtcL_app_inv in Hls as (s_mid & _ & Hls_tail).
+    apply rtcL_cons_inv in Hls_tail as (s_next & [_ Hrr]%model_step_inv & _).
     simpl in Hrr.
     destruct Hrr as [Hempty | (w & _ & _ & ->)].
     * destruct rme; [|done]. destruct Hempty as (_ & _ & ->).

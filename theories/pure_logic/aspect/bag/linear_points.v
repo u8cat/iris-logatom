@@ -1164,7 +1164,7 @@ Section proof.
       let ts'_head_lin := (filter (is_lin ∘ snd) ts'_head) in
       take n ts = filter (not ∘ is_lin ∘ snd) ts'_head
     ∧ per_tag_linearized ts'_head
-    ∧ linearized_sound (M:=bag_model rme valid_value) ts'_head_lin s_init s
+    ∧ rtcL (model_step (M:=bag_model rme valid_value)) s_init s ts'_head_lin
       (* conclusion *)
     ∧ (∀ τ1 τ2, (τ1,τ2) ∈ m → τ2 ∈ ts'_head_lin.*1 → [τ1;τ2] `sublist_of` ts'_head_lin.*1)
       (* state *)
@@ -1202,7 +1202,7 @@ Section proof.
       split_and!.
       - done.
       - apply per_tag_linearized_nil.
-      - apply linearized_sound_nil.
+      - apply rtcL_refl.
       - intros ??? Hfalse. exfalso. set_solver.
       - rewrite /state_of_trace !filter_nil.
         rewrite filter_False_nil; last first.
@@ -1224,7 +1224,7 @@ Section proof.
         intros ??? HFalse. exfalso. set_solver.
       - intros ???? ? HFalse. exfalso. set_solver. }
     destruct IH as (ts'_head & s &
-      Hfilter & Hper_tag_lin & Hlin_sound
+      Hfilter & Hper_tag_lin & Hmsteps
       & Hval_then_not_pr & Hstate_of_trace & Hempty_aeap & Hpush_alap & Hpop_aeap & Hpop_lin_consistent).
     destruct (decide (n < length ts)) as [Hn_lt | Hn_ge]; last first.
     { (* Another trivial case: the whole trace has been processed *)
@@ -1429,23 +1429,23 @@ Section proof.
               do 3 rewrite filter_cons_False //.
               rewrite filter_nil right_id.
               assumption.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply linearized_sound_cons;
+            eapply rtcL_trans; first eassumption.
+            eapply rtcL_cons; [constructor|];
               first by (eapply per_tag_wellformed_bag_valid_push_value; eauto).
             { split; reflexivity. }
-            eapply (linearized_sound_cons _ s); first by reflexivity.
+            eapply (rtcL_cons _ s); [constructor|]; first by reflexivity.
             { right. eexists v_push.
               split_and!.
               - set_solver.
               - clear. multiset_solver.
               - reflexivity. }
-            apply linearized_sound_nil.
+            apply rtcL_refl.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
             (*************** Begin LLM-generated code. ****************)
@@ -1677,7 +1677,7 @@ Section proof.
             ++exists nv₀, v₀, v₀'.
               rewrite filter_cons_False; last by simpl; auto.
               rewrite filter_nil right_id. assumption.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_nil right_id.
@@ -1905,15 +1905,15 @@ Section proof.
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_cons_False; [|simpl; auto].
               rewrite filter_nil right_id. assumption.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ s); first by reflexivity.
+            eapply rtcL_trans; first eassumption.
+            eapply (rtcL_cons _ s); [constructor|]; first by reflexivity.
             { left. destruct rme; [split_and!; done|exfalso; by apply Hr_ne]. }
-            apply linearized_sound_nil.
+            apply rtcL_refl.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
             rewrite /ts'_head_lin filter_app in Hτ2_bounded₀ |- *.
@@ -2110,7 +2110,7 @@ Section proof.
             rewrite filter_cons_True // filter_nil.
             rewrite (call_at_n_no_events n τ _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_nil right_id.
@@ -2526,14 +2526,14 @@ Section proof.
             ++exists nv₀, v₀, v₀'.
               do 3 rewrite filter_cons_False //.
               rewrite filter_nil right_id. assumption.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply linearized_sound_cons.
+            eapply rtcL_trans; first eassumption.
+            eapply rtcL_cons; [constructor|].
             { (* valid_request (encode_response (NonEmpty v_pop)) — derive
                  valid_value v_pop from Hwf and the matching Push call. *)
               destruct (Hcomplete τ2) as (nv & v & v' & [HFalse|Hfilter_eq]).
@@ -2563,13 +2563,13 @@ Section proof.
                 apply list_elem_of_singleton.
                 reflexivity. }
             { split; reflexivity. }
-            eapply (linearized_sound_cons _ s); first by reflexivity.
+            eapply (rtcL_cons _ s); [constructor|]; first by reflexivity.
             { right. eexists v_pop.
               split_and!.
               - set_solver.
               - clear. multiset_solver.
               - reflexivity. }
-            apply linearized_sound_nil.
+            apply rtcL_refl.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
             rewrite /ts'_head_lin filter_app in Hτ2_bounded₀ |- *.
@@ -2839,7 +2839,7 @@ Section proof.
             rewrite filter_cons_True // filter_nil.
             rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_nil right_id.
@@ -3302,13 +3302,13 @@ Section proof.
             { rewrite filter_False_nil; [done|]. rewrite Forall_fmap. apply Forall_forall.
               intros τ_p Hin_p. simpl. intros <-. exact (Hnotin_ppe Hin_p). }
             rewrite Hfilt_fmap_none right_id. assumption.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ ∅); first by reflexivity.
+            eapply rtcL_trans; first eassumption.
+            eapply (rtcL_cons _ ∅); [constructor|]; first by reflexivity.
             { right. eexists v_pop.
               split_and!; [exact Hvpop_in_s|rewrite Hemp_after_pop; done|done]. }
             (* Now linearize all pending pop(∅)s from state ∅ *)
@@ -3344,9 +3344,9 @@ Section proof.
             generalize pending_pop_emptys.
             clear -rme. intros l Hl.
             induction l as [|τ_pe_hd rest IH].
-            { rewrite fmap_nil. apply linearized_sound_nil. }
+            { rewrite fmap_nil. apply rtcL_refl. }
             rewrite fmap_cons.
-            eapply linearized_sound_cons.
+            eapply rtcL_cons; [constructor|].
             ++ reflexivity.
             ++ left. destruct rme; first done.
                exfalso.
@@ -3579,16 +3579,16 @@ Section proof.
             do 2 rewrite filter_cons_True //. rewrite filter_nil.
             rewrite (call_at_n_no_events n τ2 _ _ ts'_head Hwf Hlookup Hfilter Hper_tag_lin) left_id.
             eexists. reflexivity.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply (linearized_sound_cons _ (s∖{[+ v_pop +]})); first by reflexivity.
+            eapply rtcL_trans; first eassumption.
+            eapply (rtcL_cons _ (s∖{[+ v_pop +]})); [constructor|]; first by reflexivity.
             { right. eexists v_pop.
               split_and!; [exact Hvpop_in_s|reflexivity..]. }
-            apply linearized_sound_nil.
+            apply rtcL_refl.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
             rewrite /ts'_head_lin filter_app in Hτ2_bounded₀ |- *.
@@ -3964,16 +3964,16 @@ Section proof.
                 apply (list_elem_of_filter_2 (λ x, x.1 = τ2)) in Hin'; last done.
                 rewrite Hτ2_no_ev in Hin'. clear -Hin'. set_solver. }
             eexists. reflexivity.
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_True; last by simpl; auto.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_nil.
-            eapply linearized_sound_app; first eassumption.
-            eapply linearized_sound_cons.
+            eapply rtcL_trans; first eassumption.
+            eapply rtcL_cons; [constructor|].
             { assumption. }
             { split; reflexivity. }
-            apply linearized_sound_nil.
+            apply rtcL_refl.
           --(* Hval_then_not_pr *)
             intros τ1₀ τ2₀ Hin_m₀ Hτ2_bounded₀.
             rewrite /ts'_head_lin filter_app in Hτ2_bounded₀ |- *.
@@ -4232,9 +4232,9 @@ Section proof.
               { apply list_elem_of_filter_2; first by simpl.
                 apply (list_elem_of_filter_1 (λ x, x.1=τ1)).
                 rewrite Hfilt1. clear. set_solver. }
-              rewrite Heq_τ1_lin in Hlin_sound.
-              apply linearized_sound_app_inv in Hlin_sound as (? & _ & Hlin_sound).
-              apply linearized_sound_cons_inv in Hlin_sound as (? & ? & Hrr & _).
+              rewrite Heq_τ1_lin in Hmsteps.
+              apply rtcL_app_inv in Hmsteps as (? & _ & Hmsteps).
+              apply rtcL_cons_inv in Hmsteps as (? & [? Hrr]%model_step_inv & _).
               destruct Hrr as [_ ?].
               assumption. }
             { (* 3+ elements: Ret ∈ ts'_head but only 1 Ret for τ1, at position n ∉ take n ts. *)
@@ -4265,7 +4265,7 @@ Section proof.
               destruct (filter (is_ret ∘ snd) (filter (λ x, x.1 = τ1) (take n ts))).
               - clear -Hrt_f. set_solver.
               - simpl. lia. }
-          --(* Hlin_sound *)
+          --(* Hmsteps *)
             rewrite /ts'_head_lin filter_app.
             rewrite filter_cons_False; last by simpl; auto.
             rewrite filter_nil right_id.
@@ -4568,7 +4568,7 @@ Section proof.
           -- exists nv₀, v₀, v₀'.
              rewrite filter_cons_False; last by simpl; auto.
              rewrite filter_nil right_id. assumption.
-        * (* Hlin_sound *)
+        * (* Hmsteps *)
           rewrite /ts'_head_lin filter_app.
           rewrite filter_cons_False; last by simpl; auto.
           rewrite filter_nil right_id.
@@ -4876,7 +4876,7 @@ Section proof.
           -- exists nv₀, v₀, v₀'.
              rewrite filter_cons_False; last by simpl; auto.
              rewrite filter_nil right_id. assumption.
-        * (* Hlin_sound *)
+        * (* Hmsteps *)
           rewrite /ts'_head_lin filter_app.
           rewrite filter_cons_False; last by simpl; auto.
           rewrite filter_nil right_id.
@@ -5020,12 +5020,12 @@ Section proof.
     ∃ ts',
       ts = filter (not ∘ is_lin ∘ snd) ts'
     ∧ per_tag_linearized ts'
-    ∧ (∃ s', linearized_sound (M:=bag_model rme valid_value) (filter (is_lin ∘ snd) ts') s_init s')
+    ∧ (∃ s', rtcL (model_step (M:=bag_model rme valid_value)) s_init s' (filter (is_lin ∘ snd) ts'))
     ∧ (∀ τ1 τ2, (τ1,τ2) ∈ m → [τ1;τ2] `sublist_of` (filter (is_lin ∘ snd) ts').*1).
   Proof.
     intros Hwf Hempty_sound.
     destruct (trace_linearizable_bag_destruct_ind (length ts) Hwf Hempty_sound)
-      as (ts' & s' & Hfilter & Hper_tag_lin & Hlin_sound & Hval_then_not_pr & _).
+      as (ts' & s' & Hfilter & Hper_tag_lin & Hmsteps & Hval_then_not_pr & _).
     rewrite !take_ge // in Hfilter, Hval_then_not_pr.
     exists ts'.
     split_and!; try assumption.

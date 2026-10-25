@@ -21,3 +21,20 @@ Lemma nsteps_ind_r `{R : relation A} (P : nat → A → Prop) (x : A)
 Proof.
   intros n z p. revert n x z p Prefl Pstep. refine (nsteps_ind_r_weak _ _ _); eauto.
 Qed.
+
+(** A path [l] (as in [nsteps_list]) has an [nsteps] between any two of its positions. *)
+(* This lemma was discovered by Claude Opus 5.5. *)
+Lemma nsteps_list_lookup `{R : relation A} (l : list A) i j x y :
+  (∀ k a b, l !! k = Some a → l !! S k = Some b → R a b) →
+  i ≤ j → l !! i = Some x → l !! j = Some y →
+  nsteps R (j - i) x y.
+Proof.
+  intros HR Hij Hi Hj.
+  remember (j - i) as d eqn:Hd. revert i x Hij Hi Hd.
+  induction d as [|d IH]; intros i x Hij Hi Hd.
+  - assert (i = j) as -> by lia. rewrite Hj in Hi. injection Hi as ->. apply nsteps_O.
+  - destruct (lookup_lt_is_Some_2 l (S i)) as [z Hz].
+    { apply lookup_lt_Some in Hj. lia. }
+    apply (nsteps_l _ _ _ z); first by eapply HR.
+    apply (IH (S i)); [lia|done|lia].
+Qed.

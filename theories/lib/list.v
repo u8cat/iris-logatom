@@ -48,6 +48,9 @@ Context {A : Type}.
 Implicit Types x y z : A.
 Implicit Types l k : list A.
 
+Lemma singleton_length_inv l : length l = 1 → ∃ x, l = [x].
+Proof. destruct l as [|x [|??]]; naive_solver. Qed.
+
 Lemma filter_False_nil (P : A → Prop) `{∀ x, Decision (P x)} l :
   Forall (λ x, ¬ P x) l → filter P l = [].
 Proof.

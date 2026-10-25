@@ -29,7 +29,7 @@ Section proof.
                     <$> M' : @meta_config hwq_model).
     exists M'_new, s, (<[τ:=(Pop, #(), None)]> π).
     split.
-    - eapply mcfg_steps_snoc; first exact Hsteps.
+    - eapply rtcL_r; first exact Hsteps.
       apply (mcfg_step_call M' τ Pop #()).
       + intros [s' π'] Hin_pre. simpl.
         pose proof (mcfg_steps_dom_in_trace _ _ _ _ Hsteps Hin_pre) as Hdom_sub.
@@ -46,7 +46,7 @@ Section proof.
     I_lang_hwq ts →
     filter (λ t, t.1 = τ) ts = [(τ, Call Pop #())] →
     (∃ (M_full : @meta_config hwq_model) s π,
-        mcfg_steps mcfg_init M_full ts ∧ (s, π) ∈ M_full ∧
+        rtcL mcfg_step mcfg_init M_full ts ∧ (s, π) ∈ M_full ∧
         π !! τ = Some (Pop, #(),
                        Some (encode_response (NonEmpty v)))) →
     I_lang_hwq (ts ++ [(τ, Ret (encode_response (NonEmpty v)))]).
@@ -58,7 +58,7 @@ Section proof.
                        Some (Some (encode_response (NonEmpty v))) ]})
         : @meta_config hwq_model).
       exists M_full_new, s, π. split.
-      + eapply mcfg_steps_snoc; first exact Hsteps.
+      + eapply rtcL_r; first exact Hsteps.
         apply (mcfg_step_ret M_full τ (encode_response (NonEmpty v))).
       + apply elem_of_intersection. split; first exact Hin.
         apply elem_of_PropSet. rewrite Hπτ /=. reflexivity.
@@ -151,8 +151,8 @@ Section proof.
          <$> (set_to_propset M_g : @meta_config hwq_model))
       : @meta_config hwq_model).
     assert (Hmcfg_steps_new :
-      mcfg_steps (set_to_propset M_g) M_full_new [(τ, Call Pop #())]).
-    { apply mcfg_steps_singleton.
+      rtcL mcfg_step (set_to_propset M_g) M_full_new [(τ, Call Pop #())]).
+    { apply rtcL_once.
       apply (mcfg_step_call (set_to_propset M_g) τ Pop #()).
       - exact Hfresh_M_full.
       - reflexivity. }
@@ -261,7 +261,7 @@ Section proof.
       - exact Hbpos.
       - (* mcfg_steps: combine prior steps with helper's Call+LP chain. *)
         rewrite -HM_full_new_eq.
-        eapply mcfg_steps_app; first exact Hmcfg_steps.
+        eapply rtcL_trans; first exact Hmcfg_steps.
         exact Hmcfg_steps_new.
       - intros Hempty. apply Hne.
         apply set_choose_L in Hne as [x Hx_in].
@@ -970,7 +970,7 @@ Section proof.
         - (* mcfg_steps: chain mcfg_step_interm for each (v_right :: s_t, π) ∈ M_g4
              with π[τ] = Pending Pop. The helper lemma constructs the chain. *)
           replace ts4 with (ts4 ++ []) by by rewrite app_nil_r.
-          eapply mcfg_steps_app; first exact Hmcfg_steps4.
+          eapply rtcL_trans; first exact Hmcfg_steps4.
           destruct (mcfg_steps_chain_lp_pop_at_head
                       (set_to_propset M_g4) M_g4 τ v_right (reflexivity _))
             as (M_full' & Hsteps_chain & Hsubset_chain & Hwit_chain & Hupper_chain).
@@ -1642,9 +1642,9 @@ Section proof.
         iPureIntro. split_and!; try assumption.
         - (* mcfg_steps: chain LP pushes, then mcfg_step_ret. *)
           rewrite -HM_full5_new_eq.
-          eapply mcfg_steps_snoc.
+          eapply rtcL_r.
           + replace ts5 with (ts5 ++ []) by by rewrite app_nil_r.
-            eapply mcfg_steps_app; first exact Hmcfg_steps5.
+            eapply rtcL_trans; first exact Hmcfg_steps5.
             exact Hchain_steps.
           + apply (mcfg_step_ret M_full5_chained τ (encode_response (NonEmpty v_right))).
         - (* non-empty: M_g5_new contains the witness from OpDeqLinearized. *)

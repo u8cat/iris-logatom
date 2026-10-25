@@ -106,18 +106,18 @@ Section logatom.
   Context (init : expr) (ops : list val) (valid_obj : val → state → Prop).
 
   Definition is_valid_trace obj config (ts : list (positive*trace)) :=
-    ∃ config', adv_steps ops obj valid_requests config config' ts.
+    ∃ config', rtcL (adv_step ops obj valid_requests) config config' ts.
 
   Lemma is_valid_trace_nil obj config :
     is_valid_trace obj config [].
-  Proof. exists config. apply adv_steps_nil. Qed.
+  Proof. exists config. apply rtcL_refl. Qed.
 
   Lemma is_valid_trace_snoc obj config ts t :
     is_valid_trace obj config (ts++[t]) →
     is_valid_trace obj config ts.
   Proof.
     intros [config' Hadv_steps].
-    apply adv_steps_app_inj in Hadv_steps.
+    apply rtcL_app_inv in Hadv_steps.
     destruct Hadv_steps as (config_mid & Hadv_steps' & _).
     by exists config_mid.
   Qed.
@@ -142,7 +142,7 @@ Section logatom.
     intros Hfresh Hvalid_req [config' Hadv_steps].
     exists config'.
     change ((τ,Call n v) :: ts) with ([(τ,Call n v)] ++ ts).
-    eapply adv_steps_cons; last eassumption.
+    eapply rtcL_l; last eassumption.
     by apply adv_step_call.
   Qed.
 
@@ -154,7 +154,7 @@ Section logatom.
     intros Hprim_step [config' Hadv_steps].
     eexists config'.
     change ts with ([] ++ ts).
-    eapply adv_steps_cons; last eassumption.
+    eapply rtcL_l; last eassumption.
     by eapply adv_step_intermediate.
   Qed.
 
@@ -166,7 +166,7 @@ Section logatom.
     intros Hprim_step [config' Hadv_steps].
     eexists config'.
     change ts with ([] ++ ts).
-    eapply adv_steps_cons; last eassumption.
+    eapply rtcL_l; last eassumption.
     by eapply adv_step_child.
   Qed.
 
@@ -177,7 +177,7 @@ Section logatom.
     intros [config' Hadv_steps].
     exists config'.
     change ((τ,Ret v) :: ts) with ([(τ,Ret v)] ++ ts).
-    eapply adv_steps_cons; last eassumption.
+    eapply rtcL_l; last eassumption.
     by apply adv_step_return.
   Qed.
 
@@ -187,18 +187,18 @@ Section logatom.
     is_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) ts.
   Proof.
     (* The idea is doing an exchange argument:
-      If "adv_steps (Config π efs σ) config' (Call τ v::ts)", then there must exist
+      If "rtcL adv_step (Config π efs σ) config' (Call τ v::ts)", then there must exist
         an intermediate configuration (Config π' efs' σ') such that
-        step0:     "adv_steps (Config π efs σ) (Config π' efs' σ') []" and
+        step0:     "rtcL adv_step (Config π efs σ) (Config π' efs' σ') []" and
         step_call: "adv_step  (Config π' efs' σ') (Config ((τ,op obj v)::π') efs' σ') [Call τ v]"
-        step1:     "adv_steps (Config ((τ,op obj v)::π') efs' σ') config' ts)".
+        step1:     "rtcL adv_step (Config ((τ,op obj v)::π') efs' σ') config' ts)".
 
       Now if we instead process step_call first, then step0++step1 will be the proof goal. *)
 
     intros (*Hfresh*) Hvalid_req [config' Hadv_steps].
     exists config'.
-    assert (∃ π' efs' σ', adv_steps ops obj valid_requests (Config π efs σ) (Config π' efs' σ') []
-      ∧ adv_steps ops obj valid_requests (Config (π'++[(τ,Some ((ops!!!n:val) obj v))]) efs' σ') config' ts)
+    assert (∃ π' efs' σ', rtcL (adv_step ops obj valid_requests) (Config π efs σ) (Config π' efs' σ') []
+      ∧ rtcL (adv_step ops obj valid_requests) (Config (π'++[(τ,Some ((ops!!!n:val) obj v))]) efs' σ') config' ts)
       as (π' & efs' & σ' & Hadv_steps0 & (*Hπ &*) Hadv_steps1).
     { remember (Config π efs σ) as config0 eqn:Heq.
       clear Heq.
@@ -208,25 +208,25 @@ Section logatom.
       - (* Call *)
         simpl in Heqts0. injection Heqts0 as -> -> -> ->.
         eexists _, _, _. split; [|done].
-        apply adv_steps_nil.
+        apply rtcL_refl.
       - (* Intermediate *)
         rewrite left_id in Heqts0.
         destruct (IH Heqts0) as (π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
         exists π'0, efs'0, σ'0. split; [|done].
         rewrite -(right_id [] (++) []).
-        eapply adv_steps_cons; last eassumption.
+        eapply rtcL_l; last eassumption.
         by eapply adv_step_intermediate.
       - (* Child *)
         rewrite left_id in Heqts0.
         destruct (IH Heqts0) as (π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
         exists π'0, efs'0, σ'0. split; [|done].
         rewrite -(right_id [] (++) []).
-        eapply adv_steps_cons; last eassumption.
+        eapply rtcL_l; last eassumption.
         by eapply adv_step_child.
       - (* Return *)
         injection Heqts0 as _ HFalse. discriminate HFalse. }
 
-    assert (Hadv_steps0' : adv_steps ops obj valid_requests (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ)
+    assert (Hadv_steps0' : rtcL (adv_step ops obj valid_requests) (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ)
       (Config (π'++[(τ,Some ((ops!!!n: val) obj v))]) efs' σ') []).
     { clear -Hadv_steps0.
       remember (Config π efs σ) as config eqn:Heq.
@@ -240,18 +240,18 @@ Section logatom.
       clear Heq π efs σ Heq' π' efs' σ'.
       assert (∃ ts, ts = (@nil (positive*trace))) as [ts Heqts] by by eexists.
       rewrite -Heqts in Hadv_steps0.
-      induction Hadv_steps0 as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps]; first apply adv_steps_nil.
+      induction Hadv_steps0 as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps]; first apply rtcL_refl.
       destruct ts1; last rewrite -app_comm_cons // in Heqts.
       destruct ts2; last discriminate Heqts.
-      rewrite -[x in adv_steps ops obj valid_requests _ _ x](right_id [] (++) []).
-      eapply adv_steps_cons; last eauto.
+      rewrite -[x in rtcL (adv_step ops obj valid_requests) _ _ x](right_id [] (++) []).
+      eapply rtcL_l; last eauto.
       clear -Hadv_step.
       inversion Hadv_step; subst; simpl.
       - do 2 rewrite -assoc -app_comm_cons.
         by eapply adv_step_intermediate.
       - by eapply adv_step_child. }
     change ts with ([]++ts).
-    eapply adv_steps_app; eassumption.
+    eapply rtcL_trans; eassumption.
   Qed.
 
   Lemma is_valid_trace_return_inv obj π₁ π₂ efs σ (τ : positive) (v : val) (ts : list (positive*trace)) :
@@ -261,8 +261,8 @@ Section logatom.
   Proof.
     intros Hnodup [config' Hadv_steps].
     exists config'.
-    assert (∃ π₁' π₂' efs' σ', adv_steps ops obj valid_requests (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Config (π₁'++(τ, Some (Val v))::π₂') efs' σ') []
-      ∧ adv_steps ops obj valid_requests (Config (π₁'++(τ, None)::π₂') efs' σ') config' ts)
+    assert (∃ π₁' π₂' efs' σ', rtcL (adv_step ops obj valid_requests) (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Config (π₁'++(τ, Some (Val v))::π₂') efs' σ') []
+      ∧ rtcL (adv_step ops obj valid_requests) (Config (π₁'++(τ, None)::π₂') efs' σ') config' ts)
       as (π₁' & π₂' & efs' & σ' & Hadv_steps0 & Hadv_steps1).
     { remember (Config (π₁++(τ, Some (Val v))::π₂) efs σ) as config0 eqn:Heq.
       clear Heq.
@@ -276,21 +276,21 @@ Section logatom.
         destruct (IH Heqts0) as (π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
         exists π₁'0, π₂'0, efs'0, σ'0. split; last done.
         rewrite -(right_id [] (++) []).
-        eapply adv_steps_cons; last eassumption.
+        eapply rtcL_l; last eassumption.
         by eapply adv_step_intermediate.
       - (* Child *)
         rewrite left_id in Heqts0.
         destruct (IH Heqts0) as (π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
         exists π₁'0, π₂'0, efs'0, σ'0. split; last done.
         rewrite -(right_id [] (++) []).
-        eapply adv_steps_cons; last eassumption.
+        eapply rtcL_l; last eassumption.
         by eapply adv_step_child.
       - (* Return *)
         simpl in Heqts0. injection Heqts0 as -> -> ->.
         eexists _, _, _, _. split; last done.
-        apply adv_steps_nil. }
+        apply rtcL_refl. }
 
-    assert (Hadv_steps0' : adv_steps ops obj valid_requests (Config (π₁++(τ,None)::π₂) efs σ)
+    assert (Hadv_steps0' : rtcL (adv_step ops obj valid_requests) (Config (π₁++(τ,None)::π₂) efs σ)
       (Config (π₁'++(τ,None)::π₂') efs' σ') []).
     { clear -Hnodup Hadv_steps0.
       remember (Config (π₁++(τ,Some (Val v))::π₂) efs σ) as config eqn:Heq.
@@ -301,7 +301,7 @@ Section logatom.
       induction Hadv_steps0 as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]
         => π₁ π₂ efs σ π₁' π₂' efs' σ' Hnodup Heqconfig Heqconfig'; simplify_eq.
       - apply pendingOp_nodup_inj in Heqconfig' as (<- & _ & <-); [|done].
-        apply adv_steps_nil.
+        apply rtcL_refl.
       - destruct ts1; last rewrite -app_comm_cons // in Heqts.
         destruct ts2; last discriminate Heqts.
         rewrite -(right_id [] (++) []).
@@ -348,7 +348,7 @@ Section logatom.
               rewrite length_app /=.
               assumption.
           - do 4 eexists; eauto. }
-        eapply adv_steps_cons; last first.
+        eapply rtcL_l; last first.
         { eapply IH; [reflexivity|exact Hnodup_mid|done|done]. }
         clear -Hadv_step Hnodup Hnodup_mid.
         inversion Hadv_step; simplify_eq.
@@ -479,7 +479,7 @@ Section logatom.
           apply pendingOp_nodup_inj in Heq as (<- & _ & <-); [|done].
           by eapply adv_step_child. }
     change ts with ([]++ts).
-    eapply adv_steps_app; eassumption.
+    eapply rtcL_trans; eassumption.
   Qed.
 
   Fixpoint trunk_trace (ts_full ts_physical': list (positive*trace)) : list (positive*trace) :=
@@ -824,7 +824,7 @@ Section logatom.
     (* The trace of each operation is valid *)
     ∗ ⌜per_tag_partial_linearized pts⌝
     (* Future operations are linearizable *)
-    ∗ ⌜∃ s', linearized_sound (filter (is_lin ∘ snd) pts) s s'⌝
+    ∗ ⌜∃ s', rtcL model_step s s' (filter (is_lin ∘ snd) pts)⌝
     (* Configuration is not stuck (child threads may exist) *)
     ∗ ⌜config_safe ops obj π children σ⌝.
 
@@ -880,7 +880,7 @@ Section logatom.
     iApply wp_inv_open_maybe.
     iInv "His_P" as "Hinv" "Hclose".
     iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-      "(Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+      "(Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
     iDestruct "Htok" as (γπ γϕ γs γe) "[#Hγ Hfrag]".
     iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
     inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
@@ -956,7 +956,7 @@ Section logatom.
             apply prefix_cons_inv_1 in Hpts'_prefix_pts as ->. done. }
         iSplit. { iPureIntro. etrans; last exact Hpending. by apply trace_pendingOp_prefix. }
         iSplit. { iPureIntro. eauto using per_tag_partial_linearized_prefix. }
-        iSplit. { iPureIntro. eauto using linearized_sound_prefix, prefix_filter. }
+        iSplit. { iPureIntro. eauto using model_steps_prefix, prefix_filter. }
         iPureIntro. exact Hconfig_safe'. }
 
       iModIntro.
@@ -973,7 +973,7 @@ Section logatom.
       iNext. iIntros (e2 efs) "H".
       iInv "His_P" as "Hinv" "Hclose".
       iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-        "(>Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+        "(>Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iDestruct (ghost_map_lookup with "Hchildren● Hfrag") as %Hi_lookup.
@@ -1024,7 +1024,7 @@ Section logatom.
             apply prefix_cons_inv_1 in Hpts'_prefix_pts as ->. done. }
         iSplit. { iPureIntro. etrans; last exact Hpending. by apply trace_pendingOp_prefix. }
         iSplit. { iPureIntro. eauto using per_tag_partial_linearized_prefix. }
-        iSplit. { iPureIntro. eauto using linearized_sound_prefix, prefix_filter. }
+        iSplit. { iPureIntro. eauto using model_steps_prefix, prefix_filter. }
         iPureIntro. exact Hconfig_safe'. }
 
       iModIntro. iSplitL "Hfrag".
@@ -1038,7 +1038,7 @@ Section logatom.
   Lemma linearize_helping {pts_lin pts' : list (positive*trace)} {γ s} {Φs : gmap positive (val → iProp Σ)} {γπ γϕ γs γe : gname} :
     Forall (is_lin ∘ snd) pts_lin →
     per_tag_partial_linearized (pts_lin ++ pts') →
-    (∃ s', linearized_sound (filter (is_lin ∘ snd) (pts_lin ++ pts')) s s') →
+    (∃ s', rtcL model_step s s' (filter (is_lin ∘ snd) (pts_lin ++ pts'))) →
     Forall (λ t, t.1 ∈ dom Φs) pts_lin →
     own γ (to_agree (γπ, γϕ, γs, γe)) -∗ own γs (●E s) -∗
     ([∗ map] τ0↦Φ0 ∈ Φs, match filter (λ t, t.1 = τ0) (pts_lin ++ pts') with
@@ -1047,7 +1047,7 @@ Section logatom.
       | (_, Lin n v _) :: _ => op_au γ n v Φ0
       | (_, Ret v) :: _ => Φ0 v
       end) -∗
-    ∃ s_end, |={⊤ ∖ ↑Nlogatom}=> ∃ s', ⌜linearized_sound (filter (is_lin ∘ snd) pts') s' s_end⌝ ∗ own γs (●E s') ∗
+    ∃ s_end, |={⊤ ∖ ↑Nlogatom}=> ∃ s', ⌜rtcL model_step s' s_end (filter (is_lin ∘ snd) pts')⌝ ∗ own γs (●E s') ∗
         ([∗ map] τ ↦ Φ ∈ Φs, match filter (λ t, t.1 = τ) pts' with
         | [] => True
         | (_, Call _ _) :: _ => False
@@ -1055,10 +1055,10 @@ Section logatom.
         | (_, Ret v) :: _ => Φ v
         end).
   Proof.
-    iIntros (Hpts_lin Hper_tag_lin'' Hlin_sound'' Hpts_lin_in_dom) "#Hγ Hs● Hreceipts".
-    destruct Hlin_sound'' as [s' Hlin_sound]. iExists s'.
+    iIntros (Hpts_lin Hper_tag_lin'' Hmsteps'' Hpts_lin_in_dom) "#Hγ Hs● Hreceipts".
+    destruct Hmsteps'' as [s' Hmsteps]. iExists s'.
     rename Hper_tag_lin'' into Hper_tag_lin.
-    iInduction pts_lin as [|pt_lin pts_lin] "IH" forall (s Hlin_sound Φs Hpts_lin_in_dom).
+    iInduction pts_lin as [|pt_lin pts_lin] "IH" forall (s Hmsteps Φs Hpts_lin_in_dom).
     { simpl. iModIntro. by iFrame. }
     (* extract the head of pts_lin *)
     rewrite Forall_cons in Hpts_lin. destruct Hpts_lin as [Hpt_lin Hpts_lin].
@@ -1071,9 +1071,9 @@ Section logatom.
     iEval (rewrite filter_cons_True) in "Hreceipt".
 
     (* linearize the head of pts_lin *)
-    rewrite -app_comm_cons filter_cons_True // in Hlin_sound.
-    apply linearized_sound_cons_inv in Hlin_sound.
-    destruct Hlin_sound as (s_mid & _ & Hrf & Hlin_sound).
+    rewrite -app_comm_cons filter_cons_True // in Hmsteps.
+    apply rtcL_cons_inv in Hmsteps.
+    destruct Hmsteps as (s_mid & [_ Hrf]%model_step_inv & Hmsteps).
     rewrite -app_comm_cons in Hper_tag_lin.
     assert (Hτ_pt_lin_unique: Forall (λ t, t.1 ≠ τ_pt_lin) pts_lin).
     { clear - Hpts_lin Hper_tag_lin. apply dec_stable. intros HFalse.
@@ -1122,7 +1122,7 @@ Section logatom.
       destruct Hτ_pt_lin_unique as [? ?].
       split; last auto.
       rewrite dom_delete_L. set_solver. }
-    iMod ("IH" with "Hs● [Hreceipts]") as (s_end) "(Hlin_sound' & Hs● & Hreceipts)".
+    iMod ("IH" with "Hs● [Hreceipts]") as (s_end) "(Hmsteps' & Hs● & Hreceipts)".
     { iApply (big_sepM_mono with "Hreceipts").
       iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
       iEval (rewrite -app_comm_cons) in "Hreceipt".
@@ -1130,7 +1130,7 @@ Section logatom.
       - iExact "Hreceipt".
       - simpl. intros ->. rewrite lookup_delete_eq // in Hlookup0. }
 
-    iModIntro. iFrame "Hlin_sound' Hs●".
+    iModIntro. iFrame "Hmsteps' Hs●".
     iEval (rewrite (big_sepM_delete _ Φs (τ_pt_lin)) //).
     iSplitL "Hreceipt".
     - by destruct Hfilter as [-> | ->].
@@ -1161,7 +1161,7 @@ Section logatom.
       iDestruct (proph_trace_valid_trace with "Hproph") as %Hvalid_trace.
       destruct Hvalid_trace as [config' Hadv_steps].
       destruct (Hlin obj σ config' pts_physical Hvalid_obj Hadv_steps) as (Hnot_stuck & Htrace_lin).
-      destruct Htrace_lin as [_ [pts (-> & Hper_tag_lin & Hlin_sound)]].
+      destruct Htrace_lin as [_ [pts (-> & Hper_tag_lin & Hmsteps)]].
       iNext.
       iExists γπ, γϕ, γs, γe, s_init, [], ∅, [], σ, pts.
       iFrame "Hproph Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
@@ -1198,7 +1198,7 @@ Section logatom.
     wp_bind (resolve_proph: _ to: _)%E.
     iInv "His_P" as "Hinv" "Hclose".
     iDestruct "Hinv" as (γπ γϕ γs γe s π Φs children σ pts)
-      "(>Hproph & Hown_state & >#Hγ & Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+      "(>Hproph & Hown_state & >#Hγ & Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
     iDestruct (ghost_id_fresh with "Hτ_token Hfresh") as %Hτ_fresh.
     wp_apply (wp_resolve_proph_trace_call with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]"; [done..|].
 
@@ -1221,7 +1221,7 @@ Section logatom.
           by apply dec_stable.
         + reflexivity. }
 
-    (* prime variants of Hpending, Hper_tag_lin, Hlin_sound, about (τ, Call y)::pts' *)
+    (* prime variants of Hpending, Hper_tag_lin, Hmsteps, about (τ, Call y)::pts' *)
     assert (per_tag_partial_linearized ((τ, Call n y)::pts') ∧ trace_pendingOp ((τ, Call n y)::pts') ⊆ dom Φs
         ∧ Forall (λ t, t.1 ∈ dom Φs) pts_lin) as (Hper_tag_lin' & Hpending' & Hpts_lin_in_dom).
     { clear - Hpending Hpts_lin Hper_tag_lin.
@@ -1240,8 +1240,8 @@ Section logatom.
       split_and!; done. }
 
     (* linearize operations in [pts_lin] *)
-    iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hlin_sound with "Hγ Hs● Hreceipts")
-      as (s_end) ">(%s' & %Hlin_sound' & Hs● & Hreceipts)".
+    iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hreceipts")
+      as (s_end) ">(%s' & %Hmsteps' & Hs● & Hreceipts)".
     { exact Hpts_lin_in_dom. }
 
     (* insert new operation *)
@@ -1265,15 +1265,15 @@ Section logatom.
         simpl; intros ->.
         rewrite Hτ_fresh' in Hlookup. discriminate Hlookup. }
 
-    (* double-prime variants of Hpending, Hper_tag_lin, Hlin_sound, about pts' *)
+    (* double-prime variants of Hpending, Hper_tag_lin, Hmsteps, about pts' *)
     assert (Hpending'': trace_pendingOp pts' ⊆ {[τ]} ∪ dom Φs).
     { pose proof (Hpending'' :=  trace_pendingOp_call τ n y pts').
       apply (union_mono_l {[τ]}) in Hpending'.
       etrans; eassumption. }
     assert (Hper_tag_lin'': per_tag_partial_linearized pts').
     { eapply per_tag_partial_linearized_cons. eassumption. }
-    assert (Hlin_sound'': linearized_sound (filter (is_lin∘snd) pts') s' s_end).
-    { rewrite filter_cons_False in Hlin_sound'; auto. }
+    assert (Hmsteps'': rtcL model_step s' s_end (filter (is_lin∘snd) pts')).
+    { rewrite filter_cons_False in Hmsteps'; auto. }
 
     iMod ("Hclose" with "[-Hop◯ HΦ◯]") as "_".
     { iNext.
@@ -1305,7 +1305,7 @@ Section logatom.
     - iApply wp_inv_open_maybe.
       iInv "His_P" as "Hinv" "Hclose".
       iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-        "(Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+        "(Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
@@ -1379,7 +1379,7 @@ Section logatom.
               apply prefix_cons_inv_1 in Hpts'_prefix_pts as ->. done. }
           iSplit. { iPureIntro. etrans; last exact Hpending. by apply trace_pendingOp_prefix. }
           iSplit. { iPureIntro. eauto using per_tag_partial_linearized_prefix. }
-          iSplit. { iPureIntro. eauto using linearized_sound_prefix, prefix_filter. }
+          iSplit. { iPureIntro. eauto using model_steps_prefix, prefix_filter. }
           iPureIntro. exact Hconfig_safe'. }
 
           iApply ("IH" with "Hop◯ HΦ◯").
@@ -1394,7 +1394,7 @@ Section logatom.
         iNext. iIntros (e2 efs) "H".
         iInv "His_P" as "Hinv" "Hclose".
         iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-          "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+          "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
         iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
         inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
         iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
@@ -1443,7 +1443,7 @@ Section logatom.
               apply prefix_cons_inv_1 in Hpts'_prefix_pts as ->. done. }
           iSplit. { iPureIntro. etrans; last exact Hpending. by apply trace_pendingOp_prefix. }
           iSplit. { iPureIntro. eauto using per_tag_partial_linearized_prefix. }
-          iSplit. { iPureIntro. eauto using linearized_sound_prefix, prefix_filter. }
+          iSplit. { iPureIntro. eauto using model_steps_prefix, prefix_filter. }
           iPureIntro. exact Hconfig_safe'. }
 
           iModIntro. iSplitR "Hnew_tokens".
@@ -1460,7 +1460,7 @@ Section logatom.
       wp_bind (resolve_proph: _ to: _)%E.
       iInv "His_P" as "Hinv" "Hclose".
       iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ pts)
-        "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hlin_sound & %Hconfig_safe))".
+        "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
@@ -1486,7 +1486,7 @@ Section logatom.
             by apply dec_stable.
           + reflexivity. }
 
-      (* prime variants of Hpending, Hper_tag_lin, Hlin_sound, about (τ, Ret y')::pts' *)
+      (* prime variants of Hpending, Hper_tag_lin, Hmsteps, about (τ, Ret y')::pts' *)
       assert (per_tag_partial_linearized ((τ, Ret y')::pts') ∧ trace_pendingOp ((τ, Ret y')::pts') ⊆ dom Φs
           ∧ Forall (λ t, t.1 ∈ dom Φs) pts_lin) as (Hper_tag_lin' & Hpending' & Hpts_lin_in_dom).
       { clear - Hpending Hpts_lin Hper_tag_lin.
@@ -1505,8 +1505,8 @@ Section logatom.
         split_and!; done. }
 
       (* linearize operations in [pts_lin] *)
-      iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hlin_sound with "Hγ Hs● Hreceipts")
-        as (s_end) ">(%s' & %Hlin_sound' & Hs● & Hreceipts)".
+      iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hreceipts")
+        as (s_end) ">(%s' & %Hmsteps' & Hs● & Hreceipts)".
       { exact Hpts_lin_in_dom. }
 
       iDestruct (own_receipt_agree with "HΦ● HΦ◯") as (Φ') "[%HlookupΦ #HeqΦ]".
@@ -1529,15 +1529,15 @@ Section logatom.
           simpl; intros ->.
           rewrite lookup_delete_eq in Hlookup. discriminate Hlookup. }
 
-      (* double-prime variants of Hpending, Hper_tag_lin, Hlin_sound, about pts' *)
+      (* double-prime variants of Hpending, Hper_tag_lin, Hmsteps, about pts' *)
       assert (Hpending'': trace_pendingOp pts' ⊆ dom Φs ∖ {[τ]}).
       { pose proof (Hpending'' :=  trace_pendingOp_ret τ y' pts' Hper_tag_lin').
         apply (difference_mono_r _ _ {[τ]}) in Hpending'.
         etrans; eassumption. }
       assert (Hper_tag_lin'': per_tag_partial_linearized pts').
       { eapply per_tag_partial_linearized_cons. eassumption. }
-      assert (Hlin_sound'': linearized_sound (filter (is_lin∘snd) pts') s' s_end).
-      { rewrite filter_cons_False in Hlin_sound'; auto. }
+      assert (Hmsteps'': rtcL model_step s' s_end (filter (is_lin∘snd) pts')).
+      { rewrite filter_cons_False in Hmsteps'; auto. }
 
       iMod ("Hclose" with "[-HΦ']") as "_".
       { iNext.

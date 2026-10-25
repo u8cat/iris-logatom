@@ -585,17 +585,18 @@ Section proof.
     bag_pop_ne_vals [(τ, Lin Pop v (SOMEV w))] = [w].
   Proof. clear. reflexivity. Qed.
 
-  (* Size balance for linearized_sound on the bag model:
+  (* Size balance for [rtcL model_step] on the bag model:
      size s' + #pops = size s + #pushes. *)
-  Local Lemma linearized_sound_bag_size_balance
-    (lts : list (positive * trace)) (s s' : gmultiset val) :
-    linearized_sound (M:=bag_model rme valid_value) lts s s' →
-    size s' + length (bag_pop_ne_vals lts) = size s + length (bag_push_vals lts).
+  Local Lemma model_steps_bag_size_balance
+    (s0 s' : gmultiset val) (lts : list (positive * trace)) :
+    rtcL (model_step (M:=bag_model rme valid_value)) s0 s' lts →
+    size s' + length (bag_pop_ne_vals lts) = size s0 + length (bag_push_vals lts).
   Proof.
     clear.
-    induction 1 as [s|s0 s s' nn τ v v' ts Hls IH Hvr Hrr].
+    revert s' lts. apply rtcL_ind_r.
     - simpl. lia.
-    - change (@linear.S (bag_model rme valid_value)) with (gmultiset val) in *.
+    - intros ?? ts ? Hls [s s' nn τ v v' Hvr Hrr] IH.
+      change (@linear.S (bag_model rme valid_value)) with (gmultiset val) in *.
       destruct nn as [|[|nn]]; last by (simpl in Hvr; destruct Hvr).
       + (* Push v *)
         destruct Hrr as [-> ->].
@@ -799,13 +800,13 @@ Section proof.
   (* A matched pair (τ1,τ2) does not cross a pop-empty τ3 in the Lin trace.
      Proof: if [τ1;τ3;τ2] were a sublist, then τ1 pushed a value before τ3,
      τ3 sees empty bag, but τ1's value hasn't been popped (τ2 is after τ3).
-     By linearized_sound, the bag at τ3 is non-empty. Contradiction with Pop IsEmpty. *)
+     By [rtcL model_step], the bag at τ3 is non-empty. Contradiction with Pop IsEmpty. *)
   Local Lemma trace_prt_no_cross_match ts' :
     per_tag_wellformed_bag rme valid_value ts →
     ts = filter (not ∘ is_lin ∘ snd) ts' →
     per_tag_linearized ts' →
     NoDup (filter (is_lin ∘ snd) ts').*1 →
-    (∃ s', linearized_sound (M:=bag_model rme valid_value) (filter (is_lin ∘ snd) ts') s_init s') →
+    (∃ s', rtcL (model_step (M:=bag_model rme valid_value)) s_init s' (filter (is_lin ∘ snd) ts')) →
     (∀ τ1 τ2, (τ1,τ2) ∈ m → [τ1;τ2] `sublist_of` (filter (is_lin ∘ snd) ts').*1) →
     ∀ τ1 τ2 τ3, (τ1,τ2) ∈ m → τ3 ∈ pop_emp_of_trace ts →
       [τ1;τ2;τ3] `sublist_of` (filter (is_lin ∘ snd) ts').*1
@@ -940,11 +941,11 @@ Section proof.
       { apply list_elem_of_filter_2; [exact Hlin_ev_τ3|exact Hin_ts'_τ3]. }
       destruct (list_elem_of_split _ _ Hτ3_in_lts_elem)
         as (lts_before & lts_after & Hlts_split).
-      (* Split linearized_sound at τ3 *)
+      (* Split [rtcL model_step] at τ3 *)
       rewrite /lts in Hlts_split. rewrite Hlts_split in Hls.
       destruct ev_τ3 as [|nv_req v_req v_resp|]; simpl in Hlin_ev_τ3; try done.
-      apply linearized_sound_app_inv in Hls as (s_mid & Hls_before & Hls_rest).
-      apply linearized_sound_cons_inv in Hls_rest as (s_after_τ3 & _ & Hrr & _).
+      apply rtcL_app_inv in Hls as (s_mid & Hls_before & Hls_rest).
+      apply rtcL_cons_inv in Hls_rest as (s_after_τ3 & [_ Hrr]%model_step_inv & _).
       assert (Hv_resp : v_resp = encode_response IsEmpty).
       { destruct (Hptl τ3) as (nw & w & w' & Hprefix).
         rewrite /pop_emp_of_trace in Hτ3_pop_emp_orig.
@@ -1007,7 +1008,7 @@ Section proof.
         intro H. apply (Hdisj _ H). right. exact Hτ2_in_after. }
       (* Step 4: counting — #pushes = #pops in lts_before *)
       assert (Hcount : length (bag_push_vals lts_before) = length (bag_pop_ne_vals lts_before)).
-      { assert (Hbal := linearized_sound_bag_size_balance _ _ _ Hls_before).
+      { assert (Hbal := model_steps_bag_size_balance _ _ _ Hls_before).
         change (@linear.S (bag_model rme valid_value)) with (gmultiset val) in Hbal.
         rewrite Hs_mid_empty gmultiset_size_empty in Hbal.
         assert (Hsz0 : size (@s_init (bag_model rme valid_value)) = 0).
@@ -1207,7 +1208,7 @@ Section proof.
         - intros τ0 v0 w0 Hin0.
           assert (v0 = #()) as ->.
           { clear -Hin0 Hls_before.
-            apply linearized_sound_valid_request in Hls_before.
+            apply model_steps_valid_request in Hls_before.
             rewrite Forall_forall in Hls_before.
             exact (Hls_before _ Hin0). }
           exact (Hpop_ne_in_mb2 τ0 w0 Hin0). }
@@ -1596,7 +1597,7 @@ Section proof.
     per_tag_wellformed_bag rme valid_value ts →
     ts = filter (not ∘ is_lin ∘ snd) ts' →
     per_tag_linearized ts' →
-    (∃ s', linearized_sound (M:=bag_model rme valid_value) (filter (is_lin ∘ snd) ts') s_init s') →
+    (∃ s', rtcL (model_step (M:=bag_model rme valid_value)) s_init s' (filter (is_lin ∘ snd) ts')) →
     (∀ τ1 τ2, (τ1,τ2) ∈ m → [τ1;τ2] `sublist_of` (filter (is_lin ∘ snd) ts').*1) →
     correct_empty (trace_prt ts') trace_val trace_empty.
   Proof.
@@ -1665,7 +1666,7 @@ Section proof.
   Proof.
     intros Hwf Hempty_sound.
     destruct (trace_linearizable_bag_destruct rme valid_value ts m Hvalid Hcomplete Hclosed Hwf Hempty_sound)
-      as (ts' & Hfilter & Hper_tag_lin & Hlin_sound & Hval_then_not_pr).
+      as (ts' & Hfilter & Hper_tag_lin & Hmsteps & Hval_then_not_pr).
     split; first by eapply conc_history_trace_pre.
     exists (trace_prt ts').
     split; first by eapply trace_pre_prt_subrelation.
@@ -1762,17 +1763,17 @@ Section proof.
       (Hord_sorted : ∀ i j τ1 τ2 (H1 : τ1 ∈ events_of_trace ts) (H2 : τ2 ∈ events_of_trace ts),
         i < j → ord !! i = Some τ1 → ord !! j = Some τ2 →
         prt (τ1 ↾ H1) (τ2 ↾ H2)) :
-    ∃ s', linearized_sound (M:=queue_model rme valid_value)
-            (filter (is_lin ∘ snd) (ts'_lin ts ord)) s_init s'.
+    ∃ s', rtcL (model_step (M:=queue_model rme valid_value)) s_init s'
+            (filter (is_lin ∘ snd) (ts'_lin ts ord)).
   Proof.
     rewrite (ts'_lin_lin_filter_events ts m Hvalid Hcomplete Hclosed).
     (* Strong IH: for each k ≤ length ord, the take-k prefix of Lin events
        is sound and ends in queue_state_of (take k ord). *)
     assert (Hmain : ∀ k, k ≤ length ord →
-      linearized_sound (M:=queue_model rme valid_value)
-        (take k (lin_events_of_ord ord)) s_init (queue_state_of (take k ord))).
+      rtcL (model_step (M:=queue_model rme valid_value))
+        s_init (queue_state_of (take k ord)) (take k (lin_events_of_ord ord))).
     { intros k. induction k as [|k IHk]; intros Hk.
-      - rewrite !take_0. simpl. apply linearized_sound_nil.
+      - rewrite !take_0. simpl. apply rtcL_refl.
       - assert (Hk' : k ≤ length ord) by lia.
         assert (Hk'' : k < length ord) by lia.
         destruct (lookup_lt_is_Some_2 ord k Hk'') as [τ Hord_k].
@@ -1802,7 +1803,7 @@ Section proof.
         + (* ===== PUSH case ===== *)
           destruct (push_tag_filter rme valid_value ts m Hvalid Hcomplete Hclosed Hper_tag_wf τ Hpush) as [v Hfilt].
           rewrite (lin_event_val_of ts τ _ _ _ Hfilt). simpl.
-          (* Goal: linearized_sound (... ++ [(τ, Lin (Push v) #())]) [] (queue_state_of (take k ord ++ [τ])) *)
+          (* Goal: rtcL model_step [] (queue_state_of (take k ord ++ [τ])) (... ++ [(τ, Lin (Push v) #())]) *)
           (* ¬ has_matched_pop_in τ (take k ord ++ [τ]) *)
           assert (Hnmp : ¬ has_matched_pop_in τ (take k ord ++ [τ])).
           { intros Hmp%(has_matched_pop_in_iff m).
@@ -1819,7 +1820,7 @@ Section proof.
             - subst τ_pop. by eapply (push_not_in_matched_pop ts m Hvalid Hcomplete Hclosed). }
           rewrite (queue_state_of_push_step _ _ Hpush Hnmp).
           rewrite (push_value_of_push ts τ v #() Hfilt).
-          eapply linearized_sound_snoc.
+          eapply rtcL_r; [|constructor].
           * apply IHk. exact Hk'.
           * simpl.
             destruct (Hper_tag_wf τ) as [(v_push & ? & Hfilter) | (? & _ & Hfilter)];
@@ -1980,7 +1981,7 @@ Section proof.
                   by apply NoDup_app in Hord_nodup as (? & _). }
                 rewrite Hlp_decomp in Hnd_lp.
                 apply NoDup_cons in Hnd_lp as [Hne _]. done. }
-            eapply linearized_sound_snoc.
+            eapply rtcL_r; [|constructor].
             -- apply IHk. exact Hk'.
             -- reflexivity.
             -- simpl. rewrite Hstate_eq. done.
@@ -2043,7 +2044,7 @@ Section proof.
               destruct (live_pushes_of (take k ord)); last discriminate.
               done. }
             rewrite Hstate_empty2.
-            eapply linearized_sound_snoc.
+            eapply rtcL_r; [|constructor].
             -- apply IHk. exact Hk'.
             -- reflexivity.
             -- simpl. rewrite Hstate_empty.
@@ -2061,7 +2062,7 @@ Section proof.
     exists (queue_state_of ord).
     replace (lin_events_of_ord ord) with (take (length ord) (lin_events_of_ord ord)).
     2: { apply take_ge. rewrite /lin_events_of_ord. rewrite length_map. lia. }
-    replace ord with (take (length ord) ord) at 3.
+    replace ord with (take (length ord) ord) at 1.
     2: { apply take_ge. lia. }
     apply Hmain. lia.
   Qed.

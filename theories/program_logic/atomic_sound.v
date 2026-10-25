@@ -74,7 +74,7 @@ Section def.
       ∗ own γ (to_agree (γi,γm)) ∗ P_state _ γi s ∗ ghost_map_auth γm 1 ST
       ∗ trace_is tracer (filter (not∘is_lin∘snd) ts')
       ∗ ⌜call_valid (filter (not∘is_lin∘snd) ts')⌝
-      ∗ ⌜linearized_sound (filter (is_lin∘snd) ts') s_init s⌝
+      ∗ ⌜rtcL model_step s_init s (filter (is_lin∘snd) ts')⌝
       ∗ ⌜per_tag_linearized ts'⌝
       ∗ [∗ map] τ↦st ∈ ST, ⌜ match st with
         | AfterCall n v => filter (λ x, x.1 = τ) ts' = [(τ, Call n v)]
@@ -126,7 +126,7 @@ Section spec.
     iPureIntro. split_and!.
     - reflexivity.
     - rewrite /call_valid Forall_nil //.
-    - apply linearized_sound_nil.
+    - apply rtcL_refl.
     - apply per_tag_linearized_nil.
     - apply map_Forall_empty.
   Qed.
@@ -141,7 +141,7 @@ Section spec.
     wp_lam. wp_pures.
     awp_apply (trace_fresh_spec with "Htrace_inv");
       first exact (decode_encode_val (Call n req)).
-    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hlin_sound & %Hper_tag_lin & %Hst)".
+    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hmsteps & %Hper_tag_lin & %Hst)".
     iCombine "Hmeta Hmeta'" gives %Heq%to_agree_op_inv_L.
     injection Heq as <- <-. iClear "Hmeta'".
     rewrite /atomic_acc /=.
@@ -195,7 +195,7 @@ Section spec.
         rewrite filter_cons_True; last by intros HF.
         rewrite filter_nil Forall_singleton //.
       - rewrite filter_app filter_cons_False; last by intros HF.
-        rewrite filter_nil app_nil_r. exact Hlin_sound.
+        rewrite filter_nil app_nil_r. exact Hmsteps.
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
         + exists n, req, inhabitant.
           rewrite filter_app (fresh_tag_filter_eq_nil τ ts').
@@ -220,12 +220,12 @@ Section spec.
           * rewrite filter_app filter_cons_False; last done.
             rewrite filter_nil. by rewrite app_nil_r.
           * done. }
-    clear s ts' ST Hdom Hcall_valid Hlin_sound Hper_tag_lin Hst Hfresh Hτ_notin_ST.
+    clear s ts' ST Hdom Hcall_valid Hmsteps Hper_tag_lin Hst Hfresh Hτ_notin_ST.
 
     (* Lin *)
     wp_pures.
     awp_apply (op_spec with "His_P"); first done.
-    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hlin_sound & %Hper_tag_lin & %Hst)".
+    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hmsteps & %Hper_tag_lin & %Hst)".
     iCombine "Hmeta Hmeta'" gives %Heq%to_agree_op_inv_L.
     injection Heq as <- <-. iClear "Hmeta'".
     iCombine "HM● HM◯" gives %Hlookup.
@@ -248,7 +248,7 @@ Section spec.
         rewrite filter_nil app_nil_r. exact Hcall_valid.
       - rewrite filter_app filter_cons_True; last by simpl.
         rewrite filter_nil.
-        eapply linearized_sound_snoc; [exact Hlin_sound|exact Hvr|exact Hrr].
+        eapply rtcL_r; [|constructor]; [exact Hmsteps|exact Hvr|exact Hrr].
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
         + exists n, req, res.
           specialize (Hst τ (AfterCall n req) Hlookup). simpl in Hst.
@@ -270,12 +270,12 @@ Section spec.
           * rewrite filter_app filter_cons_False; last done.
             rewrite filter_nil. by rewrite app_nil_r.
           * done. }
-    clear s s' ts' ST Hdom Hcall_valid Hlin_sound Hper_tag_lin Hst Hrr Hlookup.
+    clear s s' ts' ST Hdom Hcall_valid Hmsteps Hper_tag_lin Hst Hrr Hlookup.
 
     (* Ret *)
     wp_pures.
     awp_apply (trace_emit_spec with "Htrace_inv"); first reflexivity.
-    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hlin_sound & %Hper_tag_lin & %Hst)".
+    iInv "Inv" as (γi' γm' s ts' ST) ">(%Hdom & #Hmeta' & HP_state & HM● & Htrace_is & %Hcall_valid & %Hmsteps & %Hper_tag_lin & %Hst)".
     iCombine "Hmeta Hmeta'" gives %Heq%to_agree_op_inv_L.
     injection Heq as <- <-. iClear "Hmeta'".
     iCombine "HM● HM◯" gives %Hlookup.
@@ -324,7 +324,7 @@ Section spec.
         rewrite filter_cons_True; last by auto.
         rewrite filter_nil Forall_singleton //.
       - rewrite filter_app filter_cons_False; last by auto.
-        rewrite filter_nil app_nil_r. exact Hlin_sound.
+        rewrite filter_nil app_nil_r. exact Hmsteps.
       - intros τ₀. destruct (decide (τ = τ₀)) as [<- | Hne].
         + exists n, req, res.
           specialize (Hst τ (AfterLin n req res) Hlookup). simpl in Hst.

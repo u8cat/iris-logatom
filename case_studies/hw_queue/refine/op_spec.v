@@ -63,8 +63,7 @@ Section hwq_skeleton_op_spec.
       destruct Hop as [(-> & Hd_valid) | (-> & ->)]; first rename req into d.
       - eexists _, (ls ++ [(τ, ACallEnq d)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_enq; done.
         + rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True.
@@ -72,8 +71,7 @@ Section hwq_skeleton_op_spec.
           by compute.
       - eexists _, (ls ++ [(τ, ACallDeq)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_deq; done.
         + rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True.
@@ -116,8 +114,7 @@ Section hwq_skeleton_op_spec.
           (<[τ := new_info]> op_map), stored_at, cell_val_map, dq_map.
         iFrame "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_enq; done.
         - rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
@@ -451,8 +448,7 @@ Section hwq_skeleton_op_spec.
           (ls ++ [(τ, ACallDeq)]), (<[τ := new_info]> op_map), stored_at, cell_val_map, dq_map.
         iFrame "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps|].
           apply absq_step_call_deq; done.
         - rewrite Hts_eq /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.

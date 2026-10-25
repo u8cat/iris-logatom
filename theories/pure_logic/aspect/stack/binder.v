@@ -303,15 +303,15 @@ Section stack_binder.
       (Hord_sorted : ∀ i j τ1 τ2 (H1 : τ1 ∈ events_of_trace ts) (H2 : τ2 ∈ events_of_trace ts),
         i < j → ord !! i = Some τ1 → ord !! j = Some τ2 →
         prt (τ1 ↾ H1) (τ2 ↾ H2)) :
-    ∃ s', linearized_sound (M:=stack_model rme valid_value)
-            (filter (is_lin ∘ snd) (ts'_lin ts ord)) s_init s'.
+    ∃ s', rtcL (model_step (M:=stack_model rme valid_value)) s_init s'
+            (filter (is_lin ∘ snd) (ts'_lin ts ord)).
   Proof.
     rewrite (ts'_lin_lin_filter_events ts m Hvalid Hcomplete Hclosed).
     assert (Hmain : ∀ k, k ≤ length ord →
-      linearized_sound (M:=stack_model rme valid_value)
-        (take k (lin_events_of_ord ord)) s_init (stack_state_of (take k ord))).
+      rtcL (model_step (M:=stack_model rme valid_value))
+        s_init (stack_state_of (take k ord)) (take k (lin_events_of_ord ord))).
     { intros k. induction k as [|k IHk]; intros Hk.
-      - rewrite !take_0. simpl. apply linearized_sound_nil.
+      - rewrite !take_0. simpl. apply rtcL_refl.
       - assert (Hk' : k ≤ length ord) by lia.
         assert (Hk'' : k < length ord) by lia.
         destruct (lookup_lt_is_Some_2 ord k Hk'') as [τ Hord_k].
@@ -355,7 +355,7 @@ Section stack_binder.
             - subst τ_pop. by eapply (push_not_in_matched_pop ts m Hvalid Hcomplete Hclosed). }
           rewrite (stack_state_of_push_step _ _ Hpush Hnmp).
           rewrite (push_value_of_push ts τ v #() Hfilt).
-          eapply linearized_sound_snoc.
+          eapply rtcL_r; [|constructor].
           * apply IHk. exact Hk'.
           * simpl.
             destruct (Hper_tag_wf τ) as [(v_push & ? & Hfilter) | (? & _ & Hfilter)];
@@ -498,7 +498,7 @@ Section stack_binder.
               rewrite Hlp_decomp in Hnd_lp.
               apply NoDup_app in Hnd_lp as (_ & Hdisj & _).
               apply (Hdisj τ_p Hin_q). by left. }
-            eapply linearized_sound_snoc.
+            eapply rtcL_r; [|constructor].
             -- apply IHk. exact Hk'.
             -- reflexivity.
             -- simpl. rewrite Hstate_eq. done.
@@ -546,7 +546,7 @@ Section stack_binder.
             assert (Hstate_empty2 : stack_state_of (take k ord ++ [τ]) = []).
             { by rewrite /stack_state_of (live_pushes_of_nonpush_step _ _ Hτ_npush) Hlp_empty. }
             rewrite Hstate_empty2.
-            eapply linearized_sound_snoc.
+            eapply rtcL_r; [|constructor].
             -- apply IHk. exact Hk'.
             -- reflexivity.
             -- simpl. rewrite Hstate_empty.
@@ -563,7 +563,7 @@ Section stack_binder.
     exists (stack_state_of ord).
     replace (lin_events_of_ord ord) with (take (length ord) (lin_events_of_ord ord)).
     2: { apply take_ge. rewrite /lin_events_of_ord length_map. lia. }
-    replace ord with (take (length ord) ord) at 3.
+    replace ord with (take (length ord) ord) at 1.
     2: { apply take_ge. lia. }
     apply Hmain. lia.
   Qed.

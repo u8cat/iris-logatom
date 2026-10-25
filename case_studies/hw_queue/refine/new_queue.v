@@ -62,7 +62,7 @@ Section hwq_skeleton_new_queue.
       iExists (replicate (Z.to_nat sz) NONEV), 0%Z, [], absq_init, [], ∅, ∅, ∅, ∅.
       iFrame "Har Hback Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
       iPureIntro. split_and!.
-      - apply lts_steps_nil.
+      - apply rtcL_refl.
       - by rewrite /trace_of_absq_labels /= filter_nil.
       - apply fs1_sim_init. lia.
       - split.

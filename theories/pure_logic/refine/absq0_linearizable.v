@@ -54,21 +54,6 @@ Definition trace_of_absq_labels
 Lemma trace_of_absq_label_fst la : (trace_of_absq_label la).1 = la.1.
 Proof. destruct la as [? []]; reflexivity. Qed.
 
-(** Snoc-inversion for [absq0_steps] (i.e., [lts_steps absq0_step]):
-  every [ls ++ [l]]-trace decomposes into a prefix trace and a final
-  step. Used by the reverse induction in [absq0_steps_invariant]. *)
-Lemma absq0_steps_snoc_inv rme valid_value s0 s2 ls l :
-  absq0_steps rme valid_value s0 (ls ++ [l]) s2 →
-  ∃ s1, absq0_steps rme valid_value s0 ls s1 ∧ absq0_step rme valid_value s1 l s2.
-Proof.
-  revert s0 s2. induction ls as [|l0 ls IH]; intros s0 s2 Hs; simpl in *.
-  - inversion Hs as [|? s1 ? ? ? Hstep Hrest]; subst.
-    inversion Hrest; subst. exists s0. split; [constructor|done].
-  - inversion Hs as [|? s1 ? ? ? Hstep Hrest]; subst.
-    apply IH in Hrest as (s_mid & Hrest' & Hlast_step).
-    exists s_mid. split; [|done]. by econstructor.
-Qed.
-
 (** Per-tag invariant: for every tag [τ], the [τ]-filtered events of
   the induced trace are determined exactly by the AbsQ₀ state via
   [cp0(τ)]. Each control-point maps to a specific prefix of the
@@ -179,7 +164,7 @@ Qed.
   by the step. All AbsQ₀ steps modify at most one tag (the label's
   tag), leaving [cp0]/[in0]/[rv0] for every other tag unchanged. *)
 Local Lemma per_tag_invariant_step_unrelated rme valid_value u0 u1 l ts' τ :
-  absq0_step rme valid_value u0 l u1 →
+  absq0_step rme valid_value u0 u1 [l] →
   τ ≠ l.1 →
   per_tag_invariant u0 τ ts' →
   per_tag_invariant u1 τ (ts' ++ [trace_of_absq_label l]).
@@ -207,25 +192,23 @@ Proof.
 Qed.
 
 (** The main induction: both invariants hold after every reachable
-  AbsQ₀ execution. Proved by reverse induction on [ls], using
-  [absq0_steps_snoc_inv] to decompose. *)
+  AbsQ₀ execution. Proved by reverse induction on the execution. *)
 Lemma absq0_steps_invariant rme valid_value ls u :
-  absq0_steps rme valid_value absq0_init ls u →
+  rtcL (absq0_step rme valid_value) absq0_init u ls →
   (∀ τ, per_tag_invariant u τ (trace_of_absq_labels ls)) ∧
-  linearized_sound (M := queue_model rme valid_value)
-    (filter (is_lin ∘ snd) (trace_of_absq_labels ls))
-    [] u.(absq0_seq).*2.
+  rtcL (model_step (M := queue_model rme valid_value))
+    [] u.(absq0_seq).*2
+    (filter (is_lin ∘ snd) (trace_of_absq_labels ls)).
 Proof.
-  revert u. induction ls as [|l ls IH] using rev_ind; intros u Hs.
+  revert u ls. apply rtcL_ind_r.
   - (* Base: ls = [], u = absq0_init. *)
-    inversion Hs; subst. rewrite /trace_of_absq_labels /=.
+    rewrite /trace_of_absq_labels /=.
     split.
     + intros τ. rewrite /per_tag_invariant /absq0_init /= lookup_empty.
       by rewrite filter_nil.
-    + rewrite filter_nil /absq0_init /=. apply linearized_sound_nil.
-  - (* Inductive: ls ++ [l]. *)
-    apply absq0_steps_snoc_inv in Hs as (u' & Hpre & Hstep).
-    destruct (IH u' Hpre) as [IH_tag IH_lin].
+    + rewrite filter_nil /absq0_init /=. apply rtcL_refl.
+  - (* Inductive: ls ++ l. *)
+    intros u' u ls l Hpre Hstep [IH_tag IH_lin].
     rewrite /trace_of_absq_labels map_app.
     inversion Hstep as
       [σ0 in0 rv0 cp0 k0 d Hfresh Hd_ub
@@ -236,7 +219,7 @@ Proof.
       |in0 rv0 cp0 k0 Hrme_guard Hcp_R1
       |σ0 in0 rv0 cp0 k0 v Hcp_R2 Hrv_k];
       subst l u' u; simpl in *.
-    { (* CALL-ENQ: l = (k0, ACallEnq d). *)
+    { (* CALL-ENQ: l = [(k0, ACallEnq d)]. *)
       apply not_elem_of_dom in Hfresh as Hcp0_none.
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
@@ -251,7 +234,7 @@ Proof.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_nonlin;
           [exact IH_lin|apply not_is_lin_Call]. }
-    { (* LIN-ENQ: l = (k0, ALinEnq d). [Hin_k] and [Hd_ub_lin] come
+    { (* LIN-ENQ: l = [(k0, ALinEnq d)]. [Hin_k] and [Hd_ub_lin] come
          directly from [absq0_step_lin_enq]. The [σ ++ [(k_0, d)]]
          post-state matches [queue_model]'s [Push] case
          [s2 = s1 ++ [d]]. *)
@@ -270,10 +253,10 @@ Proof.
         by rewrite Hfilt.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
         rewrite fmap_app /=.
-        eapply linearized_sound_snoc; [exact IH_lin| |].
+        eapply rtcL_r; [|constructor]; [exact IH_lin| |].
         + exact Hd_ub_lin.
         + done. }
-    { (* RET-ENQ: l = (k0, ARetEnq). *)
+    { (* RET-ENQ: l = [(k0, ARetEnq)]. *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
         { eapply (per_tag_invariant_step_unrelated
@@ -288,7 +271,7 @@ Proof.
         by rewrite Hfilt.
       - rewrite filter_is_lin_app_nonlin;
           [exact IH_lin|apply not_is_lin_Ret]. }
-    { (* CALL-DEQ: l = (k0, ACallDeq). *)
+    { (* CALL-DEQ: l = [(k0, ACallDeq)]. *)
       apply not_elem_of_dom in Hfresh as Hcp0_none.
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
@@ -302,7 +285,7 @@ Proof.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_nonlin;
           [exact IH_lin|apply not_is_lin_Call]. }
-    { (* LIN-DEQ1: l = (k0, ALinDeq (SOMEV d)), σ0 = (k_e, d) :: σtl
+    { (* LIN-DEQ1: l = [(k0, ALinDeq (SOMEV d))], σ0 = (k_e, d) :: σtl
          (head=oldest). The pre-state [σ0.*2 = d :: σtl.*2] matches
          [queue_model]'s [Pop] non-empty case. *)
       split.
@@ -317,11 +300,11 @@ Proof.
         rewrite filter_tag_app_eq /=; last done.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
-        eapply (linearized_sound_snoc _ _ _ Pop _ #() (SOMEV d));
+        eapply rtcL_r; [|apply (model_step_lin _ _ Pop _ #() (SOMEV d))];
           [exact IH_lin| |].
         + reflexivity.
         + rewrite Hσ_split fmap_cons /=. done. }
-    { (* LIN-DEQ2: l = (k0, ALinDeq NONEV), σ0 = []. *)
+    { (* LIN-DEQ2: l = [(k0, ALinDeq NONEV)], σ0 = []. *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
         { eapply (per_tag_invariant_step_unrelated
@@ -334,11 +317,11 @@ Proof.
         rewrite filter_tag_app_eq /=; last done.
         by rewrite IH_tag.
       - rewrite filter_is_lin_app_lin; [|apply is_lin_Lin].
-        eapply (linearized_sound_snoc _ _ _ Pop _ #() NONEV);
+        eapply rtcL_r; [|apply (model_step_lin _ _ Pop _ #() NONEV)];
           [exact IH_lin| |].
         + reflexivity.
         + simpl. destruct rme; [done|exact Hrme_guard]. }
-    { (* RET-DEQ: l = (k0, ARetDeq v). *)
+    { (* RET-DEQ: l = [(k0, ARetDeq v)]. *)
       split.
       - intros τ. destruct (decide (τ = k0)) as [->|Hne]; last first.
         { eapply (per_tag_invariant_step_unrelated
@@ -359,11 +342,11 @@ Qed.
 (** Key helper: any reachable AbsQ₀ execution induces a trace
   witnessing [trace_linearizable]. *)
 Lemma absq0_steps_trace_helper rme valid_value ls u :
-  absq0_steps rme valid_value absq0_init ls u →
+  rtcL (absq0_step rme valid_value) absq0_init u ls →
   per_tag_linearized (trace_of_absq_labels ls) ∧
-  linearized_sound (M := queue_model rme valid_value)
-    (filter (is_lin ∘ snd) (trace_of_absq_labels ls))
-    [] u.(absq0_seq).*2.
+  rtcL (model_step (M := queue_model rme valid_value))
+    [] u.(absq0_seq).*2
+    (filter (is_lin ∘ snd) (trace_of_absq_labels ls)).
 Proof.
   intros Hs. destruct (absq0_steps_invariant rme _ _ _ Hs) as [Htag Hlin].
   split; [|done]. by eapply per_tag_invariant_to_per_tag_linearized.
@@ -383,20 +366,20 @@ Qed.
   [queue_model]'s [Push] request predicate, and [ACallDeq] steps produce
   the [Pop] request [#()]. Hence the induced trace is [call_valid] — the
   only ingredient of [trace_linearizable] that the old library-level
-  proof obtained from [adv_steps]. *)
+  proof obtained from [rtcL adv_step]. *)
 Lemma absq0_steps_call_valid rme valid_value ls u :
-  absq0_steps rme valid_value absq0_init ls u →
+  rtcL (absq0_step rme valid_value) absq0_init u ls →
   call_valid (M := queue_model rme valid_value) (trace_of_absq_labels ls).
 Proof.
-  revert u. induction ls as [|l ls IH] using rev_ind; intros u Hs.
+  revert u ls. apply rtcL_ind_r.
   - constructor.
-  - apply absq0_steps_snoc_inv in Hs as (u' & Hpre & Hstep).
+  - intros u' u ls l Hpre Hstep IH.
     rewrite /trace_of_absq_labels map_app /call_valid Forall_app.
-    split; [by eapply IH|]. rewrite Forall_singleton.
+    split; [exact IH|].
     (* CALL-ENQ contributes [valid_value d], which [inversion] puts in
        context; CALL-DEQ contributes [#() = #()]; no other step emits a
        [Call]. *)
-    inversion Hstep; subst; simpl; done.
+    inversion Hstep; subst; rewrite Forall_singleton; simpl; done.
 Qed.
 
 (** The trace-level refinement hypothesis: the Call/Ret trace [ts] is the
@@ -409,7 +392,7 @@ Qed.
 Definition trace_refines_absq0 (rme : response_mayempty)
   (valid_value : val → Prop) (ts : list (positive * trace)) : Prop :=
   ∃ u ls,
-    absq0_steps rme valid_value absq0_init ls u ∧
+    rtcL (absq0_step rme valid_value) absq0_init u ls ∧
     ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls).
 
 (** Main result: a Call/Ret trace refining AbsQ₀ at the C∪R projection
@@ -488,7 +471,7 @@ Qed.
 Definition trace_refines_absq (rme : response_mayempty)
   (valid_value : val → Prop) (ts : list (positive * trace)) : Prop :=
   ∃ s ls,
-    absq_steps rme valid_value absq_init ls s ∧
+    rtcL (absq_step rme valid_value) absq_init s ls ∧
     ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls).
 
 (** Chained result: a Call/Ret trace refining AbsQ at the C∪R projection

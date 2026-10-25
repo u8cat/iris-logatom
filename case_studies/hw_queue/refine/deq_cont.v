@@ -849,8 +849,7 @@ Section hwq_skeleton_deq_cont.
                   (<[τ := d]> dq_map3).
                 iFrame "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
                 iPureIntro. split_and!.
-                - eapply lts_steps_app; [exact Hsteps3|].
-                  eapply lts_steps_cons; [|apply lts_steps_nil].
+                - eapply rtcL_r; [exact Hsteps3|].
                   eapply absq_step_lin_deq1;
                     [exact Hcp_τ_eq|exact Hk_e_min|exact Hℓ_k_e].
                 - rewrite Hts_eq3 /trace_of_absq_labels map_app /= filter_app.
@@ -1643,8 +1642,7 @@ Section hwq_skeleton_deq_cont.
       exists (AbsQState O5 lt5 l5 rv5 (<[τ := R3]> cp5)),
              (ls5 ++ [(τ, ARetDeq (SOMEV v))]).
       split.
-      - eapply lts_steps_app; [exact Hsteps5|].
-        eapply lts_steps_cons; [|apply lts_steps_nil].
+      - eapply rtcL_r; [exact Hsteps5|].
         by apply absq_step_ret_deq.
       - rewrite Hts_eq5 /trace_of_absq_labels map_app /= filter_app.
         rewrite filter_cons_True; [done|]. by compute. }
@@ -1673,8 +1671,7 @@ Section hwq_skeleton_deq_cont.
       cell_val_map5, dq_map5.
     iFrame "Hback Har Htrace Hauth Hauth_sv Hfrag_sv Hauth_dq Hfrag_dq".
     iPureIntro. split_and!.
-    - eapply lts_steps_app; [exact Hsteps5|].
-      eapply lts_steps_cons; [|apply lts_steps_nil].
+    - eapply rtcL_r; [exact Hsteps5|].
       by apply absq_step_ret_deq.
     - rewrite Hts_eq5 /trace_of_absq_labels map_app /= filter_app.
       rewrite filter_cons_True; [done|]. by compute.

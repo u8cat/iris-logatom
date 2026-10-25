@@ -5,7 +5,7 @@
    [M_g : gset single_config]. Each (s, π) ∈ M_g records a possible atomic
    linearization of the trace so far. The headline invariant is
 
-       mcfg_steps mcfg_init (set_to_propset M_g) ts ∧ M_g ≠ ∅
+       rtcL mcfg_step mcfg_init (set_to_propset M_g) ts ∧ M_g ≠ ∅
 
    and the trace invariant exposed to mgc.v is
 
@@ -73,7 +73,7 @@ Lemma I_lang_hwq_init : I_lang_hwq [].
 Proof.
   split.
   - exists mcfg_init, s_init, ∅. split.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + rewrite /mcfg_init. apply elem_of_singleton. reflexivity.
   - intros τ. exists Push, #(), #(). rewrite filter_nil. apply prefix_nil.
 Qed.
@@ -454,7 +454,7 @@ Section inv.
       (* Headline invariant: M_g (viewed as propset) is reachable from
          mcfg_init via the trace, and M_g is non-empty. The previous
          M_full ≡ set_to_propset M_g equivalence is folded in. *)
-      ⌜@mcfg_steps hwq_model mcfg_init (set_to_propset M_g) ts⌝ ∗
+      ⌜rtcL (@mcfg_step hwq_model) mcfg_init (set_to_propset M_g) ts⌝ ∗
       ⌜M_g ≠ ∅⌝ ∗
       ⌜per_tag_wellformed ts⌝ ∗
       ⌜stat_consistent stat M_g ts⌝ ∗

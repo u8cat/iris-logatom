@@ -5,19 +5,13 @@
 From Stdlib Require Import Logic.Decidable.
 From Stdlib Require Import Arith.Wf_nat.
 From stdpp Require Import finite list relations.
+From iris_logatom.lib Require Import relations.
 
 (* Decidability of the transitive closure of a decidable relation on a
    finite type. *)
 Section tc_dec.
   Context `{Finite A}.
   Context (R : relation A) (R_dec : ∀ x y, decidable (R x y)).
-
-  (* `step_n n x y` says there is a length-n R-path from x to y. *)
-  Fixpoint step_n (n : nat) (x y : A) : Prop :=
-    match n with
-    | 0 => x = y
-    | S k => ∃ z, R x z ∧ step_n k z y
-    end.
 
   Local Lemma dec_list_exists_T (l : list A) (P : A → Prop) :
     (∀ x, decidable (P x)) →
@@ -43,102 +37,28 @@ Section tc_dec.
     - right. intros (x & Hx). apply Hno. exists x. split; [apply elem_of_enum|done].
   Qed.
 
-  Lemma step_n_dec n x y : decidable (step_n n x y).
+  Lemma nsteps_dec n x y : decidable (nsteps R n x y).
   Proof.
     revert x y. induction n as [|n IH]; intros x y.
-    - simpl. destruct (decide (x = y)); [by left | by right].
-    - simpl. apply dec_exists_finite. intros z.
-      apply dec_and; [apply R_dec | apply IH].
+    - destruct (decide (x = y)) as [->|Hne]; [left; constructor | right; by inv 1].
+    - destruct (dec_exists_finite (λ z, R x z ∧ nsteps R n z y)) as [(z & Hxz & Hzy)|Hno].
+      { intros z. apply dec_and; [apply R_dec | apply IH]. }
+      + left. by eapply nsteps_l.
+      + right. inv 1. naive_solver.
   Qed.
 
-  Lemma step_n_then_tc n x y : 1 ≤ n → step_n n x y → tc R x y.
-  Proof.
-    revert x y. induction n as [|n IH]; intros x y Hn Hs; first lia.
-    destruct n as [|n'].
-    - simpl in Hs. destruct Hs as (z & Hxz & ->). by apply tc_once.
-    - simpl in Hs. destruct Hs as (z & Hxz & Hzy).
-      eapply tc_l; first exact Hxz. apply IH; [lia | exact Hzy].
-  Qed.
-
-  Lemma tc_then_step_n x y : tc R x y → ∃ n, 1 ≤ n ∧ step_n n x y.
-  Proof.
-    induction 1 as [a b Hab|a b c Hab Hbc IH].
-    - exists 1. split; [lia|]. by exists b.
-    - destruct IH as (n & Hn & Hstep).
-      exists (S n). split; [lia|]. exists b. done.
-  Qed.
-
-  Lemma step_n_compose n m x y z :
-    step_n n x y → step_n m y z → step_n (n + m) x z.
-  Proof.
-    revert x. induction n as [|n IH]; intros x Hxy Hyz.
-    - simpl in Hxy. by subst y.
-    - simpl in Hxy. destruct Hxy as (u & Hxu & Huy).
-      simpl. exists u. split; [done|]. by apply IH.
-  Qed.
-
-  (* Extract a path of intermediate vertices realising step_n n x y. *)
-  Lemma step_n_path n x y :
-    step_n n x y →
-    ∃ l, length l = S n ∧
-         l !! 0 = Some x ∧ l !! n = Some y ∧
-         (∀ k, k < n → ∃ u v, l !! k = Some u ∧ l !! (S k) = Some v ∧ R u v).
-  Proof.
-    revert x. induction n as [|n IH]; intros x Hs.
-    - simpl in Hs. subst y. exists [x]. split_and!.
-      + done.
-      + done.
-      + done.
-      + intros k Hk. lia.
-    - simpl in Hs. destruct Hs as (z & Hxz & Hzy).
-      destruct (IH z Hzy) as (l & Hlen & Hh & Ht & HR).
-      exists (x :: l). split_and!.
-      + simpl. by f_equal.
-      + done.
-      + simpl. exact Ht.
-      + intros k Hk. destruct k as [|k'].
-        * exists x, z. split_and!.
-          -- done.
-          -- simpl. exact Hh.
-          -- exact Hxz.
-        * destruct (HR k' ltac:(lia)) as (u & v & Hu & Hv & Hr).
-          exists u, v. simpl. done.
-  Qed.
-
-  (* Extract a sub-step_n from a longer path: from position i to position j of
-     a list with R-edges between consecutive elements. *)
-  Lemma step_n_subpath (l : list A) i j x y :
-    i ≤ j →
-    l !! i = Some x →
-    l !! j = Some y →
-    (∀ k, i ≤ k < j → ∃ u v, l !! k = Some u ∧ l !! (S k) = Some v ∧ R u v) →
-    step_n (j - i) x y.
-  Proof.
-    intros Hij Hi Hj HR.
-    remember (j - i) as d eqn:Hd.
-    revert i j x y Hij Hi Hj HR Hd.
-    induction d as [|d IH]; intros i j x y Hij Hi Hj HR Hd.
-    - assert (i = j) by lia. subst j. rewrite Hj in Hi.
-      injection Hi as <-. by simpl.
-    - assert (i < j) by lia.
-      destruct (HR i ltac:(lia)) as (u & v & Hu & Hv & Hr).
-      rewrite Hi in Hu. injection Hu as <-.
-      simpl. exists v. split; first done.
-      apply (IH (S i) j v y); [lia | exact Hv | exact Hj | | lia].
-      intros k Hk. apply HR. lia.
-  Qed.
-
-  (* Pigeonhole-based shortening: a step_n path with n > |enum A| can be
+  (* Pigeonhole-based shortening: an nsteps path with n > |enum A| can be
      shortened to length ≥ 1 by pigeonholing on the first n vertices
      (positions 0..n-1), avoiding the potentially-degenerate (0, n) repeat. *)
-  Lemma step_n_shorten n x y :
+  Lemma nsteps_shorten n x y :
     1 ≤ n →
     length (enum A) < n →
-    step_n n x y →
-    ∃ k, 1 ≤ k < n ∧ step_n k x y.
+    nsteps R n x y →
+    ∃ k, 1 ≤ k < n ∧ nsteps R k x y.
   Proof.
     intros Hn1 Hgt Hs.
-    destruct (step_n_path n x y Hs) as (l & Hlen & Hh & Ht & HR).
+    apply nsteps_list in Hs as (l & Hlen & Hh & Ht & HR).
+    rewrite head_lookup in Hh. rewrite last_lookup, Hlen in Ht.
     (* Pigeonhole on the prefix of length n (positions 0..n-1). *)
     set (l' := take n l).
     assert (Hl'_len : length l' = n) by (subst l'; rewrite length_take; lia).
@@ -155,39 +75,37 @@ Section tc_dec.
     assert (Hi2 : l !! i2 = Some v).
     { subst l'. rewrite lookup_take_Some in Hi2'. tauto. }
     exists (i1 + (n - i2)). split; first lia.
-    assert (Hpart1 : step_n (i1 - 0) x v).
-    { apply (step_n_subpath l 0 i1 x v); [lia | exact Hh | exact Hi1 |].
-      intros k Hk. apply HR. lia. }
-    assert (Hpart1' : step_n i1 x v).
+    assert (Hpart1 : nsteps R (i1 - 0) x v).
+    { apply (nsteps_list_lookup l 0 i1 x v); [exact HR | lia | exact Hh | exact Hi1]. }
+    assert (Hpart1' : nsteps R i1 x v).
     { replace i1 with (i1 - 0) by lia. exact Hpart1. }
-    assert (Hpart2 : step_n (n - i2) v y).
-    { apply (step_n_subpath l i2 n v y); [lia | exact Hi2 | exact Ht |].
-      intros k Hk. apply HR. lia. }
-    by apply (step_n_compose i1 (n - i2) x v y).
+    assert (Hpart2 : nsteps R (n - i2) v y).
+    { apply (nsteps_list_lookup l i2 n v y); [exact HR | lia | exact Hi2 | exact Ht]. }
+    by apply (nsteps_trans i1 (n - i2) x v y).
   Qed.
 
   Lemma tc_iff_bounded_step x y :
-    tc R x y ↔ ∃ n, 1 ≤ n ∧ n ≤ length (enum A) ∧ step_n n x y.
+    tc R x y ↔ ∃ n, 1 ≤ n ∧ n ≤ length (enum A) ∧ nsteps R n x y.
   Proof.
-    split; last (intros (n & Hn & _ & Hs); by eapply step_n_then_tc).
-    intros Htc. apply tc_then_step_n in Htc as (n & Hn & Hs).
+    split; last (intros (n & Hn & _ & Hs); apply tc_nsteps; by exists n).
+    intros Htc. apply tc_nsteps in Htc as (n & Hn & Hs).
     revert x y Hn Hs. induction n as [n IH] using lt_wf_ind.
     intros x y Hn Hs.
     destruct (decide (n ≤ length (enum A))) as [Hle|Hgt]; first by exists n.
     assert (Hgt' : length (enum A) < n) by lia.
-    destruct (step_n_shorten n x y Hn Hgt' Hs) as (k & [Hk1 Hk_lt] & Hsk).
+    destruct (nsteps_shorten n x y Hn Hgt' Hs) as (k & [Hk1 Hk_lt] & Hsk).
     by apply (IH k Hk_lt x y Hk1 Hsk).
   Qed.
 
   Lemma tc_decidable x y : decidable (tc R x y).
   Proof.
     (* Decide via existence of a length-n path for n in [1, length (enum A)]. *)
-    assert (Hdec_bounded : decidable (∃ n, 1 ≤ n ∧ n ≤ length (enum A) ∧ step_n n x y)).
+    assert (Hdec_bounded : decidable (∃ n, 1 ≤ n ∧ n ≤ length (enum A) ∧ nsteps R n x y)).
     { induction (length (enum A)) as [|N IH].
       - right. intros (n & Hn & Hub & _). lia.
       - destruct IH as [(n & Hn & Hub & Hstep) | Hnone].
         + left. exists n. split_and!; [done | lia | done].
-        + destruct (step_n_dec (S N) x y) as [Hs|Hns].
+        + destruct (nsteps_dec (S N) x y) as [Hs|Hns].
           * left. exists (S N). split_and!; [lia | done | done].
           * right. intros (n & Hn & Hub & Hstep).
             destruct (decide (n ≤ N)) as [|Hgt].

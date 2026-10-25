@@ -37,48 +37,11 @@ Section def.
     | mcfg_step_ret mcfg τ v' :
       mcfg_step mcfg (mcfg ∩ {[ (_,π) | snd <$> (π !! τ) = Some (Some v') ]}) [(τ, Ret v')].
 
-  Inductive mcfg_steps: meta_config → meta_config → list (positive*trace) → Prop :=
-    | mcfg_steps_nil mcfg : mcfg_steps mcfg mcfg []
-    | mcfg_steps_cons mcfg0 mcfg1 ts1 mcfg2 ts2 :
-      mcfg_step  mcfg0 mcfg1 ts1 →
-      mcfg_steps mcfg1 mcfg2 ts2 →
-      mcfg_steps mcfg0 mcfg2 (ts1++ts2).
-
   Definition I_metaconfig ts : Prop :=
-    ∃ mcfg' s π, mcfg_steps mcfg_init mcfg' ts ∧ (s, π) ∈ mcfg'.
+    ∃ mcfg' s π, rtcL mcfg_step mcfg_init mcfg' ts ∧ (s, π) ∈ mcfg'.
 
-  Lemma mcfg_steps_singleton mcfg0 mcfg1 ts :
-    mcfg_step mcfg0 mcfg1 ts → mcfg_steps mcfg0 mcfg1 ts.
-  Proof.
-    intros H.
-    rewrite -(app_nil_r ts).
-    eapply mcfg_steps_cons; first exact H.
-    apply mcfg_steps_nil.
-  Qed.
-
-  Lemma mcfg_steps_app mcfg0 mcfg1 mcfg2 ts1 ts2 :
-    mcfg_steps mcfg0 mcfg1 ts1 →
-    mcfg_steps mcfg1 mcfg2 ts2 →
-    mcfg_steps mcfg0 mcfg2 (ts1 ++ ts2).
-  Proof.
-    intros H1 H2. revert mcfg2 ts2 H2.
-    induction H1 as [mcfg|mcfg0' mcfg1' ts1' mcfg2' ts2' Hstep H_rest IH];
-      intros mcfg2 ts2_outer H2.
-    - simpl. exact H2.
-    - rewrite -app_assoc.
-      eapply mcfg_steps_cons; first exact Hstep.
-      by apply IH.
-  Qed.
-
-  Lemma mcfg_steps_snoc mcfg0 mcfg1 mcfg2 ts1 ts2 :
-    mcfg_steps mcfg0 mcfg1 ts1 →
-    mcfg_step mcfg1 mcfg2 ts2 →
-    mcfg_steps mcfg0 mcfg2 (ts1 ++ ts2).
-  Proof.
-    intros H1 H2.
-    eapply mcfg_steps_app; first exact H1.
-    by apply mcfg_steps_singleton.
-  Qed.
+  Global Instance mcfg_step_option_relationL : OptionRelationL mcfg_step.
+  Proof. intros ??? []; simpl; lia. Qed.
 End def.
 
 Section lemmas.
@@ -313,13 +276,13 @@ Section lemmas.
   Lemma mcfg_steps_dom_in_trace M_init M_final
                                  (ts_init_tags : list positive)
                                  (ts_run : list (positive * trace)) :
-    mcfg_steps M_init M_final ts_run →
+    rtcL mcfg_step M_init M_final ts_run →
     (∀ s' π', (s', π') ∈ M_init → dom π' ⊆ list_to_set ts_init_tags) →
     ∀ s π, (s, π) ∈ M_final →
       dom π ⊆ list_to_set (ts_init_tags ++ ts_run.*1).
   Proof.
     intros Hsteps. revert ts_init_tags.
-    induction Hsteps as [M_x | M0 M1 ts_a M2 ts_b Hstep Hsteps IH];
+    induction Hsteps as [M_x | M0 M1 M2 ts_a ts_b Hstep Hsteps IH];
       intros ts_init_tags Hpre s π Hin.
     - rewrite fmap_nil app_nil_r. by eapply Hpre.
     - rewrite fmap_app app_assoc.
@@ -331,7 +294,7 @@ Section lemmas.
 
   (** Specialized form: from mcfg_init, dom is bounded by trace tags. *)
   Lemma mcfg_steps_dom_init M_f ts s π :
-    mcfg_steps mcfg_init M_f ts → (s, π) ∈ M_f →
+    rtcL mcfg_step mcfg_init M_f ts → (s, π) ∈ M_f →
     dom π ⊆ list_to_set ts.*1.
   Proof.
     intros Hsteps Hin.
@@ -353,17 +316,17 @@ Section lemmas.
   Lemma trace_linearizable_witness ts' s :
     call_valid (filter (not ∘ is_lin ∘ snd) ts') →
     per_tag_linearized ts' →
-    linearized_sound (filter (is_lin ∘ snd) ts') s_init s →
-    ∃ M, mcfg_steps mcfg_init M (filter (not ∘ is_lin ∘ snd) ts') ∧
+    rtcL model_step s_init s (filter (is_lin ∘ snd) ts') →
+    ∃ M, rtcL mcfg_step mcfg_init M (filter (not ∘ is_lin ∘ snd) ts') ∧
          (s, proc_status_of_trace ts') ∈ M.
   Proof.
     revert s.
     induction ts' as [|t ts' IH] using rev_ind; intros s Hcv Hpt Hls.
     - rewrite filter_nil proc_status_of_trace_nil.
       rewrite filter_nil in Hls.
-      apply linearized_sound_nil_inv in Hls as <-.
+      apply rtcL_nil_inv in Hls as <-.
       exists ({[ (s_init, ∅ : gmap positive proc_status) ]}).
-      split; first apply mcfg_steps_nil.
+      split; first apply rtcL_refl.
       apply elem_of_singleton. reflexivity.
     - destruct t as [τ tr].
       destruct tr as [n v|n v v'|v'].
@@ -384,7 +347,7 @@ Section lemmas.
         rewrite filter_nil.
         exists ((λ '(s_x, π_x), (s_x, <[τ:=(n, v, None)]> π_x)) <$> M_pre).
         split.
-        * eapply mcfg_steps_snoc; first exact Hsteps_pre.
+        * eapply rtcL_r; first exact Hsteps_pre.
           apply (mcfg_step_call _ τ n v); last done.
           (* dom-fresh: every config in M_pre has τ ∉ dom π. Follows
              from [filter (λ t, t.1 = τ) ts' = []] and the domain bound. *)
@@ -409,7 +372,7 @@ Section lemmas.
         rewrite filter_nil app_nil_r in Hcv.
         rewrite filter_app filter_cons_True in Hls; last done.
         rewrite filter_nil in Hls.
-        apply linearized_sound_snoc_inv in Hls as (s_mid & Hls_pre & Hvr & Hrr).
+        apply rtcL_snoc_inv in Hls as (s_mid & Hls_pre & [Hvr Hrr]%model_step_inv).
         assert (Hpt_pre : per_tag_linearized ts')
           by (by eapply per_tag_linearized_snoc).
         assert (Hτ_call : filter (λ t, t.1 = τ) ts' = [(τ, Call n v)])
@@ -423,7 +386,7 @@ Section lemmas.
           by apply app_nil_r.
         exists ({[ (s, <[τ:=(n, v, Some v')]> (proc_status_of_trace ts')) ]} ∪ M_pre).
         split.
-        * eapply mcfg_steps_snoc; first exact Hsteps_pre.
+        * eapply rtcL_r; first exact Hsteps_pre.
           apply (mcfg_step_interm _ s_mid (proc_status_of_trace ts') τ n v s v').
           -- exact Hin_pre.
           -- by apply proc_status_of_trace_lookup_pending.
@@ -447,7 +410,7 @@ Section lemmas.
         rewrite filter_nil.
         exists (M_pre ∩ {[ (_, π) | snd <$> (π !! τ) = Some (Some v') ]}).
         split.
-        * eapply mcfg_steps_snoc; first exact Hsteps_pre.
+        * eapply rtcL_r; first exact Hsteps_pre.
           apply (mcfg_step_ret _ τ v').
         * rewrite proc_status_of_trace_snoc_ret.
           apply elem_of_intersection. split; first exact Hin_pre.
@@ -487,7 +450,7 @@ Section lemmas.
         ts = filter (not ∘ is_lin ∘ snd) ts'
       ∧ call_valid ts
       ∧ per_tag_linearized ts'
-      ∧ linearized_sound (filter (is_lin ∘ snd) ts') s_init s
+      ∧ rtcL model_step s_init s (filter (is_lin ∘ snd) ts')
       ∧ config_consistent π ts'.
 
   (** Per-tag wellformed is preserved under prefixes. *)
@@ -511,7 +474,7 @@ Section lemmas.
     - rewrite filter_nil //.
     - rewrite /call_valid //.
     - apply per_tag_linearized_nil.
-    - rewrite filter_nil. apply linearized_sound_nil.
+    - rewrite filter_nil. apply rtcL_refl.
     - intros τ. rewrite lookup_empty. by rewrite filter_nil.
   Qed.
 
@@ -617,7 +580,7 @@ Section lemmas.
           { rewrite filter_nil app_nil_r. exists v_a, v_b. exact Hprefix. }
       + rewrite filter_app filter_cons_True; last done.
         rewrite filter_nil.
-        eapply linearized_sound_snoc; [exact Hls | exact Hvr | exact Hrr].
+        eapply rtcL_r; [|constructor]; [exact Hls | exact Hvr | exact Hrr].
       + intros τ_x. destruct (decide (τ = τ_x)) as [-> | Hne].
         * rewrite lookup_insert_eq.
           rewrite filter_app filter_cons. case_decide as Hd; last by exfalso.
@@ -695,13 +658,13 @@ Section lemmas.
   (** Generalized preservation under mcfg_steps. *)
   Lemma has_witness_steps mcfg_pre mcfg ts_pre ts_step :
     has_witness mcfg_pre ts_pre →
-    mcfg_steps mcfg_pre mcfg ts_step →
+    rtcL mcfg_step mcfg_pre mcfg ts_step →
     per_tag_wellformed (ts_pre ++ ts_step) →
     has_witness mcfg (ts_pre ++ ts_step).
   Proof.
     intros HW Hsteps.
     revert ts_pre HW.
-    induction Hsteps as [mcfg | mcfg0 mcfg1 ts1 mcfg2 ts2 Hstep _ IH];
+    induction Hsteps as [mcfg | mcfg0 mcfg1 mcfg2 ts1 ts2 Hstep _ IH];
       intros ts_pre HW Hpw.
     - rewrite right_id_L. exact HW.
     - rewrite app_assoc in Hpw |- *.

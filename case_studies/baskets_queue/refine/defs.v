@@ -173,13 +173,13 @@ Definition bq_valid_value : val → Prop :=
   λ v, val_is_unboxed (SOMEV v).
 
 Definition I_lang_bq (ts : list (positive * trace)) : Prop :=
-  ∃ s ls, absq_steps MayEmpty bq_valid_value absq_init ls s ∧
+  ∃ s ls, rtcL (absq_step MayEmpty bq_valid_value) absq_init s ls ∧
           ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls).
 
 Lemma I_lang_bq_init : I_lang_bq [].
 Proof.
   exists absq_init, []. split.
-  - apply lts_steps_nil.
+  - apply rtcL_refl.
   - by rewrite /trace_of_absq_labels /= filter_nil.
 Qed.
 
@@ -382,19 +382,19 @@ Proof.
     rewrite lookup_cons lookup_nil in Hlu. discriminate.
 Qed.
 
-(** Iterated [absq_wf_step] over [absq_steps]: every state reachable
+(** Iterated [absq_wf_step] over [rtcL absq_step]: every state reachable
     from a wellformed one is itself wellformed. *)
 Lemma absq_wf_steps (rme : response_mayempty) (valid_value : val → Prop) (s0 : absq_state) ls s :
-  absq_steps rme valid_value s0 ls s → absq_wf valid_value s0 → absq_wf valid_value s.
+  rtcL (absq_step rme valid_value) s0 s ls → absq_wf valid_value s0 → absq_wf valid_value s.
 Proof.
   induction 1 as [|s0' s1' s2' l' ls' Hstep Hrest IH]; auto.
   intros Hwf0. apply IH. by eapply absq_wf_step.
 Qed.
 
-(** [absq_steps] preserves [τ ∈ dom absq_cp] (CALL-* only adds, never
+(** [rtcL absq_step] preserves [τ ∈ dom absq_cp] (CALL-* only adds, never
     removes; RET-* / LIN-* only update existing entries). *)
 Lemma absq_steps_cp_mono (rme : response_mayempty) (valid_value : val → Prop) (s0 : absq_state) ls s :
-  absq_steps rme valid_value s0 ls s → dom s0.(absq_cp) ⊆ dom s.(absq_cp).
+  rtcL (absq_step rme valid_value) s0 s ls → dom s0.(absq_cp) ⊆ dom s.(absq_cp).
 Proof.
   induction 1 as [|s0' s1' s2' l' ls' Hstep Hrest IH]; first done.
   etrans; [|exact IH]. clear IH Hrest.
@@ -414,7 +414,7 @@ Qed.
     Combined with [absq_steps_cp_mono] (so [τ ∈ dom absq_cp] persists
     along the trajectory), this proves that [τ ∉ absq_O] is sticky. *)
 Lemma absq_steps_O_sticky (rme : response_mayempty) (valid_value : val → Prop) (s0 : absq_state) ls s τ :
-  absq_steps rme valid_value s0 ls s →
+  rtcL (absq_step rme valid_value) s0 s ls →
   τ ∈ dom s0.(absq_cp) →
   τ ∉ s0.(absq_O) →
   τ ∉ s.(absq_O).
@@ -451,7 +451,7 @@ Qed.
     needs to invert [o ∈ O] into [∃ d f, absq_l !! o = Some (d, f)] so
     the case split on [f] can rule out [COMP] via the chain shape. *)
 Lemma absq_steps_O_in_l (rme : response_mayempty) (valid_value : val → Prop) (s0 : absq_state) ls s :
-  absq_steps rme valid_value s0 ls s →
+  rtcL (absq_step rme valid_value) s0 s ls →
   s0.(absq_O) ⊆ dom s0.(absq_l) →
   s.(absq_O) ⊆ dom s.(absq_l).
 Proof.
@@ -994,7 +994,7 @@ Section bq_skeleton.
       own γ_ls (●ML (ls : list (leibnizO (positive * absq_action)))) ∗
       own γ_w (● to_witnessmap witness_map) ∗
       own γ_w (◯ to_witnessmap witness_map) ∗
-      ⌜absq_steps MayEmpty valid_value absq_init ls s⌝ ∗
+      ⌜rtcL (absq_step MayEmpty valid_value) absq_init s ls⌝ ∗
       ⌜ts = filter (not ∘ is_lin ∘ snd) (trace_of_absq_labels ls)⌝ ∗
       ⌜bq_sim valid_value nodes del_pref head_val tail_val s op_map node_map ts⌝ ∗
       ⌜nodes !! 0%nat = Some (dummy_loc, None, #())⌝ ∗

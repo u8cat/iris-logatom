@@ -50,7 +50,7 @@ Section init_spec.
       iPureIntro. split_and!.
       - by rewrite length_replicate.
       - lia.
-      - rewrite set_to_propset_singleton. apply mcfg_steps_nil.
+      - rewrite set_to_propset_singleton. apply rtcL_refl.
       - by apply non_empty_singleton_L.
       - intros τ. exists Push, #(), #(). rewrite filter_nil. apply prefix_nil.
       - intros τ. rewrite lookup_empty.

@@ -91,8 +91,7 @@ Section bq_skeleton_deq_trace.
       exists (AbsQState O_t lt_t ℓ_t rv_t (<[τ := R3]> cp_t)),
              (ls_t ++ [(τ, ARetDeq v_dq)]).
       split.
-      - eapply lts_steps_app; [exact Hsteps_t|].
-        eapply lts_steps_cons; [|apply lts_steps_nil].
+      - eapply rtcL_r; [exact Hsteps_t|].
         by apply absq_step_ret_deq.
       - rewrite Hts_eq_t /trace_of_absq_labels map_app /= filter_app.
         rewrite filter_cons_True; [done|]. by compute. }
@@ -136,8 +135,7 @@ Section bq_skeleton_deq_trace.
       rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R2)).
       iFrame "Hauth_calls_t".
       iPureIntro. split_and!.
-      - eapply lts_steps_app; [exact Hsteps_t|].
-        eapply lts_steps_cons; [|apply lts_steps_nil].
+      - eapply rtcL_r; [exact Hsteps_t|].
         by apply absq_step_ret_deq.
       - rewrite Hts_eq_t /trace_of_absq_labels map_app /= filter_app.
         rewrite filter_cons_True; [done|]. by compute.

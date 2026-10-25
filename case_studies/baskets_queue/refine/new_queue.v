@@ -90,7 +90,7 @@ Section bq_skeleton_new_queue.
       { rewrite /bq_chain /=.
         rewrite /next_value_of /mark_at /succ_at /=. iFrame. }
       iPureIntro. split_and!.
-      - apply lts_steps_nil.
+      - apply rtcL_refl.
       - by rewrite /trace_of_absq_labels /= filter_nil.
       - apply bq_sim_init.
       - reflexivity.

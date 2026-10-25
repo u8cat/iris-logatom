@@ -115,7 +115,7 @@ Section absq_step.
     Dequeue results are encoded as options ([SOMEV d] for non-empty,
     [NONEV] for empty) so that the abstract machine matches the
     [bag_like.queue_model] convention without a separate sentinel. *)
-  Inductive absq_step : absq_state → positive * absq_action → absq_state → Prop :=
+  Inductive absq_step : relationL absq_state (positive * absq_action) :=
     (* [CALL-ENQ]: an enqueue of value [d] (satisfying [valid_value]) is
       invoked with a fresh identifier [k] and ordered after every
       completed enqueue. *)
@@ -123,44 +123,44 @@ Section absq_step.
       k ∉ dom cp → valid_value d →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ACallEnq d)
         (AbsQState
           (O ∪ {[k]})
           (lt ∪ set_map (λ k', (k', k)) (absq_COMP O ℓ))
           (<[k := (d, PEND)]> ℓ)
           rv
           (<[k := A1]> cp))
+        [(k, ACallEnq d)]
     (* [CALL-DEQ]: a dequeue is invoked with a fresh identifier [k]. *)
     | absq_step_call_deq O lt ℓ rv cp k :
       k ∉ dom cp →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ACallDeq)
         (AbsQState O lt ℓ rv (<[k := R1]> cp))
+        [(k, ACallDeq)]
     (* [RET-ENQ1]: an enqueue whose value is still present in the queue
       transitions from pending to completed. *)
     | absq_step_ret_enq1 O lt ℓ rv cp k d :
       cp !! k = Some A1 → k ∈ O → ℓ !! k = Some (d, PEND) →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ARetEnq)
         (AbsQState O lt (<[k := (d, COMP)]> ℓ) rv (<[k := A2]> cp))
+        [(k, ARetEnq)]
     (* [RET-ENQ2]: an enqueue whose value has already been removed by a
       dequeue simply advances its control point. *)
     | absq_step_ret_enq2 O lt ℓ rv cp k :
       cp !! k = Some A1 → k ∉ O →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ARetEnq)
         (AbsQState O lt ℓ rv (<[k := A2]> cp))
+        [(k, ARetEnq)]
     (* [RET-DEQ]: a dequeue returns the value fixed at its linearization
       point. *)
     | absq_step_ret_deq O lt ℓ rv cp k v :
       cp !! k = Some R2 → rv !! k = Some v →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ARetDeq v)
         (AbsQState O lt ℓ rv (<[k := R3]> cp))
+        [(k, ARetDeq v)]
     (* [LIN-DEQ1]: the linearization point of a non-empty dequeue is enabled
       when its return value [d] was added by a minimal enqueue [k']; the
       enqueue [k'] is then removed from the current state and every
@@ -171,9 +171,9 @@ Section absq_step.
       k' ∈ absq_min O lt → ℓ !! k' = Some (d, f) →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ALinDeq (SOMEV d))
         (AbsQState (O ∖ {[k']}) (absq_remove lt k') ℓ
           (<[k := SOMEV d]> rv) (<[k := R2]> cp))
+        [(k, ALinDeq (SOMEV d))]
     (* [LIN-DEQ2]: the linearization point of an empty-queue dequeue is
       enabled when every enqueue in the current state is still pending. The
       dequeue records [NONEV] as its option-encoded return value. Only
@@ -186,12 +186,11 @@ Section absq_step.
       (∀ o, o ∈ O → ∃ d, ℓ !! o = Some (d, PEND)) →
       absq_step
         (AbsQState O lt ℓ rv cp)
-        (k, ALinDeq NONEV)
-        (AbsQState O lt ℓ (<[k := NONEV]> rv) (<[k := R2]> cp)).
+        (AbsQState O lt ℓ (<[k := NONEV]> rv) (<[k := R2]> cp))
+        [(k, ALinDeq NONEV)].
 
-  (** Reflexive-transitive closure of [absq_step]. *)
-  Definition absq_steps : absq_state → list (positive * absq_action) → absq_state → Prop :=
-    lts_steps absq_step.
+  Global Instance absq_step_singleton_relationL : SingletonRelationL absq_step.
+  Proof. by intros ??? []. Qed.
 End absq_step.
 
 (* ========================================== *)
@@ -243,15 +242,15 @@ Section absq0_step.
     [absq0_step_lin_deq2] (empty queue). Dequeue results are
     option-encoded as [SOMEV d]/[NONEV] to match
     [bag_like.queue_model]. *)
-  Inductive absq0_step : absq0_state → positive * absq_action → absq0_state → Prop :=
+  Inductive absq0_step : relationL absq0_state (positive * absq_action) :=
     (* [CALL-ENQ]: an enqueue of value [d] is invoked with a fresh
       identifier [k]; [d] is recorded as the input value of [k]. *)
     | absq0_step_call_enq σ in0 rv0 cp0 k d :
       k ∉ dom cp0 → valid_value d →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ACallEnq d)
         (AbsQ0State σ (<[k := d]> in0) rv0 (<[k := A1]> cp0))
+        [(k, ACallEnq d)]
     (* [LIN-ENQ]: the linearization point of an enqueue [k] appends the
       tagged value [(k, d)] to the sequence [σ]. The paper's Figure 8
       rule leaves [d] formally unconstrained; we tighten it to require
@@ -264,23 +263,23 @@ Section absq0_step.
       valid_value d →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ALinEnq d)
         (AbsQ0State (σ ++ [(k, d)]) in0 rv0 (<[k := A]> cp0))
+        [(k, ALinEnq d)]
     (* [RET-ENQ]: an enqueue that has been linearized advances to its
       return control point. *)
     | absq0_step_ret_enq σ in0 rv0 cp0 k :
       cp0 !! k = Some A →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ARetEnq)
         (AbsQ0State σ in0 rv0 (<[k := A2]> cp0))
+        [(k, ARetEnq)]
     (* [CALL-DEQ]: a dequeue is invoked with a fresh identifier [k]. *)
     | absq0_step_call_deq σ in0 rv0 cp0 k :
       k ∉ dom cp0 →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ACallDeq)
         (AbsQ0State σ in0 rv0 (<[k := R1]> cp0))
+        [(k, ACallDeq)]
     (* [LIN-DEQ1]: the linearization point of a non-empty dequeue [k]
       removes the head element [(k_e, d)] from the sequence
       [σ = (k_e, d) :: σ'] and records [SOMEV d] as the return value
@@ -291,8 +290,8 @@ Section absq0_step.
       cp0 !! k = Some R1 → σ = (k_e, d) :: σ' →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ALinDeq (SOMEV d))
         (AbsQ0State σ' in0 (<[k := SOMEV d]> rv0) (<[k := R2]> cp0))
+        [(k, ALinDeq (SOMEV d))]
     (* [LIN-DEQ2]: the linearization point of a dequeue on an empty
       sequence records [NONEV] as its return value. Only available
       when [rme = MayEmpty] (encoded via the [if rme then True else
@@ -302,18 +301,17 @@ Section absq0_step.
       cp0 !! k = Some R1 →
       absq0_step
         (AbsQ0State [] in0 rv0 cp0)
-        (k, ALinDeq NONEV)
         (AbsQ0State [] in0 (<[k := NONEV]> rv0) (<[k := R2]> cp0))
+        [(k, ALinDeq NONEV)]
     (* [RET-DEQ]: a dequeue returns the value fixed at its linearization
       point. *)
     | absq0_step_ret_deq σ in0 rv0 cp0 k v :
       cp0 !! k = Some R2 → rv0 !! k = Some v →
       absq0_step
         (AbsQ0State σ in0 rv0 cp0)
-        (k, ARetDeq v)
-        (AbsQ0State σ in0 rv0 (<[k := R3]> cp0)).
+        (AbsQ0State σ in0 rv0 (<[k := R3]> cp0))
+        [(k, ARetDeq v)].
 
-  (** Reflexive-transitive closure of [absq0_step]. *)
-  Definition absq0_steps : absq0_state → list (positive * absq_action) → absq0_state → Prop :=
-    lts_steps absq0_step.
+  Global Instance absq0_step_singleton_relationL : SingletonRelationL absq0_step.
+  Proof. by intros ??? []. Qed.
 End absq0_step.

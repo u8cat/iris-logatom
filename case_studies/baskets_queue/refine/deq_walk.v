@@ -570,8 +570,7 @@ Section bq_skeleton_deq_walk.
             rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R1_pre)).
             iFrame "Hauth_calls_b".
             iPureIntro. split_and!.
-            - eapply lts_steps_app; [exact Hsteps_b|].
-              eapply lts_steps_cons; [|apply lts_steps_nil].
+            - eapply rtcL_r; [exact Hsteps_b|].
               apply absq_step_lin_deq1 with (f := f_succ_b);
                 [exact Hcp_τ_R1_pre|exact Hτ_succ_min|exact Hℓ_τ_succ_b].
             - rewrite Hts_eq_b /trace_of_absq_labels map_app /= filter_app.
@@ -1205,8 +1204,7 @@ Section bq_skeleton_deq_walk.
           rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_R1_pre)).
           iFrame "Hauth_calls_n".
           iPureIntro. split_and!.
-          - eapply lts_steps_app; [exact Hsteps_n|].
-            eapply lts_steps_cons; [|apply lts_steps_nil].
+          - eapply rtcL_r; [exact Hsteps_n|].
             apply absq_step_lin_deq2; [done|exact Hcp_τ_R1_pre|exact HallPend].
           - rewrite Hts_eq_n /trace_of_absq_labels map_app /= filter_app.
             rewrite filter_cons_False; [by rewrite app_nil_r|].

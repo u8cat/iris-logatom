@@ -119,7 +119,6 @@ Section adequacy.
   Context (valid_requests : list (val → Prop)).
 
   Notation adv_step := (adv_step ops obj valid_requests).
-  Notation adv_steps := (adv_steps ops obj valid_requests).
 
   (* Simulated steps.
     Thread pool:
@@ -215,7 +214,7 @@ Section adequacy.
     Qed.
 
     Lemma adv_steps_composable_state σ σ' pendingOp pendingOp' childThread childThread' ts :
-      adv_steps (Config pendingOp childThread σ) (Config pendingOp' childThread' σ') ts →
+      rtcL adv_step (Config pendingOp childThread σ) (Config pendingOp' childThread' σ') ts →
       composable_state σ' → composable_state σ.
     Proof.
       intros Hadv_steps Htracer_σ'.
@@ -621,7 +620,7 @@ Section adequacy.
       indirection, no index list [M].  The fixed background thread sits
       at index 1, just after [trace_peak #tracer]. *)
     Lemma mgc_match_adv_steps_ind σ σ' pendingOp pendingOp' childThread childThread' ts0 ts :
-      adv_steps (Config pendingOp childThread σ) (Config pendingOp' childThread' σ') ts →
+      rtcL adv_step (Config pendingOp childThread σ) (Config pendingOp' childThread' σ') ts →
       (list_to_set pendingOp.*1 : gset positive) = list_to_set (ts0.*1) →
       composable_state σ' →
       rtc erased_step
@@ -704,7 +703,7 @@ Section adequacy.
 
   Lemma mgc_match_adv_steps σ config' ts (tracer : loc) :
     {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (config'.(config_state).(heap)) →
-    adv_steps (Config [] [] σ) config' ts →
+    rtcL adv_step (Config [] [] σ) config' ts →
     rtc erased_step
       ([mgc_of_trace tracer ts (encode_val ops) obj;
         nondet_bool_prealloc_bg #(tracer +ₗ 2)],
@@ -755,7 +754,7 @@ Section requisteness.
   Definition I_adv ts :=
     ∃ obj efs σ config',
       rtc erased_step ([init],σ₀) (Val obj::efs,σ)
-    ∧ adv_steps ops obj valid_reqs (Config [] [] σ) config' ts.
+    ∧ rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts.
 
   Definition advN := nroot .@ "iris_logatom.heap_lang.mgc.adv".
 
@@ -1060,7 +1059,7 @@ Section requisteness.
         trace_is tracer ts ∗
         own_state config'.(config_state) ∗
         ⌜rtc erased_step ([init], σ₀) (Val obj :: efs, σ)⌝ ∗
-        ⌜adv_steps ops obj valid_reqs (Config [] [] σ) config' ts⌝ ∗
+        ⌜rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts⌝ ∗
         ghost_map_auth γ_pending 1
           (list_to_map (pendingOp_active config'.(config_pendingOp)) : gmap positive expr) ∗
         ghost_map_auth γ_child 1
@@ -1076,7 +1075,7 @@ Section requisteness.
   |}.
 
   (** Tag-set inclusion: any τ in [config_pendingOp]'s tag list is also
-      in the trace's tag list. Proved by induction on [adv_steps]. *)
+      in the trace's tag list. Proved by induction on [rtcL adv_step]. *)
   Local Lemma adv_step_pendingOp_tag_in_trace obj π efs σ π' efs' σ' ts :
     adv_step ops obj valid_reqs (Config π efs σ) (Config π' efs' σ') ts →
     list_to_set π'.*1 ⊆@{gset positive} list_to_set π.*1 ∪ list_to_set ts.*1.
@@ -1088,7 +1087,7 @@ Section requisteness.
 
   Local Lemma adv_steps_pendingOp_tag_in_trace
         obj (config0 config' : configuration) ts :
-    adv_steps ops obj valid_reqs config0 config' ts →
+    rtcL (adv_step ops obj valid_reqs) config0 config' ts →
     list_to_set config'.(config_pendingOp).*1 ⊆@{gset positive}
       list_to_set config0.(config_pendingOp).*1 ∪ list_to_set ts.*1.
   Proof.
@@ -1145,7 +1144,7 @@ Section requisteness.
   Qed.
 
   Local Lemma adv_steps_nodup obj config0 config' ts :
-    adv_steps ops obj valid_reqs config0 config' ts →
+    rtcL (adv_step ops obj valid_reqs) config0 config' ts →
     NoDup config0.(config_pendingOp).*1 →
     NoDup config'.(config_pendingOp).*1.
   Proof.
@@ -1196,7 +1195,7 @@ Section requisteness.
            pendingOp_active child_indexed list_to_map fmap].
       iFrame "Hmeta Hti Hown_state".
       iSplit; first done.
-      iSplit; first by iPureIntro; apply adv_steps_nil.
+      iSplit; first by iPureIntro; apply rtcL_refl.
       iFrame "Hp● Hc●".
     Qed.
 
@@ -1271,7 +1270,7 @@ Section requisteness.
       (∀ σ, sequential init σ) →
       (∀ obj' σ_init σ config' ts,
         rtc erased_step ([init], σ_init) ([Val obj'], σ) →
-        adv_steps ops obj' valid_reqs (Config [] [] σ) config' ts →
+        rtcL (adv_step ops obj' valid_reqs) (Config [] [] σ) config' ts →
         config_not_stuck config') →
       ∀ γ γ_pending γ_child obj l (i : nat) e,
         adv_inv l γ obj -∗
@@ -1341,9 +1340,7 @@ Section requisteness.
           iSplit; first done.
           iSplit.
           { iPureIntro. rewrite -(right_id_L [] (++) ts).
-            eapply adv_steps_app; first exact Hadv_steps.
-            rewrite -(app_nil_r []).
-            eapply adv_steps_cons; last apply adv_steps_nil.
+            eapply rtcL_r; first exact Hadv_steps.
             by eapply adv_step_child. }
           replace (efs1 ++ K (Val v2) :: efs2 ++ efs')
             with ((efs1 ++ K (Val v2) :: efs2) ++ efs')
@@ -1398,9 +1395,7 @@ Section requisteness.
           iSplit; first done.
           iSplit.
           { iPureIntro. rewrite -(right_id_L [] (++) ts2).
-            eapply adv_steps_app; first exact Hadv_steps2.
-            rewrite -(app_nil_r []).
-            eapply adv_steps_cons; last apply adv_steps_nil.
+            eapply rtcL_r; first exact Hadv_steps2.
             by eapply adv_step_child. }
           replace (efs1b ++ e2 :: efs2b ++ efs_new)
             with ((efs1b ++ e2 :: efs2b) ++ efs_new)
@@ -1421,7 +1416,7 @@ Section requisteness.
         Phase 1 — [trace_fresh #l (InjL (#n, req))]: at the linearization point,
         open [adv_inv γ obj l] to access [trace_is l ts] and the abstract
         [config']. Pick a fresh [τ ∉ ts.*1] and use [adv_step_call] (with
-        [Hvalid_req req]) to extend [adv_steps] to [ts ++ [(τ, Call n req)]],
+        [Hvalid_req req]) to extend [rtcL adv_step] to [ts ++ [(τ, Call n req)]],
         producing the new pending op [(τ, Some (ops!!!n obj req))].
         Allocate [τ ↪[γ_pending] (ops!!!n obj req)] and re-close.
 
@@ -1443,7 +1438,7 @@ Section requisteness.
       (∀ σ, sequential init σ) →
       (∀ obj' σ_init σ config' ts,
         rtc erased_step ([init], σ_init) ([Val obj'], σ) →
-        adv_steps ops obj' valid_reqs (Config [] [] σ) config' ts →
+        rtcL (adv_step ops obj' valid_reqs) (Config [] [] σ) config' ts →
         config_not_stuck config') →
       call_ret_wrapper_spec_type adv_repr MaybeStuck valid_reqs ops.
     Proof.
@@ -1478,9 +1473,7 @@ Section requisteness.
         exists obj, efs, σ,
           (Config (π_old ++ [(τ, Some ((ops!!!n: val) obj req))]) child_old σ_old).
         split; first exact Hrtc.
-        eapply adv_steps_app; first exact Hadv_steps.
-        rewrite -[ [(τ, Call n req)] ]app_nil_r.
-        eapply adv_steps_cons; last apply adv_steps_nil.
+        eapply rtcL_r; first exact Hadv_steps.
         apply adv_step_call; last exact Hvalid_req.
         intros Hin_π. by apply Hfresh, Htag_in_ts. }
       iSplit.
@@ -1506,9 +1499,7 @@ Section requisteness.
         iFrame "Hmeta_in Htrace_new Hown_state".
         iSplit; first done.
         iSplit.
-        { iPureIntro. eapply adv_steps_app; first exact Hadv_steps.
-          rewrite -[ [(τ, Call n req)] ]app_nil_r.
-          eapply adv_steps_cons; last apply adv_steps_nil.
+        { iPureIntro. eapply rtcL_r; first exact Hadv_steps.
           apply adv_step_call; last exact Hvalid_req. exact Hτ_notin_πold. }
         rewrite pendingOp_active_snoc_Some list_to_map_snoc;
           last by apply not_elem_of_pendingOp_active_fmap.
@@ -1620,9 +1611,7 @@ Section requisteness.
             iSplit; first done.
             iSplit.
             { iPureIntro. rewrite -(right_id_L [] (++) ts').
-              eapply adv_steps_app; first exact Hadv_steps'.
-              rewrite -(app_nil_r []).
-              eapply adv_steps_cons; last apply adv_steps_nil.
+              eapply rtcL_r; first exact Hadv_steps'.
               by eapply adv_step_intermediate. }
             rewrite child_indexed_app_imap.
             rewrite list_to_map_app.
@@ -1706,9 +1695,7 @@ Section requisteness.
             iSplit; first done.
             iSplit.
             { iPureIntro. rewrite -(right_id_L [] (++) ts2).
-              eapply adv_steps_app; first exact Hadv_steps2.
-              rewrite -(app_nil_r []).
-              eapply adv_steps_cons; last apply adv_steps_nil.
+              eapply rtcL_r; first exact Hadv_steps2.
               by eapply adv_step_intermediate. }
             rewrite child_indexed_app_imap.
             rewrite list_to_map_app.
@@ -1747,9 +1734,7 @@ Section requisteness.
         red. exists obj, efs', σ',
           (Config (π1 ++ (τ, None) :: π2) child_now σ_now).
         split; first exact Hrtc'.
-        eapply adv_steps_app; first exact Hadv_steps'.
-        rewrite -[ [(τ, Ret v)] ]app_nil_r.
-        eapply adv_steps_cons; last apply adv_steps_nil.
+        eapply rtcL_r; first exact Hadv_steps'.
         apply adv_step_return. }
       iSplit.
       { (* Abort branch — for [trace_emit_spec] this never fires (it's
@@ -1794,9 +1779,7 @@ Section requisteness.
         iFrame "Hmeta_in Htrace_new Hown_state".
         iSplit; first done.
         iSplit.
-        { iPureIntro. eapply adv_steps_app; first exact Hadv_steps'.
-          rewrite -[ [(τ, Ret v)] ]app_nil_r.
-          eapply adv_steps_cons; last apply adv_steps_nil.
+        { iPureIntro. eapply rtcL_r; first exact Hadv_steps'.
           apply adv_step_return. }
         replace (list_to_map (pendingOp_active (π1 ++ (τ, None) :: π2))
                   : gmap positive expr)
@@ -2095,7 +2078,7 @@ Section requisteness.
     (∀ σ, adequate NotStuck init σ (λ _ _, True)) →
     (∀ obj σ₀ σ config' ts,
       rtc erased_step ([init], σ₀) ([Val obj], σ) →
-      adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
+      rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts →
       config_not_stuck config') →
     Forall (λ x, if x.2 is Call n req then default default_vr (valid_reqs!!n) req else True) ts₀ →
     {[tracer; tracer +ₗ 1; tracer +ₗ 2]} ## dom (σ₀.(heap)) →
@@ -2105,7 +2088,7 @@ Section requisteness.
                     (Val v::other_ts', σ') →
     ∃ ts, v = encode_trace ts ∧ ∃ obj efs σ config',
         rtc erased_step ([init],σ₀) (Val obj::efs,σ)
-      ∧ adv_steps ops obj valid_reqs (Config [] [] σ) config' ts.
+      ∧ rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts.
   Proof.
     intros Hinit_nv Hseq_init Hadq_init Hadq_op Hvalid_req Hfresh Hsteps.
     set (φ := λ v, ∃ ts, v = encode_trace ts ∧ I_adv ts).
@@ -2133,7 +2116,7 @@ Section requisteness.
         as (σ_post & Hinit_σ₀).
       red.
       exists v_init, [], σ_post, (Config [] [] σ_post).
-      split; [exact Hinit_σ₀ | apply adv_steps_nil]. }
+      split; [exact Hinit_σ₀ | apply rtcL_refl]. }
     { iIntros (?) "Hhi Hti Ht Hls Hps".
       iApply (mgc_spec_gen (own_state σ₀) adv_repr MaybeStuck valid_reqs
               init ops tracer ts₀ Hvalid_req
@@ -2184,7 +2167,7 @@ Section free.
     (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
     rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
-    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
+    rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts →
     I_lang R ts ∧
     ∀ e2, e2 ∈ Val (encode_trace ts) ::
                 nondet_bool_prealloc_bg #(tracer +ₗ 2) ::
@@ -2269,7 +2252,7 @@ Section free.
     (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
     rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
-    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
+    rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts →
     I_lang R ts ∧
     let composed := compose_state tracer (config_state config') ts in
     Forall (λ '(_, oe), match oe with Some e => not_stuck e composed | None => True end)
@@ -2338,7 +2321,7 @@ Section free.
     (∀ `(!heapGS Σ), call_ret_wrapper_spec_type R NotStuck valid_reqs ops) →
     I_lang R [] →
     rtc erased_step ([init],σ₀) (Val obj::efs,σ) →
-    adv_steps ops obj valid_reqs (Config [] [] σ) config' ts →
+    rtcL (adv_step ops obj valid_reqs) (Config [] [] σ) config' ts →
     config_not_stuck config' ∧ I_lang R ts.
   Proof.
     intros Hinit_spec Hop_spec HIinit Hinit_steps Hop_steps.

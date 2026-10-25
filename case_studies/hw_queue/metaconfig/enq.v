@@ -30,7 +30,7 @@ Section proof.
                       <$> M' : @meta_config hwq_model)).
     exists M'_new, s, (<[τ:=(Push, v_push, None)]> π).
     split.
-    - eapply mcfg_steps_snoc; first exact Hsteps.
+    - eapply rtcL_r; first exact Hsteps.
       replace M'_new with ((λ '(s', π'), (s', <[τ:=(Push, v_push, None)]> π'))
                             <$> M').
       2: { unfold M'_new. apply leibniz_equiv. intros [s_x π_x].
@@ -52,7 +52,7 @@ Section proof.
     I_lang_hwq ts →
     filter (λ t, t.1 = τ) ts = [(τ, Call Push v_push)] →
     (∃ (M_full : @meta_config hwq_model) s π,
-        mcfg_steps mcfg_init M_full ts ∧ (s, π) ∈ M_full ∧
+        rtcL mcfg_step mcfg_init M_full ts ∧ (s, π) ∈ M_full ∧
         π !! τ = Some (Push, v_push, Some #())) →
     I_lang_hwq (ts ++ [(τ, Ret #())]).
   Proof.
@@ -64,7 +64,7 @@ Section proof.
         : @meta_config hwq_model).
       exists M_full_new, s, π.
       split.
-      + eapply mcfg_steps_snoc; first exact Hsteps.
+      + eapply rtcL_r; first exact Hsteps.
         apply (mcfg_step_ret M_full τ #()).
       + apply elem_of_intersection. split; first exact Hin.
         apply elem_of_PropSet. rewrite Hπτ /=. reflexivity.
@@ -207,15 +207,15 @@ Section proof.
       - exact Hlen.
       - exact Hbpos.
       - (* mcfg_steps: extend by mcfg_step_call. We need
-           mcfg_steps mcfg_init (set_to_propset M_g_new)
+           rtcL mcfg_step mcfg_init (set_to_propset M_g_new)
                       (ts ++ [(τ, Call ...)]).
-           From IH: mcfg_steps mcfg_init (set_to_propset M_g) ts.
+           From IH: rtcL mcfg_step mcfg_init (set_to_propset M_g) ts.
            The Call step transforms (set_to_propset M_g) by mapping each
            config to its τ-Call image. The result is
            (λ '(s, π), (s, <[τ:=...]> π)) <$> set_to_propset M_g, which is
            propset-EQUAL to set_to_propset M_g_new (since M_g_new is the
            gset image under the same map). Use gset_to_propset_set_map_call. *)
-        eapply mcfg_steps_snoc; first exact Hmcfg_steps.
+        eapply rtcL_r; first exact Hmcfg_steps.
         unfold M_g_new.
         rewrite <- gset_to_propset_set_map_call.
         apply (mcfg_step_call (set_to_propset M_g) τ Push v_push);
@@ -780,7 +780,7 @@ Section proof.
       - (* mcfg_steps: combine Hmcfg_steps2 with Hmcfg_steps_new. *)
         rewrite -HM_full_new2_eq.
         replace ts2 with (ts2 ++ ([] : list (positive*trace))) by apply app_nil_r.
-        eapply mcfg_steps_app; first exact Hmcfg_steps2.
+        eapply rtcL_trans; first exact Hmcfg_steps2.
         exact Hmcfg_steps_new.
       - (* M_g_new2 ≠ ∅: M_g_new2 ⊇ M_g2 ≠ ∅ (Hne2). Apply elem_of_union left. *)
         intros Habs.
@@ -2571,7 +2571,7 @@ Section proof.
       iPureIntro. split_and!.
       - rewrite length_insert. exact Hlen3.
       - exact Hbpos3.
-      - (* TLA+ E2: Store leaves M unchanged. mcfg_steps appends []. *)
+      - (* TLA+ E2: Store leaves M unchanged. rtcL mcfg_step appends []. *)
         unfold M_g3_new. exact Hmcfg_steps3.
       - (* non-empty: M_g3_new = M_g3 ≠ ∅ from Hne3. *)
         exact Hne3.
@@ -3068,9 +3068,9 @@ Section proof.
       - exact Hbpos4.
       - (* mcfg_steps: extend by chain LPs then mcfg_step_ret. *)
         rewrite -HM_full4_new_eq.
-        eapply mcfg_steps_snoc.
+        eapply rtcL_r.
         + replace ts4 with (ts4 ++ []) by by rewrite app_nil_r.
-          eapply mcfg_steps_app; first exact Hmcfg_steps4.
+          eapply rtcL_trans; first exact Hmcfg_steps4.
           exact Hchain_steps.
         + apply (mcfg_step_ret M_full4_chained τ #()).
       - (* non-empty: set_map of a non-empty set is non-empty. *)

@@ -106,7 +106,7 @@ Qed.
    corresponding propset operation. These let us rewrite the output of
    [mcfg_step_call/interm/ret] (which produce propsets) into
    [set_to_propset M_g_new] form so we can chain mcfg_steps under the
-   `mcfg_steps mcfg_init (set_to_propset M_g) ts` invariant.
+   `rtcL mcfg_step mcfg_init (set_to_propset M_g) ts` invariant.
 
    We use Leibniz equality (via propset_leibniz_equiv axiom) so the
    resulting form can be substituted directly into mcfg_steps without
@@ -224,11 +224,11 @@ Lemma mcfg_steps_dom_in_trace_strong
     (M_pre M_full : @meta_config hwq_model)
     (ts_pre ts_step : list (positive*trace)) :
   (∀ s' π', (s', π') ∈ M_pre → dom π' ⊆ list_to_set ts_pre.*1) →
-  mcfg_steps M_pre M_full ts_step →
+  rtcL mcfg_step M_pre M_full ts_step →
   ∀ s π, (s, π) ∈ M_full → dom π ⊆ list_to_set (ts_pre ++ ts_step).*1.
 Proof.
   intros Hpre Hsteps. revert ts_pre Hpre.
-  induction Hsteps as [M | M0 M1 ts1 M2 ts2 Hstep Hsteps IH];
+  induction Hsteps as [M | M0 M1 M2 ts1 ts2 Hstep Hsteps IH];
     intros ts_pre Hpre s π Hin.
   - rewrite app_nil_r. by eapply Hpre.
   - rewrite app_assoc.
@@ -242,7 +242,7 @@ Lemma mcfg_steps_dom_in_trace
     (M_full : @meta_config hwq_model)
     (ts : list (positive*trace))
     (s : @S hwq_model) (π : gmap positive proc_status) :
-  mcfg_steps mcfg_init M_full ts →
+  rtcL mcfg_step mcfg_init M_full ts →
   (s, π) ∈ M_full →
   dom π ⊆ list_to_set ts.*1.
 Proof.
@@ -317,13 +317,13 @@ Lemma mcfg_steps_request_value_preserved
     (M_pre M_post : @meta_config hwq_model)
     (ts_step : list (positive*trace))
     (τ : positive) (v : nat * val) :
-  mcfg_steps M_pre M_post ts_step →
+  rtcL mcfg_step M_pre M_post ts_step →
   (∀ s π v_x v_resp, (s, π) ∈ M_pre → π !! τ = Some (v_x, v_resp) → v_x = v) →
   (∀ τ' n' v', (τ', Call n' v') ∈ ts_step → τ' = τ → (n', v') = v) →
   ∀ s π v_x v_resp, (s, π) ∈ M_post → π !! τ = Some (v_x, v_resp) → v_x = v.
 Proof.
   intros Hsteps. revert τ v.
-  induction Hsteps as [M | M0 M1 ts1 M2 ts2 Hstep Hsteps IH]; intros τ v Hpre Hcall.
+  induction Hsteps as [M | M0 M1 M2 ts1 ts2 Hstep Hsteps IH]; intros τ v Hpre Hcall.
   - exact Hpre.
   - apply (IH τ v).
     + intros s' π' v_x' v_resp' Hin' Hπτ'.
@@ -344,7 +344,7 @@ Lemma mcfg_steps_request_value_from_filter
     (M_full : @meta_config hwq_model)
     (ts : list (positive*trace))
     (τ : positive) (v : nat * val) :
-  mcfg_steps mcfg_init M_full ts →
+  rtcL mcfg_step mcfg_init M_full ts →
   (* The trace's τ-filter has Call v as the first event (typical for tracked ops). *)
   (∀ τ' n' v', (τ', Call n' v') ∈ ts → τ' = τ → (n', v') = v) →
   ∀ s π v_x v_resp, (s, π) ∈ M_full → π !! τ = Some (v_x, v_resp) → v_x = v.
@@ -363,7 +363,7 @@ Lemma mcfg_steps_request_value_from_filter_eq
     (M_full : @meta_config hwq_model)
     (ts : list (positive*trace))
     (τ : positive) (v : nat * val) :
-  mcfg_steps mcfg_init M_full ts →
+  rtcL mcfg_step mcfg_init M_full ts →
   (* filter τ ts has only (τ, Call v) as its sole Call event, possibly with Ret/Lin too *)
   (* Stronger form: all Call events in ts for τ use value v *)
   (∀ τ' n' v', (τ', Call n' v') ∈ ts → τ' = τ → (n', v') = v) →
@@ -552,7 +552,7 @@ Lemma mcfg_steps_chain_lp_push_list
   Forall (λ pv : positive * val,
             π_q !! pv.1 = Some (Push, pv.2, None)) pushes →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     Forall (λ pv : positive * val,
             ((s_q ++ [pv.2])%list,
@@ -567,7 +567,7 @@ Proof.
   intros Hin Hpushes.
   induction pushes as [|[τ v] pushes' IH].
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + apply Forall_nil. trivial.
     + intros y Hy. left. exact Hy.
@@ -581,8 +581,8 @@ Proof.
     + replace ([] : list (positive * trace)) with
         (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
         by reflexivity.
-      eapply mcfg_steps_app; first exact Hsteps.
-      apply mcfg_steps_singleton.
+      eapply rtcL_trans; first exact Hsteps.
+      apply rtcL_once.
       apply (mcfg_step_interm M_full' s_q π_q τ
               Push v (s_q ++ [v])%list #()).
       * exact Hin_in_M_full'.
@@ -615,10 +615,10 @@ Lemma mcfg_steps_lp_push_one
   π_q !! τ = Some (Push, v, None) →
   let new_config := ((s_q ++ [v])%list,
                       <[τ:=(Push, v, Some #())]>π_q) in
-  mcfg_steps M_full ({[new_config]} ∪ M_full) [].
+  rtcL mcfg_step M_full ({[new_config]} ∪ M_full) [].
 Proof.
   intros Hin Hπτ.
-  apply mcfg_steps_singleton.
+  apply rtcL_once.
   apply (mcfg_step_interm M_full s_q π_q τ
            Push v (s_q ++ [v])%list #()); try assumption.
   split; reflexivity.
@@ -630,7 +630,7 @@ Lemma mcfg_steps_chain_lp_push_all
     (τ : positive) (v : val) :
   set_to_propset M_g ⊆ M_full →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     (∀ x : single_config_q, x ∈ M_g →
         x.2 !! τ = Some (Push, v, None) →
@@ -644,7 +644,7 @@ Proof.
   intros Hsub.
   induction M_g as [|x M_g' Hnotin IH] using set_ind_L.
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + intros y Hy. set_solver.
     + intros y Hy. left. exact Hy.
@@ -665,8 +665,8 @@ Proof.
       destruct x as [s π]. simpl in Hxτ.
       split_and!.
       * replace ([] : list (positive * trace)) with (([] : list (positive * trace)) ++ ([] : list (positive * trace))) by reflexivity.
-        eapply mcfg_steps_app; first exact Hsteps.
-        apply mcfg_steps_singleton.
+        eapply rtcL_trans; first exact Hsteps.
+        apply rtcL_once.
         apply (mcfg_step_interm M_full' s π τ
                  Push v (s ++ [v])%list #()).
         -- exact Hx_in_full.
@@ -713,10 +713,10 @@ Lemma mcfg_steps_lp_pop_one
   let new_config :=
     (s', <[τ:=(Pop, #(),
                 Some (encode_response (NonEmpty v)))]>π_q) in
-  mcfg_steps M_full ({[new_config]} ∪ M_full) [].
+  rtcL mcfg_step M_full ({[new_config]} ∪ M_full) [].
 Proof.
   intros Hin Hπτ.
-  apply mcfg_steps_singleton.
+  apply rtcL_once.
   apply (mcfg_step_interm M_full (v :: s') π_q τ
            Pop #() s' (encode_response (NonEmpty v))); try assumption.
   split; reflexivity.
@@ -737,7 +737,7 @@ Lemma mcfg_steps_chain_push_then_pop
   let π_step2 := <[τ_d:=(Pop, #(),
                           Some (encode_response (NonEmpty v)))]>π_step1 in
   let M_full' := {[([], π_step2); ([v], π_step1)]} ∪ M_full in
-  mcfg_steps M_full M_full' [] ∧
+  rtcL mcfg_step M_full M_full' [] ∧
   ([], π_step2) ∈ M_full' ∧
   ([v], π_step1) ∈ M_full'.
 Proof.
@@ -748,8 +748,8 @@ Proof.
                           Some (encode_response (NonEmpty v)))]>π_step1).
   (* Step 1: LP τ_e push on ([], π_init) → add ([v], π_step1). *)
   set (M1 := {[([v], π_step1)]} ∪ M_full).
-  assert (Hstep1 : mcfg_steps M_full M1 []).
-  { apply mcfg_steps_singleton.
+  assert (Hstep1 : rtcL mcfg_step M_full M1 []).
+  { apply rtcL_once.
     apply (mcfg_step_interm M_full [] π_init τ_e
              Push v [v] #()); try assumption.
     split; reflexivity. }
@@ -760,8 +760,8 @@ Proof.
   { unfold π_step1. rewrite lookup_insert_ne;
       last (intros ?; apply Hne_ed; congruence). exact Hπ_d. }
   set (M2 := {[([], π_step2)]} ∪ M1).
-  assert (Hstep2 : mcfg_steps M1 M2 []).
-  { apply mcfg_steps_singleton.
+  assert (Hstep2 : rtcL mcfg_step M1 M2 []).
+  { apply rtcL_once.
     apply (mcfg_step_interm M1 [v] π_step1 τ_d
              Pop #() [] (encode_response (NonEmpty v))); try assumption.
     split; reflexivity. }
@@ -771,7 +771,7 @@ Proof.
   - replace ([] : list (positive * trace)) with
       (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
       by reflexivity.
-    eapply mcfg_steps_app; first exact Hstep1. exact Hstep2.
+    eapply rtcL_trans; first exact Hstep1. exact Hstep2.
   - apply elem_of_union. left. set_solver.
   - apply elem_of_union. left. set_solver.
 Qed.
@@ -791,7 +791,7 @@ Qed.
    reach M_full' containing all LP'd-at-all-permutations configs for τ
    together with other FAA'd-or-later Pending pushes.
 
-   The mcfg_steps trace is [] (only internal LP steps; no Call/Ret).
+   The rtcL mcfg_step trace is [] (only internal LP steps; no Call/Ret).
 
    Intended proof: for each (cfg, pushes) pair with τ ∈ pushes.*1, decompose
    per-permutation. Use closure_push (stat-conditioned) at pre-FAA M_g to
@@ -810,7 +810,7 @@ Lemma mcfg_steps_chain_lp_push_cumulative
   Forall (λ pv : positive * val,
             π_q !! pv.1 = Some (Push, pv.2, None)) pushes →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     lineraize_pending_push pushes (s_q, π_q) ∈ M_full' ∧
     (* Upper bound: every y ∈ M_full' is either in M_full or is
@@ -822,7 +822,7 @@ Proof.
   intros Hin Hnd Hπ_pushes.
   induction pushes as [|pv pushes' IH] using rev_ind.
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + unfold lineraize_pending_push. simpl.
       rewrite app_nil_r.
@@ -858,8 +858,8 @@ Proof.
     + replace ([] : list (positive * trace)) with
         (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
         by reflexivity.
-      eapply mcfg_steps_app; first exact Hsteps.
-      apply mcfg_steps_singleton.
+      eapply rtcL_trans; first exact Hsteps.
+      apply rtcL_once.
       apply (mcfg_step_interm M_full' s_pre π_pre τ_x
               Push v_x (s_pre ++ [v_x])%list #()).
       * exact Hin_lin'.
@@ -950,7 +950,7 @@ Lemma mcfg_steps_chain_lp_push_all_lists
                       cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
          pushes_lists →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     Forall (λ pushes, lineraize_pending_push pushes cfg ∈ M_full') pushes_lists ∧
     (* Upper bound: every y ∈ M_full' is either in M_full or is
@@ -963,7 +963,7 @@ Proof.
   intros Hin Hall.
   induction pushes_lists as [|pushes pl' IH].
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + apply Forall_nil. trivial.
     + intros y Hy. left. exact Hy.
@@ -978,7 +978,7 @@ Proof.
     + replace ([] : list (positive * trace)) with
         (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
         by reflexivity.
-      eapply mcfg_steps_app; first exact Hsteps. exact Hsteps'.
+      eapply rtcL_trans; first exact Hsteps. exact Hsteps'.
     + intros y Hy. apply Hsubset'. by apply Hsubset.
     + apply Forall_cons. split.
       * exact Hin_lin.
@@ -1013,7 +1013,7 @@ Lemma mcfg_steps_chain_lp_push_all_cfgs
                       cfg.2 !! pv.1 = Some (Push, pv.2, None)) pushes)
           (push_lists_of cfg)) cfgs →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     Forall (λ cfg,
               Forall (λ pushes, lineraize_pending_push pushes cfg ∈ M_full')
@@ -1030,7 +1030,7 @@ Proof.
   intros Hin Hpushes.
   induction cfgs as [|cfg cfgs' IH].
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + apply Forall_nil. trivial.
     + intros y Hy. left. exact Hy.
@@ -1046,7 +1046,7 @@ Proof.
     + replace ([] : list (positive * trace)) with
         (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
         by reflexivity.
-      eapply mcfg_steps_app; first exact Hsteps. exact Hsteps'.
+      eapply rtcL_trans; first exact Hsteps. exact Hsteps'.
     + intros y Hy. apply Hsubset'. by apply Hsubset.
     + apply Forall_cons. split.
       * exact Hin_lin.
@@ -1085,7 +1085,7 @@ Lemma mcfg_steps_chain_lp_push_all_perm
   set_Forall (λ '(_, π), π !! τ = Some (Push, v_push, None)) M_full →
   let stat' := <[τ:=OpEnqReserved v_push i_τ]>stat in
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     (* For each cfg ∈ M_g and any pushes containing τ-and-other-FAA'd-pendings,
        the linearized config is in M_full'. This populates the closure under
@@ -1251,7 +1251,7 @@ Lemma mcfg_steps_chain_lp_pop_all
   set_to_propset M_g ⊆ M_full →
   set_Forall (λ '(_, π), τ ∉ dom π) M_full →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [(τ, Call Pop #())] ∧
+    rtcL mcfg_step M_full M_full' [(τ, Call Pop #())] ∧
     (* For each (v_h :: s_t, π_x) ∈ M_g, the LP'd-Pop config (after Call
        mapping τ at Pop, None, then LP'd to NE v_h) is in M_full'. *)
     (∀ (v_h : val) (s_t : list val) (π_x : gmap positive proc_status),
@@ -1276,9 +1276,9 @@ Proof.
   set (M_full_after_call :=
          ((λ '(s', π'), (s', <[τ:=(Pop, #(), None)]> π'))
             <$> M_full) : @meta_config hwq_model).
-  assert (Hstep_call : mcfg_steps M_full M_full_after_call
+  assert (Hstep_call : rtcL mcfg_step M_full M_full_after_call
                                   [(τ, Call Pop #())]).
-  { apply mcfg_steps_singleton.
+  { apply rtcL_once.
     apply (mcfg_step_call M_full τ Pop #()).
     - exact Hτ_fresh.
     - reflexivity. }
@@ -1299,7 +1299,7 @@ Proof.
     exists (s_z, π_z). split; first exact Hz_in. simpl. exact Heq. }
   (* Step 2: Induct on M_g to chain LP applications. *)
   cut (∃ (M_full' : @meta_config hwq_model),
-          mcfg_steps M_full_after_call M_full' [] ∧
+          rtcL mcfg_step M_full_after_call M_full' [] ∧
           M_full_after_call ⊆ M_full' ∧
           (∀ (v_h : val) (s_t : list val) (π_x : gmap positive proc_status),
               (v_h :: s_t, π_x) ∈ M_g →
@@ -1317,7 +1317,7 @@ Proof.
     - replace [(τ, Call Pop #())]
         with ([(τ, Call Pop #())] ++ ([] : list (positive*trace)))
         by apply app_nil_r.
-      eapply mcfg_steps_app; first exact Hstep_call. exact Hsteps_lp.
+      eapply rtcL_trans; first exact Hstep_call. exact Hsteps_lp.
     - exact Hwitnesses.
     - intros x Hx_in_g.
       apply Hsubset_after. exact (Hcall_in x Hx_in_g).
@@ -1328,7 +1328,7 @@ Proof.
   clear Hτ_fresh Hsub Hstep_call.
   induction M_g as [|x M_g' Hnotin IH] using set_ind_L.
   - exists M_full_after_call. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + intros v_h s_t π_x Hin. set_solver.
     + intros y Hy. left. exact Hy.
@@ -1366,8 +1366,8 @@ Proof.
       * replace ([] : list (positive * trace)) with
           (([] : list (positive * trace)) ++ ([] : list (positive * trace)))
           by reflexivity.
-        eapply mcfg_steps_app; first exact Hsteps.
-        apply mcfg_steps_singleton.
+        eapply rtcL_trans; first exact Hsteps.
+        apply rtcL_once.
         apply (mcfg_step_interm M_full' (v_h :: s_t) π_call τ
                  Pop #() s_t
                  (encode_response (NonEmpty v_h))).
@@ -1407,7 +1407,7 @@ Lemma mcfg_steps_chain_lp_pop_at_head
     (τ : positive) (v_h : val) :
   set_to_propset M_g ⊆ M_full →
   ∃ (M_full' : @meta_config hwq_model),
-    mcfg_steps M_full M_full' [] ∧
+    rtcL mcfg_step M_full M_full' [] ∧
     M_full ⊆ M_full' ∧
     (∀ s_t π,
         (v_h :: s_t, π) ∈ M_g →
@@ -1425,7 +1425,7 @@ Proof.
   intros Hsub.
   induction M_g as [|x M_g' Hnotin IH] using set_ind_L.
   - exists M_full. split_and!.
-    + apply mcfg_steps_nil.
+    + apply rtcL_refl.
     + reflexivity.
     + intros s_t π Hin. set_solver.
     + intros y Hy. left. exact Hy.
@@ -1459,8 +1459,8 @@ Proof.
           ++ replace ([] : list (positive * trace)) with
                (([] : list (positive * trace)) ++
                 ([] : list (positive * trace))) by reflexivity.
-            eapply mcfg_steps_app; first exact Hsteps'.
-            apply mcfg_steps_singleton.
+            eapply rtcL_trans; first exact Hsteps'.
+            apply rtcL_once.
             apply (mcfg_step_interm M_full' (v_h :: s_t) π τ
                      Pop #() s_t
                      (encode_response (NonEmpty v_h))).
@@ -1643,7 +1643,7 @@ Qed.
 
    The following definitions used to be conjuncts in hwq_inv_body but were
    identified as consequences of the remaining clauses (lin_witness_seq,
-   slots_consistent, stat_consistent, mcfg_steps + trace_stat_consistent).
+   slots_consistent, stat_consistent, rtcL mcfg_step + trace_stat_consistent).
    They are kept as definitions and derivation lemmas here so that proof
    sites can locally re-derive them when needed via pose proof. *)
 

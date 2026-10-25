@@ -82,15 +82,13 @@ Section bq_skeleton_enq_trace.
       destruct (decide (τ ∈ O_8)) as [Hτ_in_O | Hτ_not_in_O].
       - eexists _, (ls_8 ++ [(τ, ARetEnq)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps8|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps8|].
           apply absq_step_ret_enq1 with (d := d); done.
         + rewrite Hts_eq8 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
       - eexists _, (ls_8 ++ [(τ, ARetEnq)]).
         split.
-        + eapply lts_steps_app; [exact Hsteps8|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        + eapply rtcL_r; [exact Hsteps8|].
           apply absq_step_ret_enq2; done.
         + rewrite Hts_eq8 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute. }
@@ -140,8 +138,7 @@ Section bq_skeleton_enq_trace.
         rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_A1_8)).
         iFrame.
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps8|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps8|].
           apply absq_step_ret_enq1 with (d := d); done.
         - rewrite Hts_eq8 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
@@ -263,8 +260,7 @@ Section bq_skeleton_enq_trace.
         rewrite (dom_insert_lookup_L _ _ _ (mk_is_Some _ _ Hcp_τ_A1_8)).
         iFrame.
         iPureIntro. split_and!.
-        - eapply lts_steps_app; [exact Hsteps8|].
-          eapply lts_steps_cons; [|apply lts_steps_nil].
+        - eapply rtcL_r; [exact Hsteps8|].
           apply absq_step_ret_enq2; done.
         - rewrite Hts_eq8 /trace_of_absq_labels map_app /= filter_app.
           rewrite filter_cons_True; [done|]. by compute.
