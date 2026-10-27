@@ -1,4 +1,5 @@
 (* linear.v: formal definition of linearizability. *)
+From Stdlib Require Import Classical. (* only used for a fallback instance *)
 
 From iris_logatom.lib Require Import list.
 From iris_logatom.lib Require Export labeled_relations.
@@ -22,6 +23,15 @@ Definition default_vr : val → Prop := λ _, False.
 Definition default_rr `{model} : S → val → S → val → Prop := λ _ _ _ _, False.
 
 Global Instance S_inhabited `{M : model} : Inhabited S := populate s_init.
+
+Class ModelDecidable (M : model) : Prop :=
+  model_valid_request_decide n v :
+    default default_vr (valid_requests !! n) v ∨
+    ¬ default default_vr (valid_requests !! n) v.
+
+(* classical fallback. *)
+Global Instance model_decidable_classic M : ModelDecidable M | 1000.
+Proof. intros n v. apply classic. Qed.
 
 (** A formal definition of linearizability of a library.
   Birkedal et al. [2021] has formalized the notation of lineariability as trace

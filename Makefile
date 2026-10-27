@@ -1,13 +1,18 @@
 all: build
 .PHONY: all
 
+# Pass the job limit of make (`-j N`, `-jN`, `--jobs=N` or `--jobs N`) to dune. Make
+# exports MAKEFLAGS to recipes; without a limit, dune uses its default.
+DUNE_JOBS_FLAG = $$(printf '%s\n' "$$MAKEFLAGS" | \
+  sed -nE 's/(^|.* )(-j ?|--jobs[= ]?)([0-9]+).*/-j \3/p')
+
 build:
-	@dune build --profile dev --display=short
+	@dune build --profile dev --display=short $(DUNE_JOBS_FLAG)
 .PHONY: build
 
 # Build for the CI uses mangled names.
 build-ci:
-	@dune build --profile mangle --display=short --build-dir=_build_mangled
+	@dune build --profile mangle --display=short --build-dir=_build_mangled $(DUNE_JOBS_FLAG)
 .PHONY: build-ci
 
 clean:

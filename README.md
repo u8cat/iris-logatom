@@ -65,8 +65,8 @@ specifications for queue algorithms are in the `case_studies/` directory.
 
 ## Axioms
 
-The main completeness theorem uses classical logic to encode the `prophTrace`
-predicate.
+The case study of the time-stamped stack uses the stack theorem, which uses
+classical logic.
 
 ```rocq
 Classical_Prop.classic : ∀ P : Prop, P ∨ ¬ P

@@ -859,7 +859,7 @@ Proof.
     (**************** End LLM-generated code. *****************)
 Qed.
 
-Theorem logatom_refines (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
+Theorem logatom_refines (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ, !ModelDecidable M} (A B : ∀ `{relocGS Σ}, lrel Σ)
   (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :
@@ -896,7 +896,7 @@ Proof.
   intros n. by eapply logatom_complete_op.
 Qed.
 
-Corollary logatom_refines_init (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
+Corollary logatom_refines_init (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ, !ModelDecidable M} (A B : ∀ `{relocGS Σ}, lrel Σ)
   (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :
@@ -926,7 +926,7 @@ Proof.
   apply logatom_refines; eassumption.
 Qed.
 
-Corollary logatom_refines_op (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ} (A B : ∀ `{relocGS Σ}, lrel Σ)
+Corollary logatom_refines_op (M : model) `{!relocPreG Σ, !linearizabilityG Σ, !logicatomicityG Σ, !traceG Σ, !ModelDecidable M} (A B : ∀ `{relocGS Σ}, lrel Σ)
   (init init' : expr) (ops ops' : list val) N
   (is_P' : heapGS Σ → gname → val → iProp Σ) (P_state' : heapGS Σ → gname → S → iProp Σ)
   `{!∀ H γ v, Persistent (is_P' H γ v)} `{!∀ H γ s, Timeless (P_state' H γ s)} :

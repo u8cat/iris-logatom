@@ -122,6 +122,9 @@ Section general.
   Proof. induction 1; simpl; [|rewrite -assoc]; eauto. Qed.
   Lemma nstepsL_r n x y z l m : nstepsL R n x y l → R y z m → nstepsL R (S n) x z (l++m).
   Proof. induction 1; [|rewrite -assoc]; eauto using nstepsL_once. Qed.
+  Lemma nstepsL_inv n x z l : nstepsL R (S n) x z l →
+    ∃ y l1 l2, R x y l1 ∧ nstepsL R n y z l2 ∧ l = l1++l2.
+  Proof. inv 1; eauto 6. Qed.
 
   Lemma nstepsL_add_inv n m x z l :
     nstepsL R (n + m) x z l → ∃ y l1 l2, nstepsL R n x y l1 ∧ nstepsL R m y z l2 ∧ l = l1++l2.
@@ -343,6 +346,36 @@ Section option_rel.
     destruct (nstepsL_app_inv _ _ _ _ _ Hxz) as (?&? & y & Hxy & Hyz & _).
     eauto using rtcL_nstepsL_2.
   Qed.
+
+  Lemma nstepsL_length_le n x y l:
+    nstepsL R n x y l → length l ≤ n.
+  Proof.
+    revert x y l. induction n as [|n IH] => x y l HnstepsL; first by inv HnstepsL.
+    inv HnstepsL as [|?????? HR HnstepsL'].
+    apply OptionRelationL_length in HR.
+    apply IH in HnstepsL'.
+    rewrite length_app. lia.
+  Qed.
+
+  Lemma bstepsL_app_inv n x z l m :
+    bstepsL R n x z (l++m) → ∃ n1 n2 y, bstepsL R n1 x y l ∧ bstepsL R n2 y z m ∧ n = n1 + n2.
+  Proof.
+    intros (n' & Hlt & Hxz)%bstepsL_nstepsL.
+    destruct (nstepsL_app_inv _ _ _ _ _ Hxz) as (n1 & n2 & y & Hxy & Hyz & Heq).
+    exists n1, (n2 + n-n'), y.
+    split_and!.
+    - apply bstepsL_nstepsL. eauto.
+    - apply bstepsL_nstepsL.
+      exists n2; auto with lia.
+    - lia.
+  Qed.
+
+  Lemma bstepsL_length_le n x y l:
+    bstepsL R n x y l → length l ≤ n.
+  Proof.
+    intros (? & ? & ?%nstepsL_length_le)%bstepsL_nstepsL.
+    lia.
+  Qed.
 End option_rel.
 
 Section singleton_rel.
@@ -387,5 +420,97 @@ Section singleton_rel.
     intros (y & Hxy & Hyz)%rtcL_app_inv.
     exists y. split; first assumption.
     by apply rtcL_singleton_inv.
+  Qed.
+
+  Lemma nstepsL_length_eq n x y l :
+    nstepsL R n x y l → length l = n.
+  Proof.
+    revert x y l. induction n as [|n IH] => x y l HnstepsL; first by inv HnstepsL.
+    inv HnstepsL as [|?????? HR HnstepsL'].
+    apply SingletonRelationL_length in HR.
+    apply IH in HnstepsL'.
+    rewrite length_app. lia.
+  Qed.
+
+  Lemma nstepsL_nil_inv n x y :
+    nstepsL R n x y [] → x = y.
+  Proof.
+    intros HnstepsL.
+    apply nstepsL_length_eq in HnstepsL as Hlen.
+    simpl in Hlen; subst n.
+    by inv HnstepsL.
+  Qed.
+
+  Lemma nstepsL_singleton_inv n x y b :
+    nstepsL R n x y [b] → R x y [b].
+  Proof.
+    intros HnstepsL.
+    apply nstepsL_length_eq in HnstepsL as Hlen.
+    simpl in Hlen; subst n.
+    inv HnstepsL.
+    rename select (nstepsL _ _ _ _ _) into HnstepsL.
+    inv HnstepsL. by rewrite right_id.
+  Qed.
+
+  Lemma nstepsL_cons_inv n x z b l :
+    nstepsL R (S n) x z (b::l) → ∃ y, R x y [b] ∧ nstepsL R n y z l.
+  Proof.
+    change (b::l) with ([b]++l).
+    intros (n1 & n2 & y & Hxy & Hyz & Heq)%nstepsL_app_inv.
+    apply nstepsL_length_eq in Hxy as Hlen.
+    simpl in Hlen; subst n1.
+    apply nstepsL_singleton_inv in Hxy.
+    assert (n2 = n) as -> by lia.
+    eauto.
+  Qed.
+
+  Lemma nstepsL_snoc_inv n x z b l :
+    nstepsL R (S n) x z (l++[b]) → ∃ y, nstepsL R n x y l ∧ R y z [b].
+  Proof.
+    intros (n1 & n2 & y & Hxy & Hyz & Heq)%nstepsL_app_inv.
+    apply nstepsL_length_eq in Hyz as Hlen.
+    simpl in Hlen; subst n2.
+    apply nstepsL_singleton_inv in Hyz.
+    assert (n1 = n) as -> by lia.
+    eauto.
+  Qed.
+
+  Lemma bstepsL_nil_inv n x y :
+    bstepsL R n x y [] → x = y.
+  Proof.
+    intros (? & _ & HnstepsL)%bstepsL_nstepsL.
+    by eapply nstepsL_nil_inv.
+  Qed.
+
+  Lemma bstepsL_singleton_inv n x y b :
+    bstepsL R n x y [b] → R x y [b].
+  Proof.
+    intros (? & _ & HnstepsL)%bstepsL_nstepsL.
+    by eapply nstepsL_singleton_inv.
+  Qed.
+
+  Lemma bstepsL_cons_inv n x z b l :
+    bstepsL R (S n) x z (b::l) → ∃ y, R x y [b] ∧ bstepsL R n y z l.
+  Proof.
+    change (b::l) with ([b]++l).
+    intros (n1 & n2 & y & Hxy & Hyz & Heq)%bstepsL_app_inv.
+    apply bstepsL_length_le in Hxy as Hlen.
+    simpl in Hlen.
+    apply bstepsL_singleton_inv in Hxy.
+    exists y. split; first done.
+    eapply bstepsL_weaken; last done.
+    lia.
+  Qed.
+
+  Lemma bstepsL_snoc_inv n x z b l :
+    bstepsL R (S n) x z (l++[b]) → ∃ y, bstepsL R n x y l ∧ R y z [b].
+  Proof.
+    intros (n1 & n2 & y & Hxy & Hyz & Heq)%bstepsL_app_inv.
+    apply bstepsL_length_le in Hyz as Hlen.
+    simpl in Hlen.
+    apply bstepsL_singleton_inv in Hyz.
+    exists y. split; last done.
+    eapply bstepsL_weaken; last done.
+    lia.
   Qed.
 End singleton_rel.

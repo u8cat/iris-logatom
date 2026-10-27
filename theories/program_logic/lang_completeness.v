@@ -44,12 +44,12 @@ Class lang_completeness_gen hlc Λ Σ `{!irisGS_gen hlc Λ Σ} := LangCompletene
     reducible e1 σ →
     own_state σ ={E}=∗
     ((∃ K e1', ⌜LanguageCtx K⌝ ∗ ⌜e1 = K e1'⌝ ∗ ⌜to_val e1' = None⌝ ∗ ⌜Atomic WeaklyAtomic e1'⌝ ∗
-      ∀ Φ, ((▷ ∀ κ v2 σ' efs,
+      ∀ Φ, (▷(£ 1 -∗ ∀ κ v2 σ' efs,
       ⌜prim_step e1' σ κ (of_val v2) σ' efs⌝ ==∗
       (own_state σ' -∗ Φ v2) ∗ ([∗ list] n↦etp ∈ efs, WP etp {{ v, True}})) -∗
       WP e1' @E {{ Φ }})) ∨
       (own_state σ ∗ ∀ Φ,
-        (▷ ∀ e2 efs,
+        ▷(£ 1 -∗ ∀ e2 efs,
             (∀ σ1, own_state σ1 ={E}=∗
              ∃ κ σ1', ⌜prim_step e1 σ1 κ e2 σ1' efs⌝ ∗ own_state σ1') ={⊤}=∗
           WP e2 {{ Φ }} ∗ [∗ list] n↦etp ∈ efs, WP etp {{ v, True}}) -∗
@@ -207,8 +207,7 @@ Section completeness.
 
     - iDestruct "H" as (K e1 ? Heq Hnotval Hatomic) "H". iModIntro.
       iLeft. iExists K, e1. do 3 (iSplit; first done).
-      iApply "H".
-      iNext. iIntros (κ v2 σ2 efs Hbase).
+      iApply "H". iIntros "!> _" (κ v2 σ2 efs Hbase).
 
       (* update ghost resources *)
       iMod (ghost_map_update (K (of_val v2)) with "Ht● He◯") as "[Ht● He◯]".
@@ -275,7 +274,7 @@ Section completeness.
       iMod ("Hclose" with "[$Hstate $Ht● //]") as "_".
       clear.
       iModIntro. iApply "H".
-      iNext. iIntros (e2 efs) "H".
+      iIntros "!> _" (e2 efs) "H".
       iMod (cinv_acc with "Hinv Hq") as "(>Hinv2&Hq&Hclose)"; first done.
       iDestruct "Hinv2" as (t σ) "(Hstate & Ht● & %Hadq & %Hseq)".
       iCombine "Ht● He◯" gives %Hlookup%elem_of_list_to_map_2%zip_elem_of_lookup.

@@ -68,6 +68,30 @@ Definition stack_model (rme : response_mayempty) (valid_value: val → Prop) : m
   ];
 |}.
 
+(* LLM-generated: the requests are decidable if the valid values are *)
+Local Lemma bag_like_valid_requests_decide (valid_value : val → Prop)
+    `{!∀ v, Decision (valid_value v)} n v :
+  default default_vr ([valid_value; λ v, v = #()] !! n) v ∨
+  ¬ default default_vr ([valid_value; λ v, v = #()] !! n) v.
+Proof.
+  destruct n as [|[|n]]; simpl.
+  - destruct (decide (valid_value v)); auto.
+  - destruct (decide (v = #())); auto.
+  - right. intros [].
+Qed.
+
+Global Instance bag_model_decidable rme valid_value `{!∀ v, Decision (valid_value v)} :
+  ModelDecidable (bag_model rme valid_value).
+Proof. intros n v. by apply bag_like_valid_requests_decide. Qed.
+
+Global Instance queue_model_decidable rme valid_value `{!∀ v, Decision (valid_value v)} :
+  ModelDecidable (queue_model rme valid_value).
+Proof. intros n v. by apply bag_like_valid_requests_decide. Qed.
+
+Global Instance stack_model_decidable rme valid_value `{!∀ v, Decision (valid_value v)} :
+  ModelDecidable (stack_model rme valid_value).
+Proof. intros n v. by apply bag_like_valid_requests_decide. Qed.
+
 Definition is_call_push t := ∃ v, t = Call Push v.
 Definition is_call_pop t := t = Call Pop #().
 Definition is_ret_push t := t = Ret #().

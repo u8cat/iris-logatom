@@ -24,6 +24,6 @@ depends: [
 ]
 conflicts: []
 
-build: [dune build --profile dev "rocq-iris-logatom.install"]
+build: [dune build --profile dev "-j" jobs "rocq-iris-logatom.install"]
 install: [dune install rocq-iris-logatom]
 remove: [ "sh" "-c" "rm -rf '%{lib}%/coq/user-contrib/rocq-iris-logatom' " ]

@@ -1314,7 +1314,7 @@ Section requisteness.
       - (* first redex is atomic *)
         iLeft. iDestruct "H" as (K e1 ? Heq Hnotval Hatomic) "H". subst e.
         iExists K, e1. do 3 (iSplit; first done). iApply "H".
-        iNext. iIntros (κ v2 σ2 efs' Hbase).
+        iNext. iIntros "_" (κ v2 σ2 efs' Hbase).
         eapply fill_step in Hbase as Hprim_step.
         iMod (ghost_map_update (K (Val v2)) with "Hc● Hi_child") as "[Hc● Hi_child]".
         rewrite -Hlen_efs1.
@@ -1359,7 +1359,7 @@ Section requisteness.
           iFrame "Hmeta Htrace Hown_state Hp● Hc●".
           iSplit; first done. iPureIntro. exact Hadv_steps. }
         iModIntro. iApply "H".
-        iNext. iIntros (e2 efs_new) "Hstep".
+        iNext. iIntros "_" (e2 efs_new) "Hstep".
         iInv "Hinv" as ">Hadv" "Hclose".
         iDestruct "Hadv" as (γ_pending'' γ_child'' efs'' σ2i config'' ts2)
           "(#Hmeta'' & Htrace & Hown_state & %Hrtc2 & %Hadv_steps2 & Hp● & Hc●)".
@@ -1552,7 +1552,7 @@ Section requisteness.
         + (* first redex is atomic *)
           iLeft. iDestruct "H" as (K e1 ? Heq Hnotval Hatomic) "H". subst e.
           iExists K, e1. do 3 (iSplit; first done). iApply "H".
-          iNext. iIntros (κ v2 σ2 efs_new Hbase).
+          iNext. iIntros "_" (κ v2 σ2 efs_new Hbase).
           eapply fill_step in Hbase as Hprim_step.
           iMod (ghost_map_update (K (Val v2)) with "Hp● Hτ_pending")
             as "[Hp● Hτ_pending]".
@@ -1628,7 +1628,7 @@ Section requisteness.
             iFrame "Hmeta_in Htrace Hown_state Hp● Hc●".
             iSplit; first done. iPureIntro. exact Hadv_steps'. }
           iModIntro. iApply "H".
-          iNext. iIntros (e2 efs_new) "Hstep".
+          iNext. iIntros "_" (e2 efs_new) "Hstep".
           iInv "Hinv" as ">Hadv" "Hclose".
           iDestruct "Hadv" as
             (γ_pending'' γ_child'' efs'' σ2i config'' ts2)

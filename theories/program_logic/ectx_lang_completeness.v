@@ -39,12 +39,12 @@ Class ectx_lang_completeness_gen hlc (Λ : ectxLanguage) Σ `{!irisGS_gen hlc Λ
   ∀ e1 σ E,
     base_reducible e1 σ →
     own_state σ ={E}=∗
-    ((⌜Atomic WeaklyAtomic e1⌝ ∗ (∀ Φ, ((▷ ∀ κ v2 σ' efs,
+    ((⌜Atomic WeaklyAtomic e1⌝ ∗ (∀ Φ, ▷(£ 1 -∗ ∀ κ v2 σ' efs,
       ⌜base_step e1 σ κ (of_val v2) σ' efs⌝  ==∗
-      (own_state σ' -∗ Φ v2) ∗ [∗ list] n↦etp ∈ efs, WP etp {{ v, True }})) -∗
+      (own_state σ' -∗ Φ v2) ∗ [∗ list] n↦etp ∈ efs, WP etp {{ v, True }}) -∗
       WP e1 @E {{ Φ }})) ∨
     (own_state σ ∗ ∀ Φ,
-      (▷ ∀ e2 efs,
+      ▷(£ 1 -∗ ∀ e2 efs,
         (∀ σ1, own_state σ1 ={E}=∗
         ∃ κ σ1', ⌜base_step e1 σ1 κ e2 σ1' efs⌝ ∗ own_state σ1') ={⊤}=∗
       WP e2 {{ Φ }} ∗ [∗ list] n↦etp ∈ efs, WP etp {{ v, True }}) -∗
@@ -58,12 +58,12 @@ Section proof.
     reducible e1 σ →
     own_state σ ={E}=∗
     ((∃ K e1', ⌜LanguageCtx K⌝ ∗ ⌜e1 = K e1'⌝ ∗ ⌜to_val e1' = None⌝ ∗ ⌜Atomic WeaklyAtomic e1'⌝ ∗
-      ∀ Φ, ((▷ ∀ κ v2 σ' efs,
+      ∀ Φ, ▷(£ 1 -∗ ∀ κ v2 σ' efs,
       ⌜prim_step e1' σ κ (of_val v2) σ' efs⌝ ==∗
       (own_state σ' -∗ Φ v2) ∗ ([∗ list] n↦etp ∈ efs, WP etp {{ v, True}})) -∗
-      WP e1' @E {{ Φ }})) ∨
+      WP e1' @E {{ Φ }}) ∨
       (own_state σ ∗ ∀ Φ,
-        (▷ ∀ e2 efs,
+        ▷(£ 1 -∗ ∀ e2 efs,
             (∀ σ1, own_state σ1 ={E}=∗
              ∃ κ σ1', ⌜prim_step e1 σ1 κ e2 σ1' efs⌝ ∗ own_state σ1') ={⊤}=∗
           WP e2 {{ Φ }} ∗ [∗ list] n↦etp ∈ efs, WP etp {{ v, True}}) -∗
@@ -79,14 +79,14 @@ Section proof.
       iDestruct "HH" as (Hatom) "HH". iSplit; first done.
       iIntros (Φ) "H".
       iApply "HH".
-      iNext. iIntros (κ' v2 σ'' efs' HH).
-      iApply "H".
+      iIntros "!> Hlc" (κ' v2 σ'' efs' HH).
+      iApply ("H" with "Hlc").
       iPureIntro. by apply base_prim_step.
     - iModIntro. iRight. iDestruct "HH" as "[$ HH]".
       iIntros (Φ) "Hc". iApply wp_bind. simpl.
       iApply "HH".
-      iNext. iIntros (??) "H".
-      iMod ("Hc" with "[H]") as "Hc".
+      iIntros "!> Hlc" (??) "H".
+      iMod ("Hc" with "Hlc [H]") as "Hc".
       + iIntros (?) "Hstate".
         iMod ("H" with "[$]") as (???) "H". iFrame.
         iPureIntro. eexists. econstructor; eauto.

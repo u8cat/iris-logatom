@@ -1,9 +1,8 @@
 (* atomic_complete.v *)
 
-From Stdlib Require Import Classical. (* used by [decode_valid_trace] *)
-
 From iris_logatom.lib Require Import list list2map.
 From iris.proofmode Require Import base ltac_tactics.
+From iris_logatom.lib Require Import derived_laws_later.
 From iris.algebra Require Import list excl_auth gmap_view.
 From iris.base_logic Require Import invariants ghost_map.
 From iris.program_logic Require Import atomic.
@@ -12,6 +11,9 @@ From iris_logatom.pure_logic Require Export adequacy state_set linear.
 From iris.heap_lang Require Import primitive_laws notation proofmode.
 From iris_logatom.heap_lang.lib Require Import ghost_id.
 From iris_logatom.heap_lang Require Import completeness.
+From iris_logatom.pure_logic Require Import adv_step_decide.
+
+Local Notation Sₙ := Datatypes.S.
 
 (* ========================================== *)
 (* Main theorem *)
@@ -102,30 +104,37 @@ Section ghost.
 End ghost.
 
 Section logatom.
-  Context `{!heapGS Σ, M : model, !linearizabilityG Σ}.
+  Context `{!heapGS Σ, HModelDecidable : !ModelDecidable M, !linearizabilityG Σ}.
   Context (init : expr) (ops : list val) (valid_obj : val → state → Prop).
 
-  Definition is_valid_trace obj config (ts : list (positive*trace)) :=
-    ∃ config', rtcL (adv_step ops obj valid_requests) config config' ts.
+  (* we only consider a bounded prefix of execution so that [is_valid_trace] is decidable  *)
+  Definition is_valid_trace obj config steps_left (ts : list (positive*trace)) :=
+    ∃ config', bstepsL (adv_step ops obj valid_requests) steps_left config config' ts.
 
-  Lemma is_valid_trace_nil obj config :
-    is_valid_trace obj config [].
-  Proof. exists config. apply rtcL_refl. Qed.
+  Local Lemma is_valid_trace_decide obj config steps_left ts :
+    (is_valid_trace obj config steps_left ts) ∨ ¬(is_valid_trace obj config steps_left ts).
+  Proof. apply (adv_steps_emit_decide ops). Qed.
 
-  Lemma is_valid_trace_snoc obj config ts t :
-    is_valid_trace obj config (ts++[t]) →
-    is_valid_trace obj config ts.
+  Lemma is_valid_trace_nil obj config steps_left :
+    is_valid_trace obj config steps_left [].
+  Proof. exists config. apply bstepsL_refl. Qed.
+
+  Lemma is_valid_trace_snoc obj config steps_left ts t :
+    is_valid_trace obj config steps_left (ts++[t]) →
+    is_valid_trace obj config steps_left ts.
   Proof.
     intros [config' Hadv_steps].
-    apply rtcL_app_inv in Hadv_steps.
-    destruct Hadv_steps as (config_mid & Hadv_steps' & _).
-    by exists config_mid.
+    apply bstepsL_app_inv in Hadv_steps.
+    destruct Hadv_steps as (?&? & config_mid & Hadv_steps' & _ & Heq).
+    exists config_mid.
+    eapply bstepsL_weaken; last done.
+    lia.
   Qed.
 
-  Lemma is_valid_trace_prefix obj config ts ts' :
+  Lemma is_valid_trace_prefix obj config steps_left ts ts' :
     ts' `prefix_of` ts →
-    is_valid_trace obj config ts →
-    is_valid_trace obj config ts'.
+    is_valid_trace obj config steps_left ts →
+    is_valid_trace obj config steps_left ts'.
   Proof.
     intros [k ->].
     induction k as [|?? IHk] using rev_ind; first by rewrite right_id.
@@ -134,99 +143,109 @@ Section logatom.
     rewrite -assoc //.
   Qed.
 
-  Lemma is_valid_trace_call obj π efs σ (τ : positive) n (v : val) (ts : list (positive*trace)) :
+  Lemma is_valid_trace_call obj π efs σ (τ : positive) n (v : val) steps_left (ts : list (positive*trace)) :
     τ ∉ π.*1 → default default_vr (valid_requests!!n) v →
-    is_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) ts →
-    is_valid_trace obj (Config π efs σ) ((τ,Call n v)::ts).
+    is_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) steps_left ts →
+    is_valid_trace obj (Config π efs σ) (Sₙ steps_left) ((τ,Call n v)::ts).
   Proof.
     intros Hfresh Hvalid_req [config' Hadv_steps].
     exists config'.
     change ((τ,Call n v) :: ts) with ([(τ,Call n v)] ++ ts).
-    eapply rtcL_l; last eassumption.
+    eapply bstepsL_l; last eassumption.
     by apply adv_step_call.
   Qed.
 
-  Lemma is_valid_trace_intermediate obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ ef (τ : positive) (ts : list (positive*trace)) :
+  Lemma is_valid_trace_intermediate obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ ef (τ : positive) steps_left (ts : list (positive*trace)) :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    is_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) ts →
-    is_valid_trace obj (Config (π₁++(τ, Some e₁)::π₂) efs σ₁) ts.
+    is_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) steps_left ts →
+    is_valid_trace obj (Config (π₁++(τ, Some e₁)::π₂) efs σ₁) (Sₙ steps_left) ts.
   Proof.
     intros Hprim_step [config' Hadv_steps].
     eexists config'.
     change ts with ([] ++ ts).
-    eapply rtcL_l; last eassumption.
+    eapply bstepsL_l; last eassumption.
     by eapply adv_step_intermediate.
   Qed.
 
-  Lemma is_valid_trace_child obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef (ts : list (positive*trace)) :
+  Lemma is_valid_trace_child obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef steps_left (ts : list (positive*trace)) :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    is_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) ts →
-    is_valid_trace obj (Config π (efs1++e₁::efs2) σ₁) ts.
+    is_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) steps_left ts →
+    is_valid_trace obj (Config π (efs1++e₁::efs2) σ₁) (Sₙ steps_left) ts.
   Proof.
     intros Hprim_step [config' Hadv_steps].
     eexists config'.
     change ts with ([] ++ ts).
-    eapply rtcL_l; last eassumption.
+    eapply bstepsL_l; last eassumption.
     by eapply adv_step_child.
   Qed.
 
-  Lemma is_valid_trace_return obj π₁ π₂ efs σ (τ : positive) (v : val) (ts : list (positive*trace)) :
-    is_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) ts →
-    is_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) ((τ,Ret v)::ts).
+  Lemma is_valid_trace_return obj π₁ π₂ efs σ (τ : positive) (v : val) steps_left (ts : list (positive*trace)) :
+    is_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) steps_left ts →
+    is_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Sₙ steps_left) ((τ,Ret v)::ts).
   Proof.
     intros [config' Hadv_steps].
     exists config'.
     change ((τ,Ret v) :: ts) with ([(τ,Ret v)] ++ ts).
-    eapply rtcL_l; last eassumption.
+    eapply bstepsL_l; last eassumption.
     by apply adv_step_return.
   Qed.
 
-  Lemma is_valid_trace_call_inv obj π efs σ (τ : positive) n (v : val) (ts : list (positive*trace)) :
+  Lemma is_valid_trace_call_inv obj π efs σ (τ : positive) n (v : val) steps_left (ts : list (positive*trace)) :
     default default_vr (valid_requests!!n) v →
-    is_valid_trace obj (Config π efs σ) ((τ,Call n v)::ts) →
-    is_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) ts.
+    is_valid_trace obj (Config π efs σ) (Sₙ steps_left) ((τ,Call n v)::ts) →
+    is_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) steps_left ts.
   Proof.
     (* The idea is doing an exchange argument:
-      If "rtcL adv_step (Config π efs σ) config' (Call τ v::ts)", then there must exist
+      If [adv_steps (Config π efs σ) config' (Call τ v::ts)], then there must exist
         an intermediate configuration (Config π' efs' σ') such that
-        step0:     "rtcL adv_step (Config π efs σ) (Config π' efs' σ') []" and
-        step_call: "adv_step  (Config π' efs' σ') (Config ((τ,op obj v)::π') efs' σ') [Call τ v]"
-        step1:     "rtcL adv_step (Config ((τ,op obj v)::π') efs' σ') config' ts)".
+        step0:     [adv_steps (Config π efs σ) (Config π' efs' σ') []] and
+        step_call: [adv_step  (Config π' efs' σ') (Config ((τ,op obj v)::π') efs' σ') [Call τ v]]
+        step1:     [adv_steps (Config ((τ,op obj v)::π') efs' σ') config' ts)].
 
       Now if we instead process step_call first, then step0++step1 will be the proof goal. *)
 
     intros (*Hfresh*) Hvalid_req [config' Hadv_steps].
     exists config'.
-    assert (∃ π' efs' σ', rtcL (adv_step ops obj valid_requests) (Config π efs σ) (Config π' efs' σ') []
-      ∧ rtcL (adv_step ops obj valid_requests) (Config (π'++[(τ,Some ((ops!!!n:val) obj v))]) efs' σ') config' ts)
-      as (π' & efs' & σ' & Hadv_steps0 & (*Hπ &*) Hadv_steps1).
+    assert (∃ nsteps0 nsteps1 π' efs' σ', bstepsL (adv_step ops obj valid_requests) nsteps0 (Config π efs σ) (Config π' efs' σ') []
+      ∧ bstepsL (adv_step ops obj valid_requests) nsteps1 (Config (π'++[(τ,Some ((ops!!!n:val) obj v))]) efs' σ') config' ts
+      ∧ steps_left = nsteps0 + nsteps1)
+      as (nsteps0 & nsteps1 & π' & efs' & σ' & Hadv_steps0 & (*Hπ &*) Hadv_steps1 & Hsteps_left).
     { remember (Config π efs σ) as config0 eqn:Heq.
       clear Heq.
       remember ((τ,Call n v) :: ts) as ts0 eqn:Heqts0.
-      induction Hadv_steps as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]; first done.
+      remember (Sₙ steps_left) as steps_left' eqn:Heqsteps_left.
+      revert steps_left Heqsteps_left.
+      induction Hadv_steps as [|steps_left' config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH] => steps_left Heqsteps_left; first done.
+      injection Heqsteps_left as ->.
       destruct Hadv_step.
       - (* Call *)
         simpl in Heqts0. injection Heqts0 as -> -> -> ->.
-        eexists _, _, _. split; [|done].
-        apply rtcL_refl.
+        eexists 0,steps_left,_, _, _. split; [|done].
+        apply bstepsL_refl.
       - (* Intermediate *)
         rewrite left_id in Heqts0.
-        destruct (IH Heqts0) as (π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
-        exists π'0, efs'0, σ'0. split; [|done].
+        apply bstepsL_length_le in Hadv_steps as Hlen.
+        rewrite Heqts0 /= in Hlen.
+        destruct steps_left as [|steps_left]; first lia.
+        destruct (IH Heqts0 steps_left eq_refl) as (nsteps1 & nsteps2 & π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1 & Hsteps_left).
+        exists (Sₙ nsteps1), nsteps2, π'0, efs'0, σ'0. split_and!; [|done|lia].
         rewrite -(right_id [] (++) []).
-        eapply rtcL_l; last eassumption.
+        eapply bstepsL_l; last eassumption.
         by eapply adv_step_intermediate.
       - (* Child *)
         rewrite left_id in Heqts0.
-        destruct (IH Heqts0) as (π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
-        exists π'0, efs'0, σ'0. split; [|done].
+        apply bstepsL_length_le in Hadv_steps as Hlen.
+        rewrite Heqts0 /= in Hlen.
+        destruct steps_left as [|steps_left]; first lia.
+        destruct (IH Heqts0 steps_left eq_refl) as (nsteps1 & nsteps2 & π'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1 & Hsteps_left).
+        exists (Sₙ nsteps1), nsteps2, π'0, efs'0, σ'0. split_and!; [|done|lia].
         rewrite -(right_id [] (++) []).
-        eapply rtcL_l; last eassumption.
+        eapply bstepsL_l; last eassumption.
         by eapply adv_step_child.
       - (* Return *)
         injection Heqts0 as _ HFalse. discriminate HFalse. }
 
-    assert (Hadv_steps0' : rtcL (adv_step ops obj valid_requests) (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ)
+    assert (Hadv_steps0' : bstepsL (adv_step ops obj valid_requests) nsteps0 (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ)
       (Config (π'++[(τ,Some ((ops!!!n: val) obj v))]) efs' σ') []).
     { clear -Hadv_steps0.
       remember (Config π efs σ) as config eqn:Heq.
@@ -240,57 +259,67 @@ Section logatom.
       clear Heq π efs σ Heq' π' efs' σ'.
       assert (∃ ts, ts = (@nil (positive*trace))) as [ts Heqts] by by eexists.
       rewrite -Heqts in Hadv_steps0.
-      induction Hadv_steps0 as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps]; first apply rtcL_refl.
+      induction Hadv_steps0 as [|nsteps0 config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps]; first apply bstepsL_refl.
       destruct ts1; last rewrite -app_comm_cons // in Heqts.
       destruct ts2; last discriminate Heqts.
-      rewrite -[x in rtcL (adv_step ops obj valid_requests) _ _ x](right_id [] (++) []).
-      eapply rtcL_l; last eauto.
+      rewrite -[x in bstepsL (adv_step ops obj valid_requests) _ _ _ x](right_id [] (++) []).
+      eapply bstepsL_l; last eauto.
       clear -Hadv_step.
       inversion Hadv_step; subst; simpl.
       - do 2 rewrite -assoc -app_comm_cons.
         by eapply adv_step_intermediate.
       - by eapply adv_step_child. }
-    change ts with ([]++ts).
-    eapply rtcL_trans; eassumption.
+    change ts with ([]++ts). subst steps_left.
+    eapply bstepsL_trans; eassumption.
   Qed.
 
-  Lemma is_valid_trace_return_inv obj π₁ π₂ efs σ (τ : positive) (v : val) (ts : list (positive*trace)) :
+  Lemma is_valid_trace_return_inv obj π₁ π₂ efs σ (τ : positive) (v : val) steps_left (ts : list (positive*trace)) :
     NoDup (π₁++(τ, Some (Val v))::π₂).*1 →
-    is_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) ((τ,Ret v)::ts) →
-    is_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) ts.
+    is_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Sₙ steps_left) ((τ,Ret v)::ts) →
+    is_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) steps_left ts.
   Proof.
     intros Hnodup [config' Hadv_steps].
     exists config'.
-    assert (∃ π₁' π₂' efs' σ', rtcL (adv_step ops obj valid_requests) (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Config (π₁'++(τ, Some (Val v))::π₂') efs' σ') []
-      ∧ rtcL (adv_step ops obj valid_requests) (Config (π₁'++(τ, None)::π₂') efs' σ') config' ts)
-      as (π₁' & π₂' & efs' & σ' & Hadv_steps0 & Hadv_steps1).
+    assert (∃ nsteps0 nsteps1 π₁' π₂' efs' σ', bstepsL (adv_step ops obj valid_requests) nsteps0 (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Config (π₁'++(τ, Some (Val v))::π₂') efs' σ') []
+      ∧ bstepsL (adv_step ops obj valid_requests) nsteps1 (Config (π₁'++(τ, None)::π₂') efs' σ') config' ts
+      ∧ steps_left = nsteps0 + nsteps1)
+      as (nsteps0 & nsteps1 & π₁' & π₂' & efs' & σ' & Hadv_steps0 & Hadv_steps1 & Hsteps_left).
     { remember (Config (π₁++(τ, Some (Val v))::π₂) efs σ) as config0 eqn:Heq.
       clear Heq.
       remember ((τ,Ret v) :: ts) as ts0 eqn:Heqts0.
-      induction Hadv_steps as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]; first done.
+      remember (Sₙ steps_left) as steps_left' eqn:Heqsteps_left.
+      revert steps_left Heqsteps_left.
+      induction Hadv_steps as [|steps_left' config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH] => steps_left Heqsteps_left; first done.
+      injection Heqsteps_left as ->.
       destruct Hadv_step(*; simpl in Hπ*).
       - (* Call *)
         injection Heqts0 as _ HFalse. discriminate HFalse.
       - (* Intermediate *)
         rewrite left_id in Heqts0.
-        destruct (IH Heqts0) as (π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
-        exists π₁'0, π₂'0, efs'0, σ'0. split; last done.
+        apply bstepsL_length_le in Hadv_steps as Hlen.
+        rewrite Heqts0 /= in Hlen.
+        destruct steps_left as [|steps_left]; first lia.
+        destruct (IH Heqts0 steps_left eq_refl) as (nsteps1 & nsteps2 & π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1 & Hsteps_left).
+        exists (Sₙ nsteps1), nsteps2, π₁'0, π₂'0, efs'0, σ'0. split_and!; [|done|lia].
         rewrite -(right_id [] (++) []).
-        eapply rtcL_l; last eassumption.
+        eapply bstepsL_l; last eassumption.
         by eapply adv_step_intermediate.
       - (* Child *)
         rewrite left_id in Heqts0.
-        destruct (IH Heqts0) as (π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1).
-        exists π₁'0, π₂'0, efs'0, σ'0. split; last done.
+        apply bstepsL_length_le in Hadv_steps as Hlen.
+        rewrite Heqts0 /= in Hlen.
+        destruct steps_left as [|steps_left]; first lia.
+        destruct (IH Heqts0 steps_left eq_refl) as (nsteps1 & nsteps2 & π₁'0 & π₂'0 & efs'0 & σ'0 & Hadv_steps0 & Hadv_steps1 & Hsteps_left).
+        exists (Sₙ nsteps1), nsteps2, π₁'0, π₂'0, efs'0, σ'0. split_and!; [|done|lia].
         rewrite -(right_id [] (++) []).
-        eapply rtcL_l; last eassumption.
+        eapply bstepsL_l; last eassumption.
         by eapply adv_step_child.
       - (* Return *)
         simpl in Heqts0. injection Heqts0 as -> -> ->.
-        eexists _, _, _, _. split; last done.
-        apply rtcL_refl. }
+        eexists 0,steps_left,_, _, _, _. split; [|done].
+        apply bstepsL_refl. }
 
-    assert (Hadv_steps0' : rtcL (adv_step ops obj valid_requests) (Config (π₁++(τ,None)::π₂) efs σ)
+    assert (Hadv_steps0' : bstepsL (adv_step ops obj valid_requests) nsteps0 (Config (π₁++(τ,None)::π₂) efs σ)
       (Config (π₁'++(τ,None)::π₂') efs' σ') []).
     { clear -Hnodup Hadv_steps0.
       remember (Config (π₁++(τ,Some (Val v))::π₂) efs σ) as config eqn:Heq.
@@ -298,10 +327,10 @@ Section logatom.
       revert π₁ π₂ efs σ π₁' π₂' efs' σ' Hnodup Heq Heq'.
       assert (∃ ts, ts = (@nil (positive*trace))) as [ts Heqts] by by eexists.
       rewrite -Heqts in Hadv_steps0.
-      induction Hadv_steps0 as [|config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]
+      induction Hadv_steps0 as [|nsteps0 config0 config1 config2 ts1 ts2 Hadv_step Hadv_steps IH]
         => π₁ π₂ efs σ π₁' π₂' efs' σ' Hnodup Heqconfig Heqconfig'; simplify_eq.
       - apply pendingOp_nodup_inj in Heqconfig' as (<- & _ & <-); [|done].
-        apply rtcL_refl.
+        apply bstepsL_refl.
       - destruct ts1; last rewrite -app_comm_cons // in Heqts.
         destruct ts2; last discriminate Heqts.
         rewrite -(right_id [] (++) []).
@@ -322,7 +351,7 @@ Section logatom.
               rename H1 into Heq
             end.
             exists (take (length π₁) (π₁0++(τ0,Some e_mid)::π₂0)).
-            exists (drop (1+length π₁) (π₁0++(τ0,Some e_mid)::π₂0)).
+            exists (drop (Sₙ (length π₁)) (π₁0++(τ0,Some e_mid)::π₂0)).
             exists (efs++ef), σ_mid.
             assert (Hnodup0: NoDup (π₁0 ++ (τ0, Some e0) :: π₂0).*1) by rewrite Heq //.
             assert (Hnodup_mid: NoDup (π₁0++(τ0,Some e_mid)::π₂0).*1).
@@ -348,7 +377,7 @@ Section logatom.
               rewrite length_app /=.
               assumption.
           - do 4 eexists; eauto. }
-        eapply rtcL_l; last first.
+        eapply bstepsL_l; last first.
         { eapply IH; [reflexivity|exact Hnodup_mid|done|done]. }
         clear -Hadv_step Hnodup Hnodup_mid.
         inversion Hadv_step; simplify_eq.
@@ -478,8 +507,8 @@ Section logatom.
           end.
           apply pendingOp_nodup_inj in Heq as (<- & _ & <-); [|done].
           by eapply adv_step_child. }
-    change ts with ([]++ts).
-    eapply rtcL_trans; eassumption.
+    change ts with ([]++ts). subst steps_left.
+    eapply bstepsL_trans; eassumption.
   Qed.
 
   Fixpoint trunk_trace (ts_full ts_physical': list (positive*trace)) : list (positive*trace) :=
@@ -541,6 +570,28 @@ Section logatom.
         apply prefix_app. apply prefix_cons. assumption.
   Qed.
 
+  (* destruct [pts] into [pts = pts_lin++t::pts'], where [pts_lin] only contains Lin *)
+  Lemma obs_cons_inv (pts pts'_filtered : list (positive*trace)) t :
+    filter (not ∘ is_lin ∘ snd) pts = t :: pts'_filtered →
+    ∃ pts_lin pts', pts = pts_lin++t::pts' ∧ Forall (is_lin ∘ snd) pts_lin
+      ∧ pts'_filtered = filter (not ∘ is_lin ∘ snd) pts'.
+  Proof.
+    intros Hresolve_eq.
+    induction pts as [|pt pts IH]; first done.
+    rewrite filter_cons in Hresolve_eq.
+    case_decide as Hlin.
+    - exists [], pts.
+      injection Hresolve_eq as -> <-.
+      auto.
+    - destruct (IH Hresolve_eq) as (pts_lin & pts' & -> & Hall_lin & ->).
+      exists (pt::pts_lin), pts'.
+      split_and!.
+      + by rewrite -app_comm_cons.
+      + rewrite Forall_cons. split; last done.
+        by apply dec_stable.
+      + reflexivity.
+  Qed.
+
   Fixpoint decode_trace (vs : list (val*val)) : list (positive*trace) :=
     match vs with
     | (#(),InjLV (LitV (LitProphecy τ), (#(LitInt opid),arg)))::vs =>
@@ -552,47 +603,18 @@ Section logatom.
     | _ => []
     end.
 
-  Definition is_decode_valid_trace obj config (ts ts_raw : list (positive*trace)) :=
-    is_valid_trace obj config ts ∧
+  Definition is_decode_valid_trace obj config steps_left (ts ts_raw : list (positive*trace)) :=
+    is_valid_trace obj config steps_left ts ∧
     (ts = ts_raw ∨ ∃ n, n < length ts_raw ∧ ts = take n ts_raw ∧
-        ¬ is_valid_trace obj config (take (1+n) ts_raw)).
+        ¬ is_valid_trace obj config steps_left (take (Sₙ n) ts_raw)).
 
-  Lemma decode_valid_trace obj config (ts_raw : list (positive*trace)) :
-    ∃ ts, is_decode_valid_trace obj config ts ts_raw.
+  Lemma decode_valid_trace obj config steps_left (ts_raw : list (positive*trace)) :
+    ∃ ts, is_decode_valid_trace obj config steps_left ts ts_raw.
   Proof.
     induction ts_raw as [|t ts_raw IH] using rev_ind.
     { exists []. split;[apply is_valid_trace_nil|by left]. }
     destruct IH as [ts [Hvalid [->|[n (Hn & -> & Hnot_valid_next)]]]].
-    - (* Classic logic is necessary here because we need to do case analysis on
-        non-decidable proposition "is_valid_trace obj config (ts_raw++[t])".
-
-        Proof.
-          As "op", "obj", and "is_valid_obj" are fixed, we omit their occurrences as
-          parameter for conciseness.
-
-          Suppose "is_valid_trace config ts" were decidable for all "config" and "ts".
-          We will derive contradiction by solving the halting problem using this assumption.
-
-          Let expression "e" be the input of the halting problem.
-          Let "e'" = "e; ()" (which first evaluates "e", and then returns unit)
-          Pick "config" = "Config [(τ,e')] [] ∅", and "ts" = "[Ret τ ()]".
-
-          Notice that this configuration produces trace "[Ret τ ()]" iff "e" terminates.
-          This is because:
-             1. The configuration cannot be reduced to a configuration with more pending
-                operations because there is no "Call" in the trace.
-             2. Therefore, to generate a "Ret" trace, "e'" must terminate with "()".
-             3. If "e" terminates, then "e; ()" will terminate with "()"; if "e" diverges,
-                then "e; ()" will also diverge (i.e., will not terminate with "()").
-
-          Based on the assumption, "is_valid_trace (Config [(τ,e)] [] ∅) [Ret τ ()]"
-          is decidable.
-          Therefore, it is possible to decide whether "e" terminates.
-          This contradicts to the fact that the halting problem is undecidable.
-
-          Therefore, the original assumption must be false.
-          Therefore, "is_valid_trace config ts" is undecidable. *)
-      destruct (classic (is_valid_trace obj config (ts_raw++[t]))).
+    - destruct (is_valid_trace_decide obj config steps_left (ts_raw++[t])).
       + exists (ts_raw++[t]).
         split; [done|by left].
       + exists ts_raw.
@@ -610,10 +632,10 @@ Section logatom.
       + rewrite take_app_le //.
   Qed.
 
-  Lemma decode_valid_trace_call {obj π efs σ} {τ : positive} {n : nat} {v : val} {ts ts_raw' : list (positive*trace)} :
+  Lemma decode_valid_trace_call {obj π efs σ} {τ : positive} {n : nat} {v : val} {steps_left : nat} {ts ts_raw' : list (positive*trace)} :
     τ ∉ π.*1 → default default_vr (valid_requests!!n) v →
-    is_decode_valid_trace obj (Config π efs σ) ts ((τ,Call n v)::ts_raw') →
-    ∃ ts', ts = (τ,Call n v)::ts' ∧ is_decode_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) ts' ts_raw'.
+    is_decode_valid_trace obj (Config π efs σ) (Sₙ steps_left) ts ((τ,Call n v)::ts_raw') →
+    ∃ ts', ts = (τ,Call n v)::ts' ∧ is_decode_valid_trace obj (Config (π++[(τ, Some ((ops!!!n: val) obj v))]) efs σ) steps_left ts' ts_raw'.
   Proof.
     intros Hfresh Hvalid_req His_decode.
     destruct His_decode as [Hvalid_trace [-> | Hprefix]].
@@ -634,13 +656,13 @@ Section logatom.
       by apply is_valid_trace_call.
   Qed.
 
-  Lemma decode_valid_trace_intermediate {obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ ef} {τ : positive} {ts ts_raw : list (positive*trace)} :
+  Lemma decode_valid_trace_intermediate {obj π₁ π₂ efs e₁ e₂ σ₁ σ₂ κ ef} {τ : positive} {steps_left : nat} {ts ts_raw : list (positive*trace)} :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    is_decode_valid_trace obj (Config (π₁++(τ, Some e₁)::π₂) efs σ₁) ts ts_raw →
-    ∃ ts', ts' `prefix_of` ts ∧ is_decode_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) ts' ts_raw.
+    is_decode_valid_trace obj (Config (π₁++(τ, Some e₁)::π₂) efs σ₁) (Sₙ steps_left) ts ts_raw →
+    ∃ ts', ts' `prefix_of` ts ∧ is_decode_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) steps_left ts' ts_raw.
   Proof.
     intros Hprim_step His_decode.
-    destruct (decode_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) ts_raw) as [ts' His_decode'].
+    destruct (decode_valid_trace obj (Config (π₁++(τ, Some e₂)::π₂) (efs++ef) σ₂) steps_left ts_raw) as [ts' His_decode'].
     exists ts'. split; last done.
     destruct His_decode as [Hvalid_trace [-> | [n (Hn & -> & Hnot_valid_next)]]];
     destruct His_decode' as [Hvalid_trace' [-> | [n' (Hn' & -> & Hnot_valid_next')]]].
@@ -658,17 +680,17 @@ Section logatom.
         destruct Hnot_valid_next.
         eapply is_valid_trace_intermediate; first eassumption.
         eapply is_valid_trace_prefix; last eassumption.
-        replace (1+n) with ((1+n) `min` n') by lia.
+        replace (Sₙ n) with ((Sₙ n) `min` n') by lia.
         rewrite -take_take. apply prefix_take.
   Qed.
 
-  Lemma decode_valid_trace_child {obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef} {ts ts_raw : list (positive*trace)} :
+  Lemma decode_valid_trace_child {obj π efs1 efs2 e₁ e₂ σ₁ σ₂ κ ef}{steps_left : nat} {ts ts_raw : list (positive*trace)} :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    is_decode_valid_trace obj (Config π (efs1++e₁::efs2) σ₁) ts ts_raw →
-    ∃ ts', ts' `prefix_of` ts ∧ is_decode_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) ts' ts_raw.
+    is_decode_valid_trace obj (Config π (efs1++e₁::efs2) σ₁) (Sₙ steps_left) ts ts_raw →
+    ∃ ts', ts' `prefix_of` ts ∧ is_decode_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) steps_left ts' ts_raw.
   Proof.
     intros Hprim_step His_decode.
-    destruct (decode_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) ts_raw) as [ts' His_decode'].
+    destruct (decode_valid_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) steps_left ts_raw) as [ts' His_decode'].
     exists ts'. split; last done.
     destruct His_decode as [Hvalid_trace [-> | [n (Hn & -> & Hnot_valid_next)]]];
     destruct His_decode' as [Hvalid_trace' [-> | [n' (Hn' & -> & Hnot_valid_next')]]].
@@ -684,14 +706,14 @@ Section logatom.
       + destruct Hnot_valid_next.
         eapply is_valid_trace_child; first eassumption.
         eapply is_valid_trace_prefix; last eassumption.
-        replace (1+n) with ((1+n) `min` n') by lia.
+        replace (Sₙ n) with ((Sₙ n) `min` n') by lia.
         rewrite -take_take. apply prefix_take.
   Qed.
 
-  Lemma decode_valid_trace_return {obj π₁ π₂ efs σ} {τ : positive} {v : val} {ts ts_raw' : list (positive*trace)} :
+  Lemma decode_valid_trace_return {obj π₁ π₂ efs σ} {τ : positive} {v : val} {steps_left : nat} {ts ts_raw' : list (positive*trace)} :
     NoDup (π₁++(τ, Some (Val v))::π₂).*1 →
-    is_decode_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) ts ((τ,Ret v)::ts_raw') →
-    ∃ ts', ts = (τ,Ret v)::ts' ∧ is_decode_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) ts' ts_raw'.
+    is_decode_valid_trace obj (Config (π₁++(τ, Some (Val v))::π₂) efs σ) (Sₙ steps_left) ts ((τ,Ret v)::ts_raw') →
+    ∃ ts', ts = (τ,Ret v)::ts' ∧ is_decode_valid_trace obj (Config (π₁++(τ, None)::π₂) efs σ) steps_left ts' ts_raw'.
   Proof.
     intros Hnodup His_decode.
     destruct His_decode as [Hvalid_trace [-> | Hprefix]].
@@ -712,31 +734,31 @@ Section logatom.
       by apply is_valid_trace_return.
   Qed.
 
-  Definition proph_trace obj config (p : proph_id) (ts : list (positive*trace)) : iProp Σ :=
-    ∃ vs, proph p vs ∗ ⌜ is_decode_valid_trace obj config ts (decode_trace vs) ⌝.
+  Definition proph_trace obj config (p : proph_id) (steps_left : nat) (ts : list (positive*trace)) : iProp Σ :=
+    ∃ vs, proph p vs ∗ ⌜ is_decode_valid_trace obj config steps_left ts (decode_trace vs) ⌝.
 
-  Lemma proph_trace_valid_trace obj config p ts :
-    proph_trace obj config p ts ⊢ ⌜is_valid_trace obj config ts⌝.
+  Lemma proph_trace_valid_trace obj config p steps_left ts :
+    proph_trace obj config p steps_left ts ⊢ ⌜is_valid_trace obj config steps_left ts⌝.
   Proof. iDestruct 1 as (v) "[_ [$ _]]". Qed.
 
   Lemma wp_new_proph_trace s E :
     {{{ True }}}
       NewProph @ s; E
     (* the structure of this lemma allows choosing [obj] after [NewProph] *)
-    {{{ p, RET (LitV (LitProphecy p)); ∀ obj config, ∃ ts, proph_trace obj config p ts }}}.
+    {{{ p, RET (LitV (LitProphecy p)); ∀ obj config steps_left, ∃ ts, proph_trace obj config p steps_left ts }}}.
   Proof.
     iIntros (Φ) "_ HΦ".
     wp_apply (wp_new_proph with "[//]") as (vs p) "Hproph".
-    iApply "HΦ". iIntros (obj config).
-    destruct (decode_valid_trace obj config (decode_trace vs)) as [ts Hts].
+    iApply "HΦ". iIntros (obj config steps_left).
+    destruct (decode_valid_trace obj config steps_left (decode_trace vs)) as [ts Hts].
     iFrame. iExists ts. done.
   Qed.
 
-  Lemma wp_resolve_proph_trace_call obj π efs σ (p : proph_id) (τ : positive) (n: nat) (v : val) ts s E :
+  Lemma wp_resolve_proph_trace_call obj π efs σ (p : proph_id) steps_left (τ : positive) (n: nat) (v : val) ts s E :
     τ ∉ π.*1 → default default_vr (valid_requests!!n) v →
-    {{{ proph_trace obj (Config π efs σ) p ts }}}
+    {{{ proph_trace obj (Config π efs σ) p (Sₙ steps_left) ts }}}
       resolve_proph: #p to: InjLV (#(LitProphecy τ),(#n,v)) @ s; E
-    {{{ ts', RET #(); ⌜ ts = (τ,Call n v)::ts' ⌝ ∗ proph_trace obj (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ) p ts' }}}.
+    {{{ ts', RET #(); ⌜ ts = (τ,Call n v)::ts' ⌝ ∗ proph_trace obj (Config (π++[(τ,Some ((ops!!!n: val) obj v))]) efs σ) p steps_left ts' }}}.
   Proof.
     iIntros (Hfresh Hvalid Φ) "Hproph HΦ".
     iDestruct "Hproph" as (vs) "[Hproph %His_decode]".
@@ -748,10 +770,10 @@ Section logatom.
     iApply ("HΦ" $! ts'). by iFrame.
   Qed.
 
-  Lemma wp_resolve_proph_trace_intermediate obj π₁ π₂ efs σ₁ σ₂ κ ef (p : proph_id) (τ : positive) (e₁ e₂ : expr) ts :
+  Lemma wp_resolve_proph_trace_intermediate obj π₁ π₂ efs σ₁ σ₂ κ ef (p : proph_id) steps_left (τ : positive) (e₁ e₂ : expr) ts :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    proph_trace obj (Config (π₁++(τ,Some e₁)::π₂) efs σ₁) p ts
-    ⊢ ∃ ts', ⌜ts' `prefix_of` ts⌝ ∗ proph_trace obj (Config (π₁++(τ,Some e₂)::π₂) (efs++ef) σ₂) p ts'.
+    proph_trace obj (Config (π₁++(τ,Some e₁)::π₂) efs σ₁) p (Sₙ steps_left) ts
+    ⊢ ∃ ts', ⌜ts' `prefix_of` ts⌝ ∗ proph_trace obj (Config (π₁++(τ,Some e₂)::π₂) (efs++ef) σ₂) p steps_left ts'.
   Proof.
     iIntros (Hprim_step) "Hproph".
     iDestruct "Hproph" as (vs) "[Hproph %His_decode]".
@@ -759,10 +781,10 @@ Section logatom.
     iFrame. iExists ts'. done.
   Qed.
 
-  Lemma wp_resolve_proph_trace_child obj π efs1 efs2 σ₁ σ₂ κ ef (p : proph_id) (e₁ e₂ : expr) ts :
+  Lemma wp_resolve_proph_trace_child obj π efs1 efs2 σ₁ σ₂ κ ef (p : proph_id) steps_left (e₁ e₂ : expr) ts :
     prim_step e₁ σ₁ κ e₂ σ₂ ef →
-    proph_trace obj (Config π (efs1++e₁::efs2) σ₁) p ts
-    ⊢ ∃ ts', ⌜ts' `prefix_of` ts⌝ ∗ proph_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) p ts'.
+    proph_trace obj (Config π (efs1++e₁::efs2) σ₁) p (Sₙ steps_left) ts
+    ⊢ ∃ ts', ⌜ts' `prefix_of` ts⌝ ∗ proph_trace obj (Config π (efs1++e₂::efs2++ef) σ₂) p steps_left ts'.
   Proof.
     iIntros (Hprim_step) "Hproph".
     iDestruct "Hproph" as (vs) "[Hproph %His_decode]".
@@ -770,11 +792,11 @@ Section logatom.
     iFrame. iExists ts'. done.
   Qed.
 
-  Lemma wp_resolve_proph_trace_return obj π₁ π₂ efs σ (p : proph_id) (τ : positive) (v : val) ts s E :
+  Lemma wp_resolve_proph_trace_return obj π₁ π₂ efs σ (p : proph_id) steps_left (τ : positive) (v : val) ts s E :
     NoDup (π₁++(τ,Some (Val v))::π₂).*1 →
-    {{{ proph_trace obj (Config (π₁++(τ,Some (Val v))::π₂) efs σ) p ts }}}
+    {{{ proph_trace obj (Config (π₁++(τ,Some (Val v))::π₂) efs σ) p (Sₙ steps_left) ts }}}
       resolve_proph: #p to: InjRV (#(LitProphecy τ),v) @ s; E
-    {{{ ts', RET #(); ⌜ ts = (τ,Ret v)::ts' ⌝ ∗ proph_trace obj (Config (π₁++(τ,None)::π₂) efs σ) p ts' }}}.
+    {{{ ts', RET #(); ⌜ ts = (τ,Ret v)::ts' ⌝ ∗ proph_trace obj (Config (π₁++(τ,None)::π₂) efs σ) p steps_left ts' }}}.
   Proof.
     iIntros (Hnodup Φ) "Hproph HΦ".
     iDestruct "Hproph" as (vs) "[Hproph %His_decode]".
@@ -796,28 +818,33 @@ Section logatom.
     AU <{ ∃∃ s : S, P_state γ s }> @ ⊤ ∖ ↑Nlogatom, ∅
       <{ ∀∀ (s' : S) (y' : val), P_state γ s' ∗ ⌜default default_rr (request_responses!!n) s y s' y'⌝, COMM Φ y' }>.
 
+  (* For each pending operation, if it hasn't linearized, then there is an AU;
+     if it has linearized, then there is a receipt. *)
+  Local Definition interpret γ (pts : list (positive*trace)) τ Φ : iProp Σ :=
+    match filter (λ t, t.1 = τ) pts with
+    | [] => True
+    | (_,Call _ _)::_ => False
+    | (_,Lin n v _) ::_ => op_au γ n v Φ
+    | (_,Ret v)::_ => Φ v
+    end.
+
   Definition is_P_inv γ obj p : iProp Σ :=
     (* pts is the full trace consisting of Call, Lin, and Ret *)
-    ∃ (γπ γϕ γs γe : gname) (s : S) π Φs (children : list expr) σ pts,
+    ∃ (γπ γϕ γs γe : gname) (s : S) π Φs (children : list expr) σ pts steps_left,
     (* The prophesied trace is generated by a program *)
     (* Ownerships *)
-      proph_trace obj (Config π children σ) p (filter (not ∘ is_lin ∘ snd) pts)
+      proph_trace obj (Config π children σ) p steps_left (filter (not ∘ is_lin ∘ snd) pts)
     ∗ own_state σ ∗ own γ (to_agree (γπ,γϕ,γs,γe))
     ∗ ghost_map_auth γπ 1 (list_to_map (pendingOp_active π))
     ∗ own_receipt_auth γϕ Φs
     ∗ own γs (●E s)
     ∗ ghost_map_auth γe 1 (list_to_imap 0 children)
+    ∗ (▷^steps_left False) (* A model-level time receipt *)
     ∗ ⌜dom (list_to_map (pendingOp_active π) : gmap positive expr) = dom Φs⌝
     (* An exclusive token for each pending operation *)
     ∗ ([∗ list] τ ∈ π.*1, ghost_id_token τ)
-    (* For each pending operation, if it hasn't linearized, then there is an AU;
-      if it has linearized, then there is a receipt. *)
-    ∗ ([∗ map] τ ↦ Φ ∈ Φs, match filter (λ t, t.1 = τ) pts with
-      | [] => True
-      | (_,Call _ _)::_ => False
-      | (_,Lin n v _) ::_ => op_au γ n v Φ
-      | (_,Ret v)::_ => Φ v
-      end)
+    (* The interpretation of each pending operation *)
+    ∗ ([∗ map] τ ↦ Φ ∈ Φs, interpret γ pts τ Φ)
     (* all pending operations in pts are covered by Φs; Φs may contain more operations
       that trace_pendingOp because some operations may diverge *)
     ∗ ⌜trace_pendingOp pts ⊆ dom Φs⌝
@@ -825,7 +852,7 @@ Section logatom.
     ∗ ⌜per_tag_partial_linearized pts⌝
     (* Future operations are linearizable *)
     ∗ ⌜∃ s', rtcL model_step s s' (filter (is_lin ∘ snd) pts)⌝
-    (* Configuration is not stuck (child threads may exist) *)
+    (* Configuration is not stuck *)
     ∗ ⌜config_safe ops obj π children σ⌝.
 
   Definition is_P γ v : iProp Σ :=
@@ -879,8 +906,8 @@ Section logatom.
 
     iApply wp_inv_open_maybe.
     iInv "His_P" as "Hinv" "Hclose".
-    iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-      "(Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+    iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts steps_left)
+      "(Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
     iDestruct "Htok" as (γπ γϕ γs γe) "[#Hγ Hfrag]".
     iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
     inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
@@ -902,8 +929,8 @@ Section logatom.
       iLeft.
       iDestruct "H" as (K e1 ? Heq Hnotval Hatomic) "H". subst e.
       iExists K, e1. do 3 (iSplit; first done).
-      iApply "H".
-      iNext. iIntros (κ v2 σ2 efs Hbase).
+      iApply "H". iIntros "!> _" (κ v2 σ2 efs Hbase).
+      destruct steps_left as [|steps_left]; first done.
 
       (* update τ ↦ e to τ ↦ e2 in the children ghost_map *)
       iMod (ghost_map_update (K (Val v2)) with "Hchildren● Hfrag") as "[Hchildren● Hfrag]".
@@ -921,7 +948,7 @@ Section logatom.
       pose proof (config_safe_child ops obj π efs1 efs2 (K e1) (K (Val v2)) σ1 σ2 κ efs
                     Hprim Hconfig_safe) as Hconfig_safe'.
       (* update proph_trace *)
-      iDestruct (wp_resolve_proph_trace_child _ _ efs1 efs2 _ _ _ _ _ _ _ _ Hprim with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]".
+      iDestruct (wp_resolve_proph_trace_child _ _ efs1 efs2 _ _ _ _ _ _ _ _ _ Hprim with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]".
 
       iModIntro. iSplitR "Hnew_tokens"; last first.
       { (* child threads *)
@@ -937,15 +964,16 @@ Section logatom.
         remember (trunk_trace pts pts'_filtered) as pts'.
         iExists γπ, γϕ, γs, γe, s, π, Φs,
                 (efs1 ++ K (Val v2) :: efs2 ++ efs),
-                σ2, pts'.
+                σ2, pts', steps_left.
         iSplitL "Hproph".
         { rewrite Hfilter. done. }
-        iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
+        iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren● Htime_receipt".
         iSplit; first done.
         iFrame "Hfresh".
-        iSplitL "Hreceipts".
-        { iApply (big_sepM_mono with "Hreceipts").
-          iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
+        iSplitL "Hinterps".
+        { iApply (big_sepM_mono with "Hinterps").
+          iIntros (τ0 Φ0 Hlookup0) "Hinterp".
+          rewrite /interpret.
           apply (prefix_filter (λ t, t.1 = τ0)) in Hpts'_prefix_pts.
           destruct (filter (λ t, t.1 = τ0) pts) as [|[? [ | | ]]] eqn:Heqfilter_pts.
           - apply prefix_nil_inv in Hpts'_prefix_pts as ->. done.
@@ -968,12 +996,13 @@ Section logatom.
       iDestruct "H" as "[Hown_state H]".
       iMod ("Hclose" with "[-H Hfrag]") as "_".
       { iNext. iFrame "∗#". auto. }
-      clear. remember (length efs1) as i eqn:Heq. clear efs1 Heq.
+      clear -HModelDecidable.
+      remember (length efs1) as i eqn:Heq. clear efs1 Heq.
       iModIntro. iApply "H".
-      iNext. iIntros (e2 efs) "H".
+      iNext. iIntros "Hlc" (e2 efs) "H".
       iInv "His_P" as "Hinv" "Hclose".
-      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-        "(>Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts steps_left)
+        "(>Hproph & >Hown_state & >#Hγ' & Hop● & HΦ● & Hs● & >Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iDestruct (ghost_map_lookup with "Hchildren● Hfrag") as %Hi_lookup.
@@ -995,8 +1024,10 @@ Section logatom.
       (* extend config_safe over the new forked threads *)
       pose proof (config_safe_child ops obj π efs1 efs2 e e2 σ1 σ2 κ efs
                     Hprim Hconfig_safe) as Hconfig_safe'.
-      (* update proph_trace *)
-      iDestruct (wp_resolve_proph_trace_child _ _ efs1 efs2 _ _ _ _ _ _ _ _ Hprim with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]".
+      (* update proph_trace, use the later credit to strip a later in "Htime_receipt" *)
+      iMod (lc_fupd_elim_later with "Hlc Htime_receipt") as "Htime_receipt".
+      destruct steps_left as [|steps_left]; first done.
+      iDestruct (wp_resolve_proph_trace_child _ _ efs1 efs2 _ _ _ _ _ _ _ _ _ Hprim with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]".
 
       iMod ("Hclose" with "[-Hfrag Hnew_tokens]") as "_".
       { iNext.
@@ -1005,15 +1036,16 @@ Section logatom.
         remember (trunk_trace pts pts'_filtered) as pts'.
         iExists γπ, γϕ, γs, γe, s, π, Φs,
                 (efs1 ++ e2 :: efs2 ++ efs),
-                σ2, pts'.
+                σ2, pts', steps_left.
         iSplitL "Hproph".
         { rewrite Hfilter. done. }
-        iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
+        iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren● Htime_receipt".
         iSplit; first done.
         iFrame "Hfresh".
-        iSplitL "Hreceipts".
-        { iApply (big_sepM_mono with "Hreceipts").
-          iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
+        iSplitL "Hinterps".
+        { iApply (big_sepM_mono with "Hinterps").
+          iIntros (τ0 Φ0 Hlookup0) "Hinterp".
+          rewrite /interpret.
           apply (prefix_filter (λ t, t.1 = τ0)) in Hpts'_prefix_pts.
           destruct (filter (λ t, t.1 = τ0) pts) as [|[? [ | | ]]] eqn:Heqfilter_pts.
           - apply prefix_nil_inv in Hpts'_prefix_pts as ->. done.
@@ -1041,34 +1073,24 @@ Section logatom.
     (∃ s', rtcL model_step s s' (filter (is_lin ∘ snd) (pts_lin ++ pts'))) →
     Forall (λ t, t.1 ∈ dom Φs) pts_lin →
     own γ (to_agree (γπ, γϕ, γs, γe)) -∗ own γs (●E s) -∗
-    ([∗ map] τ0↦Φ0 ∈ Φs, match filter (λ t, t.1 = τ0) (pts_lin ++ pts') with
-      | [] => True
-      | (_, Call _ _) :: _ => False
-      | (_, Lin n v _) :: _ => op_au γ n v Φ0
-      | (_, Ret v) :: _ => Φ0 v
-      end) -∗
+    ([∗ map] τ0↦Φ0 ∈ Φs, interpret γ (pts_lin ++ pts') τ0 Φ0) -∗
     ∃ s_end, |={⊤ ∖ ↑Nlogatom}=> ∃ s', ⌜rtcL model_step s' s_end (filter (is_lin ∘ snd) pts')⌝ ∗ own γs (●E s') ∗
-        ([∗ map] τ ↦ Φ ∈ Φs, match filter (λ t, t.1 = τ) pts' with
-        | [] => True
-        | (_, Call _ _) :: _ => False
-        | (_, Lin n v _) :: _ => op_au γ n v Φ
-        | (_, Ret v) :: _ => Φ v
-        end).
+        ([∗ map] τ ↦ Φ ∈ Φs, interpret γ pts' τ Φ).
   Proof.
-    iIntros (Hpts_lin Hper_tag_lin'' Hmsteps'' Hpts_lin_in_dom) "#Hγ Hs● Hreceipts".
+    iIntros (Hpts_lin Hper_tag_lin'' Hmsteps'' Hpts_lin_in_dom) "#Hγ Hs● Hinterps".
     destruct Hmsteps'' as [s' Hmsteps]. iExists s'.
     rename Hper_tag_lin'' into Hper_tag_lin.
     iInduction pts_lin as [|pt_lin pts_lin] "IH" forall (s Hmsteps Φs Hpts_lin_in_dom).
     { simpl. iModIntro. by iFrame. }
     (* extract the head of pts_lin *)
     rewrite Forall_cons in Hpts_lin. destruct Hpts_lin as [Hpt_lin Hpts_lin].
-    destruct pt_lin as [τ_pt_lin [|v_pt_lin v'_pt_lin|]]; simpl in Hpt_lin; [done| |done].
+    destruct pt_lin as [τ_pt_lin [|n_pt_lin v_pt_lin v'_pt_lin|]]; simpl in Hpt_lin; [done| |done].
     rewrite Forall_cons in Hpts_lin_in_dom.
     destruct Hpts_lin_in_dom as [Hpt_lin_in_dom Hpts_lin_in_dom].
     assert (is_Some (Φs !! τ_pt_lin)) as [Φ_pt_lin Hlookup] by by apply elem_of_dom.
-    iEval (rewrite (big_sepM_delete _ Φs (τ_pt_lin)) //) in "Hreceipts".
-    iDestruct "Hreceipts" as "[Hreceipt Hreceipts]".
-    iEval (rewrite filter_cons_True) in "Hreceipt".
+    iEval (rewrite (big_sepM_delete _ Φs (τ_pt_lin)) //) in "Hinterps".
+    iDestruct "Hinterps" as "[Hinterp Hinterps]".
+    iEval (rewrite /interpret filter_cons_True) in "Hinterp".
 
     (* linearize the head of pts_lin *)
     rewrite -app_comm_cons filter_cons_True // in Hmsteps.
@@ -1099,16 +1121,16 @@ Section logatom.
     pose proof (per_tag_partial_linearized_filter_lin _ _ _ _ _ Hper_tag_lin) as Hfilter.
     rewrite !filter_app !(filter_False_nil _ pts_lin) // left_id_L in Hfilter.
     apply per_tag_partial_linearized_cons in Hper_tag_lin.
-    iMod "Hreceipt" as (x) "[HPstate [_ Hcomm]]".
+    iMod "Hinterp" as (x) "[HPstate [_ Hcomm]]".
     iDestruct "HPstate" as (γπ' γϕ' γs' γe') "[#Hγ' Hs◯]".
     iCombine "Hγ Hγ'" gives %Hγ_eq%to_agree_op_inv_L.
     simplify_eq.
     iCombine "Hs● Hs◯" gives %<-%excl_auth_agree_L.
     iMod (own_update_2 with "Hs● Hs◯") as "[Hs● Hs◯]".
     { apply (excl_auth_update _ _ s_mid). }
+    iMod ("Hcomm" with "[$Hγ $Hs◯ //]") as "Hinterp".
 
     (* linearize the tail of pts_lin (using "IH") *)
-    iMod ("Hcomm" with "[$Hγ $Hs◯ //]") as "Hreceipt".
     iSpecialize ("IH" with "[//] [//] [//]").
     (* FIXME: (Iris bug?) expressions put after [$!] don't trigger typeclass search *)
     set (Φs_delete := (delete τ_pt_lin Φs)).
@@ -1122,18 +1144,18 @@ Section logatom.
       destruct Hτ_pt_lin_unique as [? ?].
       split; last auto.
       rewrite dom_delete_L. set_solver. }
-    iMod ("IH" with "Hs● [Hreceipts]") as (s_end) "(Hmsteps' & Hs● & Hreceipts)".
-    { iApply (big_sepM_mono with "Hreceipts").
-      iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
-      iEval (rewrite -app_comm_cons) in "Hreceipt".
-      rewrite filter_cons_False.
-      - iExact "Hreceipt".
+    iMod ("IH" with "Hs● [Hinterps]") as (s_end) "(Hmsteps' & Hs● & Hinterps)".
+    { iApply (big_sepM_mono with "Hinterps").
+      iIntros (τ0 Φ0 Hlookup0) "Hinterp".
+      iEval (rewrite /interpret -app_comm_cons) in "Hinterp".
+      rewrite /interpret filter_cons_False.
+      - iExact "Hinterp".
       - simpl. intros ->. rewrite lookup_delete_eq // in Hlookup0. }
 
     iModIntro. iFrame "Hmsteps' Hs●".
     iEval (rewrite (big_sepM_delete _ Φs (τ_pt_lin)) //).
-    iSplitL "Hreceipt".
-    - by destruct Hfilter as [-> | ->].
+    iSplitL "Hinterp".
+    - rewrite /interpret. by destruct Hfilter as [-> | ->].
     - iFrame.
   Qed.
 
@@ -1155,16 +1177,17 @@ Section logatom.
     iMod (own_receipt_alloc_empty) as (γϕ) "HΦ●".
     iMod (own_alloc (●E s_init ⋅ ◯E s_init)) as (γs) "[Hs● Hs◯]"; first apply excl_auth_valid.
     iMod (ghost_map_alloc_empty (K:=nat)) as (γe) "Hchildren●".
+    iDestruct (bi.laterN_False) as (steps_left) "Htime_receipt".
     iMod (own_alloc (to_agree (γπ,γϕ,γs,γe))) as (γ) "#Hγ"; first done.
     iMod (inv_alloc Nlogatom ⊤ (is_P_inv γ obj p)%I with "[Hγ Hop● HΦ● Hs● Hchildren● Hproph Hown_state]") as "His_P".
-    { iDestruct ("Hproph" $! obj (Config [] [] σ)) as (pts_physical) "Hproph".
+    { iDestruct ("Hproph" $! obj (Config [] [] σ) steps_left) as (pts_physical) "Hproph".
       iDestruct (proph_trace_valid_trace with "Hproph") as %Hvalid_trace.
-      destruct Hvalid_trace as [config' Hadv_steps].
+      destruct Hvalid_trace as [config' Hadv_steps%rtcL_bstepsL_2].
       destruct (Hlin obj σ config' pts_physical Hvalid_obj Hadv_steps) as (Hnot_stuck & Htrace_lin).
       destruct Htrace_lin as [_ [pts (-> & Hper_tag_lin & Hmsteps)]].
       iNext.
-      iExists γπ, γϕ, γs, γe, s_init, [], ∅, [], σ, pts.
-      iFrame "Hproph Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
+      iExists γπ, γϕ, γs, γe, s_init, [], ∅, [], σ, pts, steps_left.
+      iFrame "Hproph Hown_state Hγ Hop● HΦ● Hs● Hchildren● Htime_receipt".
       do 3 (iSplit; first done).
       iSplit. { iPureIntro.
         rewrite dom_empty_L. rewrite per_tag_linearized_trace_pendingOp_empty //. }
@@ -1189,6 +1212,7 @@ Section logatom.
 
     (* allocate an exclusive token for current operation *)
     wp_apply (wp_new_token with "[//]") as (τ) "Hτ_token".
+    wp_pure credit:"Hlc".
     wp_pures.
 
     (****************************************************)
@@ -1197,29 +1221,15 @@ Section logatom.
 
     wp_bind (resolve_proph: _ to: _)%E.
     iInv "His_P" as "Hinv" "Hclose".
-    iDestruct "Hinv" as (γπ γϕ γs γe s π Φs children σ pts)
-      "(>Hproph & Hown_state & >#Hγ & Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+    iDestruct "Hinv" as (γπ γϕ γs γe s π Φs children σ pts steps_left)
+      "(>Hproph & Hown_state & >#Hγ & Hop● & HΦ● & Hs● & Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
     iDestruct (ghost_id_fresh with "Hτ_token Hfresh") as %Hτ_fresh.
+    iMod (lc_fupd_elim_later with "Hlc Htime_receipt") as "Htime_receipt".
+    destruct steps_left as [|steps_left]; first done.
     wp_apply (wp_resolve_proph_trace_call with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]"; [done..|].
 
     (* destruct [pts] into [pts = pts_lin++Call::pts'], where [pts_lin] only contains Lin *)
-    assert (∃ pts_lin pts', pts = pts_lin++(τ,Call n y)::pts' ∧ Forall (is_lin ∘ snd) pts_lin
-      ∧ pts'_filtered = (filter (not ∘ is_lin ∘ snd) pts'))
-      as (pts_lin & pts' & -> & Hpts_lin & ->).
-    { clear -Hresolve_eq.
-      induction pts as [|pt pts IH]; first done.
-      rewrite filter_cons in Hresolve_eq.
-      case_decide as Hlin.
-      - exists [], pts.
-        injection Hresolve_eq as -> <-.
-        auto.
-      - destruct (IH Hresolve_eq) as (pts_lin & pts' & -> & Hall_lin & ->).
-        exists (pt::pts_lin), pts'.
-        split_and!.
-        + by rewrite -app_comm_cons.
-        + rewrite Forall_cons. split; last done.
-          by apply dec_stable.
-        + reflexivity. }
+    destruct (obs_cons_inv _ _ _ Hresolve_eq) as (pts_lin & pts' & -> & Hpts_lin & ->).
 
     (* prime variants of Hpending, Hper_tag_lin, Hmsteps, about (τ, Call y)::pts' *)
     assert (per_tag_partial_linearized ((τ, Call n y)::pts') ∧ trace_pendingOp ((τ, Call n y)::pts') ⊆ dom Φs
@@ -1240,8 +1250,8 @@ Section logatom.
       split_and!; done. }
 
     (* linearize operations in [pts_lin] *)
-    iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hreceipts")
-      as (s_end) ">(%s' & %Hmsteps' & Hs● & Hreceipts)".
+    iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hinterps")
+      as (s_end) ">(%s' & %Hmsteps' & Hs● & Hinterps)".
     { exact Hpts_lin_in_dom. }
 
     (* insert new operation *)
@@ -1249,19 +1259,14 @@ Section logatom.
     assert (Hτ_fresh': Φs !! τ = None).
     { apply not_elem_of_dom. rewrite -Hdom. apply not_elem_of_dom. by apply not_elem_of_list_to_map, not_elem_of_pendingOp_active_fmap. }
     iMod (own_receipt_insert τ Φ with "HΦ●") as "[HΦ● HΦ◯]"; first done.
-    iAssert ([∗ map] τ ↦ Φ ∈ (<[τ:=Φ]> Φs), match filter (λ t, t.1 = τ) pts' with
-      | [] => True
-      | (_,Call _ _) :: _ => False
-      | (_,Lin n v _) :: _ => op_au γ n v Φ
-      | (_,Ret v) :: _ => Φ v
-      end)%I with "[AU Hreceipts]" as "Hreceipts".
+    iAssert ([∗ map] τ ↦ Φ ∈ (<[τ:=Φ]> Φs), interpret γ pts' τ Φ)%I with "[AU Hinterps]" as "Hinterps".
     { rewrite big_sepM_insert //.
       iSplitL "AU".
       - apply per_tag_partial_linearized_filter_call in Hper_tag_lin'.
-        destruct Hper_tag_lin' as [Heq | (y' & ? & Heq)]; rewrite Heq; done.
-      - iApply (big_sepM_mono with "Hreceipts").
-        iIntros (τ0 Φ0 Hlookup) "H".
-        rewrite filter_cons_False //.
+        destruct Hper_tag_lin' as [Heq | (y' & ? & Heq)]; rewrite /interpret Heq; done.
+      - iApply (big_sepM_mono with "Hinterps").
+        iIntros (τ0 Φ0 Hlookup) "Hinterp".
+        rewrite /interpret filter_cons_False //.
         simpl; intros ->.
         rewrite Hτ_fresh' in Hlookup. discriminate Hlookup. }
 
@@ -1277,8 +1282,8 @@ Section logatom.
 
     iMod ("Hclose" with "[-Hop◯ HΦ◯]") as "_".
     { iNext.
-      iExists γπ, γϕ, γs, γe, s', (π++[(τ, Some ((ops!!!n: val) obj y))]), ((<[τ:=Φ]> Φs)), children, σ, pts'.
-      iFrame "Hproph Hown_state Hγ HΦ● Hs● Hchildren●".
+      iExists γπ, γϕ, γs, γe, s', (π++[(τ, Some ((ops!!!n: val) obj y))]), ((<[τ:=Φ]> Φs)), children, σ, pts', steps_left.
+      iFrame "Hproph Hown_state Hγ HΦ● Hs● Hchildren● Htime_receipt".
       iSplitL "Hop●". {
         rewrite pendingOp_active_snoc_Some list_to_map_snoc; last by apply not_elem_of_pendingOp_active_fmap.
         iFrame. }
@@ -1286,15 +1291,15 @@ Section logatom.
         rewrite pendingOp_active_snoc_Some list_to_map_snoc; last by apply not_elem_of_pendingOp_active_fmap.
         clear -Hdom. set_solver. }
       iSplitL "Hτ_token Hfresh". { rewrite fmap_app big_sepL_snoc. iFrame. }
-      iFrame "Hreceipts".
+      iFrame "Hinterps".
       iSplit. { iPureIntro. rewrite dom_insert_L //. }
       eauto 7 using config_safe_call. }
 
     (****************************************************)
 
-    iModIntro. clear -valid_obj. wp_pures.
+    iModIntro. clear -valid_obj HModelDecidable. wp_pures.
     wp_bind ((ops!!!n: val) obj y).
-    remember ((ops!!!n: val) obj y) as e. clear -valid_obj.
+    remember ((ops!!!n: val) obj y) as e. clear -valid_obj HModelDecidable.
     iLöb as "IH" forall (e).
     destruct (to_val e) as [y'|] eqn:He; last first.
 
@@ -1304,8 +1309,8 @@ Section logatom.
 
     - iApply wp_inv_open_maybe.
       iInv "His_P" as "Hinv" "Hclose".
-      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-        "(Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts steps_left)
+        "(Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
@@ -1327,7 +1332,8 @@ Section logatom.
         iDestruct "H" as (K e1 ? Heq Hnotval Hatomic) "H". subst e.
         iExists K, e1. do 3 (iSplit; first done).
         iApply "H".
-        iNext. iIntros (κ v2 σ2 efs Hbase).
+        iIntros "!> _" (κ v2 σ2 efs Hbase).
+        destruct steps_left as [|steps_left]; first done.
 
         (* allocate fresh child_tokens for each forked thread *)
         iMod (child_token_alloc_many γ γπ γϕ γs γe efs with "Hγ Hchildren●") as "[Hchildren●  Hnew_tokens]".
@@ -1361,14 +1367,15 @@ Section logatom.
           destruct (trunk_trace_spec pts (filter (not ∘ is_lin ∘ snd) pts) pts'_filtered) as [Hfilter Hpts'_prefix_pts].
           { reflexivity. } { apply Hresolve_eq. }
           remember (trunk_trace pts pts'_filtered) as pts'.
-          iExists γπ, γϕ, γs, γe, s, (π₁++(τ,Some (K (Val v2)))::π₂), Φs, (children ++ efs), σ2, pts'.
+          iExists γπ, γϕ, γs, γe, s, (π₁++(τ,Some (K (Val v2)))::π₂), Φs, (children ++ efs), σ2, pts', steps_left.
           iSplitL "Hproph". { rewrite Hfilter //. }
-          iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
+          iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren● Htime_receipt".
           iSplit. { iPureIntro. rewrite -Hdom. rewrite !pendingOp_active_app !pendingOp_active_cons_Some !dom_list_to_map_L !fmap_app !fmap_cons //. }
           iSplitL "Hfresh". { rewrite !fmap_app !fmap_cons //. }
-          iSplitL "Hreceipts".
-          { iApply (big_sepM_mono with "Hreceipts").
-            iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
+          iSplitL "Hinterps".
+          { iApply (big_sepM_mono with "Hinterps").
+            iIntros (τ0 Φ0 Hlookup0) "Hinterp".
+            rewrite /interpret.
             apply (prefix_filter (λ t, t.1 = τ0)) in Hpts'_prefix_pts.
             destruct (filter (λ t, t.1 = τ0) pts) as [|[? [ | | ]]] eqn:Heqfilter_pts.
             - apply prefix_nil_inv in Hpts'_prefix_pts as ->. done.
@@ -1389,12 +1396,12 @@ Section logatom.
         iDestruct "H" as "[Hown_state H]".
         iMod ("Hclose" with "[-H Hop◯ HΦ◯]") as "_".
         { iNext. iFrame "∗#". auto. }
-        clear.
+        clear -HModelDecidable.
         iModIntro. iApply "H".
-        iNext. iIntros (e2 efs) "H".
+        iIntros "!> Hlc" (e2 efs) "H".
         iInv "His_P" as "Hinv" "Hclose".
-        iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts)
-          "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+        iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ1 pts steps_left)
+          "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
         iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
         inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
         iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
@@ -1407,6 +1414,8 @@ Section logatom.
         pose proof (config_safe_intermediate ops obj π₁ π₂ children e e2 σ1 σ2 κ τ efs
                       Hprim Hconfig_safe) as Hconfig_safe'.
         (* update proph *)
+        iMod (lc_fupd_elim_later with "Hlc Htime_receipt") as "Htime_receipt".
+        destruct steps_left as [|steps_left]; first done.
         iDestruct (wp_resolve_proph_trace_intermediate with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]".
         { exact Hprim. }
         (* update pendingOp map *)
@@ -1425,14 +1434,15 @@ Section logatom.
           destruct (trunk_trace_spec pts (filter (not ∘ is_lin ∘ snd) pts) pts'_filtered) as [Hfilter Hpts'_prefix_pts].
           { reflexivity. } { apply Hresolve_eq. }
           remember (trunk_trace pts pts'_filtered) as pts'.
-          iExists γπ, γϕ, γs, γe, s, (π₁++(τ,Some e2)::π₂), Φs, (children ++ efs), σ2, pts'.
+          iExists γπ, γϕ, γs, γe, s, (π₁++(τ,Some e2)::π₂), Φs, (children ++ efs), σ2, pts', steps_left.
           iSplitL "Hproph". { rewrite Hfilter //. }
-          iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren●".
+          iFrame "Hown_state Hγ Hop● HΦ● Hs● Hchildren● Htime_receipt".
           iSplit. { iPureIntro. rewrite -Hdom. rewrite !pendingOp_active_app !pendingOp_active_cons_Some !dom_list_to_map_L !fmap_app !fmap_cons //. }
           iSplitL "Hfresh". { rewrite !fmap_app !fmap_cons //. }
-          iSplitL "Hreceipts".
-          { iApply (big_sepM_mono with "Hreceipts").
-            iIntros (τ0 Φ0 Hlookup0) "Hreceipt".
+          iSplitL "Hinterps".
+          { iApply (big_sepM_mono with "Hinterps").
+            iIntros (τ0 Φ0 Hlookup0) "Hinterp".
+            rewrite /interpret.
             apply (prefix_filter (λ t, t.1 = τ0)) in Hpts'_prefix_pts.
             destruct (filter (λ t, t.1 = τ0) pts) as [|[? [ | | ]]] eqn:Heqfilter_pts.
             - apply prefix_nil_inv in Hpts'_prefix_pts as ->. done.
@@ -1456,35 +1466,21 @@ Section logatom.
     (* remove a finished operation from π               *)
     (****************************************************)
     - rewrite -(of_to_val e y'); last apply He.
-      iApply wp_value. wp_pures.
+      iApply wp_value. wp_pure credit:"Hlc". wp_pures.
       wp_bind (resolve_proph: _ to: _)%E.
       iInv "His_P" as "Hinv" "Hclose".
-      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ pts)
-        "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & >%Hdom & >Hfresh & Hreceipts & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
+      iDestruct "Hinv" as (γπ' γϕ' γs' γe' s π Φs children σ pts steps_left)
+        "(>Hproph & >Hown_state & >#Hγ' & >Hop● & HΦ● & Hs● & >Hchildren● & Htime_receipt & >%Hdom & >Hfresh & Hinterps & >(%Hpending & %Hper_tag_lin & %Hmsteps & %Hconfig_safe))".
       iCombine "Hγ Hγ'" gives %Heq%to_agree_op_inv_L.
       inversion Heq. subst γπ' γϕ' γs' γe'. clear Heq. iClear "Hγ'".
       iCombine "Hop● Hop◯" gives %(π₁ & π₂ & ->)%elem_of_list_to_map_2%elem_of_pendingOp_active_split.
       iDestruct (ghost_id_nodup with "Hfresh") as %Hnodup.
+      iMod (lc_fupd_elim_later with "Hlc Htime_receipt") as "Htime_receipt".
+      destruct steps_left as [|steps_left]; first done.
       wp_apply (wp_resolve_proph_trace_return with "Hproph") as (pts'_filtered) "[%Hresolve_eq Hproph]"; first done.
 
       (* destruct [pts] into [pts = pts_lin++Ret::pts'], where [pts_lin] only contains Lin *)
-      assert (∃ pts_lin pts', pts = pts_lin++(τ,Ret y')::pts' ∧ Forall (is_lin ∘ snd) pts_lin
-        ∧ pts'_filtered = (filter (not ∘ is_lin ∘ snd) pts'))
-        as (pts_lin & pts' & -> & Hpts_lin & ->).
-      { clear -Hresolve_eq.
-        induction pts as [|pt pts IH]; first done.
-        rewrite filter_cons in Hresolve_eq.
-        case_decide as Hlin.
-        - exists [], pts.
-          injection Hresolve_eq as -> <-.
-          auto.
-        - destruct (IH Hresolve_eq) as (pts_lin & pts' & -> & Hall_lin & ->).
-          exists (pt::pts_lin), pts'.
-          split_and!.
-          + by rewrite -app_comm_cons.
-          + rewrite Forall_cons. split; last done.
-            by apply dec_stable.
-          + reflexivity. }
+      destruct (obs_cons_inv _ _ _ Hresolve_eq) as (pts_lin & pts' & -> & Hpts_lin & ->).
 
       (* prime variants of Hpending, Hper_tag_lin, Hmsteps, about (τ, Ret y')::pts' *)
       assert (per_tag_partial_linearized ((τ, Ret y')::pts') ∧ trace_pendingOp ((τ, Ret y')::pts') ⊆ dom Φs
@@ -1505,27 +1501,22 @@ Section logatom.
         split_and!; done. }
 
       (* linearize operations in [pts_lin] *)
-      iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hreceipts")
-        as (s_end) ">(%s' & %Hmsteps' & Hs● & Hreceipts)".
+      iDestruct (linearize_helping Hpts_lin Hper_tag_lin Hmsteps with "Hγ Hs● Hinterps")
+        as (s_end) ">(%s' & %Hmsteps' & Hs● & Hinterps)".
       { exact Hpts_lin_in_dom. }
 
       iDestruct (own_receipt_agree with "HΦ● HΦ◯") as (Φ') "[%HlookupΦ #HeqΦ]".
       (* remove finished operation *)
       iMod (ghost_map_delete with "Hop● Hop◯") as "Hop●".
       iMod (own_receipt_delete with "HΦ● HΦ◯") as "HΦ●".
-      iAssert (Φ' y' ∗ [∗ map] τ ↦ Φ ∈ (delete τ Φs), match filter (λ t, t.1 = τ) pts' with
-        | [] => True
-        | (_,Call _ _) :: _ => False
-        | (_,Lin n v _) :: _ => op_au γ n v Φ
-        | (_,Ret v) :: _ => Φ v
-        end)%I with "[Hreceipts]" as "[HΦ' Hreceipts]".
+      iAssert (Φ' y' ∗ [∗ map] τ ↦ Φ ∈ (delete τ Φs), interpret γ pts' τ Φ)%I with "[Hinterps]" as "[HΦ' Hinterps]".
       { rewrite (big_sepM_delete _ Φs τ Φ') //.
-        iDestruct "Hreceipts" as "[HΦ' Hreceipts]".
+        iDestruct "Hinterps" as "[HΦ' Hinterps]".
         iSplitL "HΦ'".
-        - rewrite filter_cons_True //.
-        - iApply (big_sepM_mono with "Hreceipts").
-          iIntros (τ0 Φ0 Hlookup) "H".
-          rewrite filter_cons_False //.
+        - rewrite /interpret filter_cons_True //.
+        - iApply (big_sepM_mono with "Hinterps").
+          iIntros (τ0 Φ0 Hlookup) "Hinterp".
+          rewrite /interpret filter_cons_False //.
           simpl; intros ->.
           rewrite lookup_delete_eq in Hlookup. discriminate Hlookup. }
 
@@ -1541,8 +1532,8 @@ Section logatom.
 
       iMod ("Hclose" with "[-HΦ']") as "_".
       { iNext.
-        iExists γπ, γϕ, γs, γe, s', (π₁++(τ,None)::π₂), (delete τ Φs), children, σ, pts'.
-        iFrame "Hproph Hown_state Hγ HΦ● Hs● Hchildren●".
+        iExists γπ, γϕ, γs, γe, s', (π₁++(τ,None)::π₂), (delete τ Φs), children, σ, pts', steps_left.
+        iFrame "Hproph Hown_state Hγ HΦ● Hs● Hchildren● Htime_receipt".
         assert ((list_to_map (pendingOp_active π₁) : gmap _ _) !! τ = None) as Hτ_notin_π₁.
         { rewrite cons_middle in Hnodup.
           rewrite assoc fmap_app NoDup_app in Hnodup. destruct Hnodup as [Hnodup _].
@@ -1563,7 +1554,7 @@ Section logatom.
           apply not_elem_of_dom in Hτ_notin_π₁, Hτ_notin_π₂.
           clear -Hτ_notin_π₁ Hτ_notin_π₂. set_solver. }
         iSplitL "Hfresh". { rewrite !fmap_app fmap_cons !big_sepL_app big_sepL_cons //. }
-        iFrame "Hreceipts".
+        iFrame "Hinterps".
         iSplit. { iPureIntro. rewrite dom_delete_L //. }
         eauto 7 using config_safe_return. }
 
@@ -1576,7 +1567,7 @@ Section logatom.
 End logatom.
 
 Section logatom'.
-  Context `{!heapGS Σ, M : model, !linearizabilityG Σ}.
+  Context `{!heapGS Σ, !ModelDecidable M, !linearizabilityG Σ}.
   Context (init : expr) (ops : list val).
 
   Corollary logatom_complete (n: nat) :
