@@ -22,7 +22,7 @@ Proof.
   apply (trace_linearizable_prefix ts_mid ts'); first exact Hpfx_mid.
   eapply linearizable_queue__trace_linearizable_queue; [eassumption..| |].
   { by eapply close_preserves_wellformed. }
-  apply abstract_queue_theorem.
+  apply (abstract_queue_theorem (trace_pre ts') (trace_val ts' m') (trace_empty ts' m')).
   - eapply trace_linearizable_bag__linearizable_set; [assumption..| |].
     + by eapply close_preserves_wellformed.
     + destruct HI_queue_pre as (_ & ? & _).

@@ -1,7 +1,8 @@
 (* insert_pr_relaxed_queue_revised.v *)
 From stdpp Require Import finite.
 From iris_logatom.lib Require Import list.
-From iris_logatom.pure_logic.aspect.queue.ext Require Import conc_his_rel insert_relaxed_queue strict_partial_order_extension.
+From iris_logatom.pure_logic.aspect.bag.ext Require Import strict_partial_order_extension.
+From iris_logatom.pure_logic.aspect.queue.ext Require Import conc_his_rel insert_relaxed_queue.
 
 Local Instance relation_union {A} : Union (relation A) :=
   λ r1 r2, Relation_Operators.union A r1 r2.
@@ -23,6 +24,7 @@ Section insert_pr_relaxed_queue_revised.
   }.
 
   Context pre val `{!InsertPrRelaxedQueue pre val}.
+  Context `{!RelDecision pre, !RelDecision val}.
 
   #[local] Existing Instance ipr_queue_wellformed.
   #[local] Existing Instance empty_pre_conchistory.
@@ -373,28 +375,28 @@ Section insert_pr_relaxed_queue_revised.
   (* ======================================================================== *)
 
   Definition is_valid_op (x : operation) :=
-    is_enqueue val x \/ is_dequeue val x.
+    is_push val x \/ is_pop val x.
 
   Definition prt_deq_eq {A} prt_deq (d1 d2 : A) := prt_deq d1 d2 \/ d1 = d2.
 
   (* Bounds a sequence of edges crossing from Enqueue to Dequeue *)
   Definition cross_ED prt_deq da b :=
     prt_deq_eq prt_deq da b \/
-    (exists e_m d_m d_em, is_enqueue val e_m /\ is_dequeue val d_m /\ val e_m d_em /\
+    (exists e_m d_m d_em, is_push val e_m /\ is_pop val d_m /\ val e_m d_em /\
       prt_deq_eq prt_deq da d_em /\ pre e_m d_m /\ prt_deq_eq prt_deq d_m b).
 
   (* Bounds a sequence of edges crossing from Dequeue to Enqueue *)
   Definition cross_DE prt_deq a db :=
-    exists d_m e_m d_em, is_dequeue val d_m /\ is_enqueue val e_m /\ val e_m d_em /\
+    exists d_m e_m d_em, is_pop val d_m /\ is_push val e_m /\ val e_m d_em /\
       prt_deq_eq prt_deq a d_m /\ pre d_m e_m /\ prt_deq_eq prt_deq d_em db.
 
   (* The unified invariant that classifies all paths in tc R_all *)
   (* NOTICE: The \/ disjunctions are gone for the cross edges! *)
   Definition R_collapsed prt_deq (a b : operation) : Prop :=
-    (forall da db, is_enqueue val a -> is_enqueue val b -> val a da -> val b db -> prt_deq da db) /\
-    (is_dequeue val a -> is_dequeue val b -> prt_deq a b) /\
-    (forall db, is_dequeue val a -> is_enqueue val b -> val b db -> cross_DE prt_deq a db) /\
-    (forall da, is_enqueue val a -> is_dequeue val b -> val a da -> cross_ED prt_deq da b).
+    (forall da db, is_push val a -> is_push val b -> val a da -> val b db -> prt_deq da db) /\
+    (is_pop val a -> is_pop val b -> prt_deq a b) /\
+    (forall db, is_pop val a -> is_push val b -> val b db -> cross_DE prt_deq a db) /\
+    (forall da, is_push val a -> is_pop val b -> val a da -> cross_ED prt_deq da b).
 
   Lemma prt_deq_eq_trans_l {A} (prt_deq : relation A) :
     Transitive prt_deq -> forall a b c, prt_deq_eq prt_deq a b -> prt_deq b c -> prt_deq a c.
@@ -416,14 +418,14 @@ Section insert_pr_relaxed_queue_revised.
 
   Lemma tc_R_all_collapse prt_deq a b :
     Irreflexive prt_deq -> Transitive prt_deq ->
-    (forall x y, is_dequeue val x -> is_dequeue val y -> x <> y -> prt_deq x y \/ prt_deq y x) ->
+    (forall x y, is_pop val x -> is_pop val y -> x <> y -> prt_deq x y \/ prt_deq y x) ->
     (forall d1 d2 e1 e2, val e1 d1 -> val e2 d2 -> pre e1 e2 -> prt_deq d1 d2) ->
-    (forall d1 d2, is_dequeue val d1 -> is_dequeue val d2 -> pre d1 d2 -> prt_deq d1 d2) ->
-    (forall d d' e, is_dequeue val d -> val e d' -> pre d e -> prt_deq d d') ->
+    (forall d1 d2, is_pop val d1 -> is_pop val d2 -> pre d1 d2 -> prt_deq d1 d2) ->
+    (forall d d' e, is_pop val d -> val e d' -> pre d e -> prt_deq d d') ->
     tc (fun a b =>
       pre a b \/
-      (is_enqueue val a /\ is_enqueue val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
-      (is_dequeue val a /\ is_dequeue val b /\ prt_deq a b) \/
+      (is_push val a /\ is_push val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
+      (is_pop val a /\ is_pop val b /\ prt_deq a b) \/
       val a b
     ) a b -> R_collapsed prt_deq a b.
   Proof.
@@ -644,18 +646,18 @@ Section insert_pr_relaxed_queue_revised.
 
   Lemma lem_tc_R_all_irreflexive prt_deq :
     Irreflexive prt_deq -> Transitive prt_deq ->
-    (forall x y, is_dequeue val x -> is_dequeue val y -> x <> y -> prt_deq x y \/ prt_deq y x) ->
+    (forall x y, is_pop val x -> is_pop val y -> x <> y -> prt_deq x y \/ prt_deq y x) ->
     (forall d1 d2 e1 e2, val e1 d1 -> val e2 d2 -> pre e1 e2 -> prt_deq d1 d2) ->
-    (forall d1 d2, is_dequeue val d1 -> is_dequeue val d2 -> pre d1 d2 -> prt_deq d1 d2) ->
-    (forall d d' e, is_dequeue val d -> val e d' -> pre d e -> prt_deq d d') ->
+    (forall d1 d2, is_pop val d1 -> is_pop val d2 -> pre d1 d2 -> prt_deq d1 d2) ->
+    (forall d d' e, is_pop val d -> val e d' -> pre d e -> prt_deq d d') ->
     Irreflexive (tc (fun a b =>
       pre a b \/
-      (is_enqueue val a /\ is_enqueue val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
-      (is_dequeue val a /\ is_dequeue val b /\ prt_deq a b) \/
+      (is_push val a /\ is_push val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
+      (is_pop val a /\ is_pop val b /\ prt_deq a b) \/
       val a b)).
   Proof.
     intros Hirr Htrans Htot Hpre_enq Hpre_deq Hpre_deq_val x Hcycle.
-    assert (Hvalid : is_enqueue val x \/ is_dequeue val x).
+    assert (Hvalid : is_push val x \/ is_pop val x).
     { inversion Hcycle as [x' y' Hxy Heqx Heqy | x' y' z' Hxy Hyz Heqx Heqz].
       - subst x' y'.
         destruct Hxy as [Hpre | [[Hex [Hey Hrest]] | [[Hdx [Hdy Hprt]] | Hval_step]]].
@@ -688,39 +690,21 @@ Section insert_pr_relaxed_queue_revised.
 
 
   Theorem insert_pr_relaxed_queue_linearizable :
-    ∃ prt, subrelation pre prt ∧ InsertRelaxedQueue prt val.
+    ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ InsertRelaxedQueue prt val.
   Proof.
     (* 1. Topologically sort the DEQUEUES using the acyclic R_deq_ext constraints. *)
-    assert (Hop_eq_dec : ∀ x y : operation, decidable (x = y)).
-    { intros x y. destruct (decide (x = y)); [by left | by right]. }
-    assert (HR_link_dec : ∀ x y, decidable (R_link x y)).
-    { intros d1 d2. unfold R_link.
-      apply dec_and; first by apply dec_not.
-      apply dec_exists_op. intros e1. apply dec_exists_op. intros e2.
-      apply dec_and; first by apply def_wf_val_decidable.
-      apply dec_and; first by apply def_wf_val_decidable.
-      apply dec_or; [apply Hop_eq_dec | by apply def_wf_pre_decidable]. }
-    assert (HR_deq_dec : ∀ x y, decidable (R_deq x y)).
-    { intros. unfold R_deq. apply dec_or; [by apply def_wf_pre_decidable | apply HR_link_dec]. }
-    assert (HR_val_cross_dec : ∀ x y, decidable (R_val_cross x y)).
-    { intros. unfold R_val_cross.
-      apply dec_and; first by apply dec_not.
-      apply dec_exists_op. intros e.
-      apply dec_and; [by apply def_wf_val_decidable | by apply def_wf_pre_decidable]. }
-    assert (HR_deq_ext_dec_base : ∀ x y, decidable (R_deq_ext x y)).
-    { intros. unfold R_deq_ext. apply dec_or; auto. }
-    assert (HR_deq_ext_dec : ∀ x y, decidable (tc R_deq_ext x y))
-      by (intros; by apply tc_decidable).
+    assert (HR_deq_ext_dec : RelDecision R_deq_ext).
+    { intros x y. unfold R_deq_ext, R_deq, R_link, R_val_cross. apply _. }
     pose proof tc_R_deq_ext_irreflexive as Hirr0.
     pose proof R_deq_ext_transitive as Htrans0.
-    destruct (strict_partial_order_extension (tc R_deq_ext) HR_deq_ext_dec)
-      as [prt_deq [Hirr_deq [Htrans_deq [Hsub_deq [Htot_deq Hprt_deq_dec]]]]].
+    destruct (strict_partial_order_extension (tc R_deq_ext))
+      as (prt_deq & Hprt_deq_dec & Hirr_deq & Htrans_deq & Hsub_deq & Htot_deq).
 
     (* 2. Define the total relationship for ALL operations. *)
     pose (R_all a b :=
       pre a b \/
-      (is_enqueue val a /\ is_enqueue val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
-      (is_dequeue val a /\ is_dequeue val b /\ prt_deq a b) \/
+      (is_push val a /\ is_push val b /\ exists da db, val a da /\ val b db /\ prt_deq da db) \/
+      (is_pop val a /\ is_pop val b /\ prt_deq a b) \/
       val a b).
 
     (* Helpers mapping pre to prt_deq to satisfy the acyclicity requirements *)
@@ -735,11 +719,11 @@ Section insert_pr_relaxed_queue_revised.
       - exists e1, e2. auto. }
 
     assert (Hpre_deq_to_prt_deq : forall d1 d2,
-      is_dequeue val d1 -> is_dequeue val d2 -> pre d1 d2 -> prt_deq d1 d2).
+      is_pop val d1 -> is_pop val d2 -> pre d1 d2 -> prt_deq d1 d2).
     { intros d1 d2 _ _ Hpre. apply Hsub_deq. apply tc_once. left. left. exact Hpre. }
 
     assert (Hpre_deq_val_to_prt_deq : forall d d' e,
-      is_dequeue val d -> val e d' -> pre d e -> prt_deq d d').
+      is_pop val d -> val e d' -> pre d e -> prt_deq d d').
     { intros d d' e Hd Hval Hpre.
       apply Hsub_deq. apply tc_once. right.
       split.
@@ -760,32 +744,18 @@ Section insert_pr_relaxed_queue_revised.
       split; [exists e2; exact Hv2|]. exact Hdeq. }
 
     (* 3. Topologically sort ALL operations based on R_all. *)
-    assert (Hisenq_dec : ∀ a, decidable (is_enqueue val a)).
-    { intros a. unfold is_enqueue. apply dec_exists_op. intros y. apply def_wf_val_decidable. }
-    assert (Hisdeq_dec : ∀ a, decidable (is_dequeue val a)).
-    { intros a. unfold is_dequeue. apply dec_exists_op. intros y. apply def_wf_val_decidable. }
-    assert (HR_all_dec_base : ∀ x y, decidable (R_all x y)).
-    { intros a b. unfold R_all.
-      apply dec_or; first by apply def_wf_pre_decidable.
-      apply dec_or.
-      - apply dec_and; first by apply Hisenq_dec.
-        apply dec_and; first by apply Hisenq_dec.
-        apply dec_exists_op. intros da. apply dec_exists_op. intros db.
-        apply dec_and; first by apply def_wf_val_decidable.
-        apply dec_and; [by apply def_wf_val_decidable | apply Hprt_deq_dec].
-      - apply dec_or; last by apply def_wf_val_decidable.
-        apply dec_and; first by apply Hisdeq_dec.
-        apply dec_and; [by apply Hisdeq_dec | apply Hprt_deq_dec]. }
-    assert (HR_all_dec : ∀ x y, decidable (tc R_all x y))
-      by (intros; by apply tc_decidable).
+    assert (HR_all_dec : RelDecision R_all).
+    { intros a b. unfold R_all. apply _. }
     assert (HR_all_irr : Irreflexive (tc R_all)) by (eapply lem_tc_R_all_irreflexive; eauto).
-    destruct (strict_partial_order_extension (tc R_all) HR_all_dec)
-      as [prt_raw [Hirr [Htrans [Hsub [Htot Hprt_raw_dec]]]]].
+    destruct (strict_partial_order_extension (tc R_all))
+      as (prt_raw & Hprt_raw_dec & Hirr & Htrans & Hsub & Htot).
 
     (* 4. Filter out any junk operations from the total order *)
     pose (prt_valid a b := is_valid_op a /\ is_valid_op b /\ prt_raw a b).
+    assert (Hprt_valid_dec : RelDecision prt_valid).
+    { intros a b. unfold prt_valid, is_valid_op. apply _. }
 
-    exists prt_valid.
+    exists prt_valid, Hprt_valid_dec.
     split.
     - intros a b Hpre. split; [|split].
       + eapply lem_enqueue_or_dequeue1 in Hpre; eauto. apply ipr_queue_wellformed.
@@ -815,12 +785,6 @@ Section insert_pr_relaxed_queue_revised.
           assert (Hprt_ed : prt_raw e d).
           { apply Hsub. apply tc_once. right; right; right. exact Hval. }
           apply (Hirr e). eapply Htrans; eauto.
-        * (* def_wf_pre_decidable for prt_valid *)
-          intros a b. unfold prt_valid, is_valid_op.
-          apply dec_and; first by (apply dec_or; (apply dec_exists_op; intros; apply def_wf_val_decidable)).
-          apply dec_and; first by (apply dec_or; (apply dec_exists_op; intros; apply def_wf_val_decidable)).
-          apply Hprt_raw_dec.
-        * (* def_wf_val_decidable *) apply def_wf_val_decidable.
 
       + (* dequeue_ordered *)
         intros a b Hda Hdb Hneq.
@@ -867,10 +831,6 @@ Proof.
   { by apply linearizable_set_then_wellformed. }
   assert (Hch : ConcHistory pre).
   { by destruct Hls as [Hch _]. }
-  assert (Hempty_dec : ∀ a, decidable (empty a)).
-  { destruct Hls as [_ (prt & _ & Hsel)].
-    destruct Hsel as [Hseh _]. destruct Hseh as [Hweh _].
-    by destruct Hweh as [_ _ _ _ _ _ _ ? _]. }
   assert (Hch_ne : ConcHistory (non_empty_pre pre empty)).
   { by apply pre_conc_history_then_non_empty_pre_conc_history. }
   constructor.
@@ -885,18 +845,19 @@ Proof.
     eapply (Hnoord e1 e2 d1 d2); eauto.
 Qed.
 
-Theorem insert_pr_relaxed_queue_linearizable_final `{abstract_queue_model} pre val :
+Theorem insert_pr_relaxed_queue_linearizable_final `{abstract_queue_model} pre val
+    `{!RelDecision pre, !RelDecision val} :
   ConcHistory pre →
   InsertPrRelaxedQueue pre val → linearizable_non_empty_queue pre val.
 Proof.
   intros Hconc Hrrs.
-  destruct (@insert_pr_relaxed_queue_linearizable _ pre val Hrrs) as [prt1 [Hsub1 Hipr]].
-  destruct (@insert_relaxed_queue_linearizable _ prt1 val Hipr) as [prt2 [Hsub2 Hseq]].
+  destruct (insert_pr_relaxed_queue_linearizable pre val) as (prt1 & Hprt1_dec & Hsub1 & Hipr).
+  destruct (insert_relaxed_queue_linearizable prt1 val) as (prt2 & Hprt2_dec & Hsub2 & Hseq).
   (* Construct linearizable_non_empty_stack *)
   unfold linearizable_non_empty_queue.
   split.
   - eauto.
-  - exists prt2.
+  - exists prt2, _.
     split.
     + (* subrelation pre prt2 *)
       intros a b Hpre.

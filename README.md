@@ -65,13 +65,6 @@ specifications for queue algorithms are in the `case_studies/` directory.
 
 ## Axioms
 
-The case study of the time-stamped stack uses the stack theorem, which uses
-classical logic.
-
-```rocq
-Classical_Prop.classic : ∀ P : Prop, P ∨ ¬ P
-```
-
 The verification of Herlihy-Wing queue using meta-configuration tracking
 depends on extensionality axioms.
 

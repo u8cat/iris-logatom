@@ -504,10 +504,13 @@ Section insert_relaxed_stack.
   Qed.
 
   (* insert_relaxed_stack.thy:224-228 *)
-  Theorem insert_relaxed_stack_linearizable :
-    ∃ prt, subrelation pre prt ∧ SequentialStack prt val.
+  Local Instance witness_dec `{!RelDecision pre, !RelDecision val} : RelDecision witness.
+  Proof. intros a b. unfold witness. apply _. Qed.
+
+  Theorem insert_relaxed_stack_linearizable `{!RelDecision pre, !RelDecision val} :
+    ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ SequentialStack prt val.
   Proof.
-    exists witness.
+    exists witness, _.
     split.
     - exact lem_pr_in_witness.
     - exact lem_witness_sequential_stack.

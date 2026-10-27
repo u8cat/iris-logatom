@@ -2,50 +2,14 @@
 (* Constructive linear extension of an acyclic relation on a finite type.
    Replaces a Zorn's-lemma proof for arbitrary types. *)
 
-From Stdlib Require Import Logic.Decidable.
 From Stdlib Require Import Arith.Wf_nat.
 From stdpp Require Import finite list relations.
 From iris_logatom.lib Require Import relations.
 
-(* Decidability of the transitive closure of a decidable relation on a
-   finite type. *)
-Section tc_dec.
+(* On a finite type, [tc R] is witnessed by paths of bounded length. *)
+Section tc_bounded.
   Context `{Finite A}.
-  Context (R : relation A) (R_dec : ∀ x y, decidable (R x y)).
-
-  Local Lemma dec_list_exists_T (l : list A) (P : A → Prop) :
-    (∀ x, decidable (P x)) →
-    decidable (∃ x, x ∈ l ∧ P x).
-  Proof.
-    intros HP. induction l as [|a l' IH].
-    - right. intros (x & Hx & _). by apply elem_of_nil in Hx.
-    - destruct (HP a) as [Ha | Hna].
-      + left. exists a. split; [by left | exact Ha].
-      + destruct IH as [(x & Hxl & Hpx) | Hno].
-        * left. exists x. split; [by right | exact Hpx].
-        * right. intros (x & Hxl & Hpx).
-          rewrite elem_of_cons in Hxl. destruct Hxl as [->|Hxl]; first done.
-          apply Hno. by exists x.
-  Qed.
-
-  Local Lemma dec_exists_finite (P : A → Prop) :
-    (∀ x, decidable (P x)) →
-    decidable (∃ x, P x).
-  Proof.
-    intros HP. destruct (dec_list_exists_T (enum A) P HP) as [(x & _ & Hx)|Hno].
-    - left. by exists x.
-    - right. intros (x & Hx). apply Hno. exists x. split; [apply elem_of_enum|done].
-  Qed.
-
-  Lemma nsteps_dec n x y : decidable (nsteps R n x y).
-  Proof.
-    revert x y. induction n as [|n IH]; intros x y.
-    - destruct (decide (x = y)) as [->|Hne]; [left; constructor | right; by inv 1].
-    - destruct (dec_exists_finite (λ z, R x z ∧ nsteps R n z y)) as [(z & Hxz & Hzy)|Hno].
-      { intros z. apply dec_and; [apply R_dec | apply IH]. }
-      + left. by eapply nsteps_l.
-      + right. inv 1. naive_solver.
-  Qed.
+  Context (R : relation A).
 
   (* Pigeonhole-based shortening: an nsteps path with n > |enum A| can be
      shortened to length ≥ 1 by pigeonholing on the first n vertices
@@ -97,31 +61,48 @@ Section tc_dec.
     by apply (IH k Hk_lt x y Hk1 Hsk).
   Qed.
 
-  Lemma tc_decidable x y : decidable (tc R x y).
+End tc_bounded.
+
+(* Decidability of the transitive closure of a decidable relation on a finite type. *)
+Section tc_decision.
+  Context `{Finite A} (R : relation A) `{!RelDecision R}.
+
+  Local Instance nsteps_decision n : RelDecision (nsteps R n).
   Proof.
-    (* Decide via existence of a length-n path for n in [1, length (enum A)]. *)
-    assert (Hdec_bounded : decidable (∃ n, 1 ≤ n ∧ n ≤ length (enum A) ∧ nsteps R n x y)).
-    { induction (length (enum A)) as [|N IH].
-      - right. intros (n & Hn & Hub & _). lia.
-      - destruct IH as [(n & Hn & Hub & Hstep) | Hnone].
-        + left. exists n. split_and!; [done | lia | done].
-        + destruct (nsteps_dec (S N) x y) as [Hs|Hns].
-          * left. exists (S N). split_and!; [lia | done | done].
-          * right. intros (n & Hn & Hub & Hstep).
-            destruct (decide (n ≤ N)) as [|Hgt].
-            -- apply Hnone. exists n. done.
-            -- assert (n = S N) by lia. subst n. done. }
-    destruct Hdec_bounded as [Hsome|Hnone].
-    - left. apply tc_iff_bounded_step. done.
-    - right. intros Htc. apply tc_iff_bounded_step in Htc. done.
+    induction n as [|n IH]; intros x y.
+    - destruct (decide (x = y)) as [->|Hne]; [left; constructor|right; by inv 1].
+    - destruct (decide (∃ z, R x z ∧ nsteps R n z y)) as [Hex|Hno].
+      + left. destruct Hex as (z & Hxz & Hzy). by eapply nsteps_l.
+      + right. inv 1. naive_solver.
   Qed.
 
-End tc_dec.
+  Local Lemma bounded_exists_decision (P : nat → Prop) `{∀ n, Decision (P n)} N :
+    Decision (∃ n, 1 ≤ n ∧ n ≤ N ∧ P n).
+  Proof.
+    induction N as [|N IH].
+    - right. intros (n & ? & ? & _). lia.
+    - destruct IH as [Hex|Hnone].
+      + left. destruct Hex as (n & ? & ? & ?). exists n. split_and!; [done|lia|done].
+      + destruct (decide (P (S N))) as [HP|HnP].
+        * left. exists (S N). split_and!; [lia|done|done].
+        * right. intros (n & ? & ? & Hn). destruct (decide (n ≤ N)).
+          -- apply Hnone. by exists n.
+          -- by assert (n = S N) as -> by lia.
+  Qed.
+
+  Global Instance tc_decision : RelDecision (tc R).
+  Proof.
+    intros x y.
+    destruct (bounded_exists_decision (λ n, nsteps R n x y) (length (enum A))) as [Hb|Hb].
+    - left. by apply tc_iff_bounded_step.
+    - right. by rewrite tc_iff_bounded_step.
+  Qed.
+End tc_decision.
 
 Section sort.
   Context `{Finite A}.
   Context (R : relation A).
-  Context (R_dec : ∀ x y, decidable (R x y)).
+  Context `{!RelDecision R}.
   Context `{!Irreflexive R}.
   Context `{!Transitive R}.
 
@@ -140,7 +121,7 @@ Section sort.
       intros Hr. by eapply (irreflexivity R).
     - assert (Hnd' : NoDup (b :: rest')) by (apply NoDup_cons in Hnd; tauto).
       destruct (IH Hnd' ltac:(done)) as (mn & Hmn_in & Hmin).
-      destruct (R_dec a mn) as [Ham|Hnam].
+      destruct (decide (R a mn)) as [Ham|Hnam].
       + exists a. split; first by left.
         intros y Hin. rewrite elem_of_cons in Hin. destruct Hin as [->|Hin].
         * intros Hr. by eapply (irreflexivity R).
@@ -248,9 +229,9 @@ Section pos_lt.
   Qed.
 
   (* For NoDup lists, list_find with equality gives the unique position. *)
-  Lemma pos_lt_decidable x y : decidable (pos_lt x y).
+  Global Instance pos_lt_dec : RelDecision pos_lt.
   Proof.
-    unfold pos_lt, decidable.
+    intros x y. unfold pos_lt.
     destruct (list_find (eq x) ord) as [[i x']|] eqn:Hxfind.
     - apply list_find_Some in Hxfind as (Hxi & <- & _).
       destruct (list_find (eq y) ord) as [[j y']|] eqn:Hyfind.
@@ -278,17 +259,15 @@ End pos_lt.
 (* The main theorem: every irreflexive transitive decidable relation on a
    finite type extends to a decidable linear (total) strict order. *)
 Theorem strict_partial_order_extension `{Finite A}
-    (R : relation A) (R_dec : ∀ x y, decidable (R x y))
-    `{!Irreflexive R} `{!Transitive R} :
-  ∃ T : relation A,
+    (R : relation A) `{!RelDecision R} `{!Irreflexive R} `{!Transitive R} :
+  ∃ T (_ : RelDecision T),
     Irreflexive T ∧ Transitive T ∧
     (∀ x y, R x y → T x y) ∧
-    (∀ x y, x ≠ y → T x y ∨ T y x) ∧
-    (∀ x y, decidable (T x y)).
+    (∀ x y, x ≠ y → T x y ∨ T y x).
 Proof.
-  destruct (topo_sort_aux R R_dec (length (enum A)) (enum A) eq_refl (NoDup_enum _))
+  destruct (topo_sort_aux R (length (enum A)) (enum A) eq_refl (NoDup_enum _))
     as (ord & Hnd & Hmem & Hsorted).
-  exists (pos_lt ord). split_and!.
+  exists (pos_lt ord), (pos_lt_dec ord Hnd). split_and!.
   - apply (pos_lt_irreflexive ord Hnd).
   - apply (pos_lt_transitive ord Hnd).
   - (* R x y → pos_lt ord x y *)
@@ -315,5 +294,4 @@ Proof.
     + left. exists i, j. by repeat split.
     + subst j. rewrite Hi in Hj. injection Hj as <-. done.
     + right. exists j, i. by repeat split.
-  - apply (pos_lt_decidable ord Hnd).
 Qed.

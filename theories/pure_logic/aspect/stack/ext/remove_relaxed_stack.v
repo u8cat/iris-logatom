@@ -1,8 +1,8 @@
 (* remove_relaxed_stack.v, ported from remove_relaxed_stack.thy *)
 
-From Stdlib Require Import Classical.
 From stdpp Require Import finite.
 From iris_logatom.lib Require Import list.
+From iris_logatom.pure_logic.aspect.bag.ext Require Import strict_partial_order_extension.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import conc_his_rel insert_relaxed_stack insert_pr_relaxed_stack.
 
 Local Instance relation_union {A} : Union (relation A) :=
@@ -61,18 +61,19 @@ Section remove_relaxed_stack.
   Qed.
 
   (* remove_relaxed_stack.thy:47-109 *)
-  Lemma order_correct_then_remove_relaxed_stack pre val empty :
+  Lemma order_correct_then_remove_relaxed_stack pre val empty
+      `{!RelDecision pre, !RelDecision val, ∀ a, Decision (empty a)} :
     linearizable_set pre val empty →
     order_correct pre val →
-    ∃ ir', RemoveRelaxedStack
+    ∃ ir' (_ : RelDecision ir'), RemoveRelaxedStack
       (elim_free_pre (non_empty_pre pre empty) val)
       (elim_free_val (non_empty_pre pre empty) val)
       (elim_free_ir (non_empty_pre pre empty) val ir').
   Proof.
     intros Hls Hoc.
     (* Extract ir from order_correct *)
-    destruct Hoc as (ir & Halt & Hacyc & Hooo).
-    exists ir.
+    destruct Hoc as (ir & Hir_dec & Halt & Hacyc & Hooo).
+    exists ir, Hir_dec.
     (* Get helper facts *)
     assert (Hwf_ne : WellformedHistory (non_empty_pre pre empty) val).
     { by apply linearizable_set_then_wellformed. }
@@ -162,6 +163,7 @@ Section remove_relaxed_stack.
   Qed.
 
   Context pre val ir `{!RemoveRelaxedStack pre val ir}.
+  Context `{!RelDecision pre, !RelDecision val, !RelDecision ir}.
 
   (* Make parent class instances available *)
   #[local] Existing Instance rrs_wellformed.
@@ -334,7 +336,7 @@ Section remove_relaxed_stack.
   Lemma ir_transitive a b c d : ir a b → ir b c → ir c d → ir a d.
   Proof.
     intros Hab Hbc Hcd.
-    destruct (classic (ir a d)) as [Had|Hnad]; [done|].
+    destruct (decide (ir a d)) as [Had|Hnad]; [done|].
     destruct (ir_push_and_pop _ _ Hab) as [[Hpusha Hpopb]|[Hpopa Hpushb]].
     - (* a is push, b is pop *)
       assert (Hpushc : is_push val c) by (by apply (ir_push_and_pop3 _ _ Hbc)).
@@ -480,7 +482,7 @@ Section remove_relaxed_stack.
     intros x y z Hxy Hyz.
     destruct (pop_irD _ _ Hxy) as (Hpopx & Hpopy & (icx & Hxicx & Hicxy)).
     destruct (pop_irD _ _ Hyz) as (Hpopy' & Hpopz & (icy & Hyicy & Hicyz)).
-    destruct (classic (ir x icy)) as [Hxicy|Hnxicy].
+    destruct (decide (ir x icy)) as [Hxicy|Hnxicy].
     - apply (pop_irI _ _ icy); done.
     - (* ir icy x *)
       assert (Hpushicx : is_push val icx) by (by apply (ir_push_and_pop3 _ _ Hxicx)).
@@ -555,7 +557,7 @@ Section remove_relaxed_stack.
     assert (Hinsac : ins ia ic) by (by eapply lem_ins_transitive).
     (* ir ic ra: We have Hircb : ir ic rb and Hirba : ir ib1 ra *)
     (* We need to use ipr_ooo_ir or similar to derive a contradiction or ir ic ra *)
-    destruct (classic (ir ic ra)) as [Hicra|Hnicra].
+    destruct (decide (ir ic ra)) as [Hicra|Hnicra].
     - apply (linI ic rc ia ra); done.
     - (* ¬ ir ic ra, so ir ra ic *)
       assert (Hraic : ir ra ic) by (by apply not_ir_push_pop_ir).
@@ -580,7 +582,7 @@ Section remove_relaxed_stack.
       destruct (pop_irD _ _ Hpopyz) as (Hpopy & Hpopz & (ic & Hyic & Hicz)).
       destruct (linD _ _ Hlinxy) as (ix & iy & Hvalx & Hvaly & Hinsyx & Hirxy).
       assert (Hpopx : is_pop val x) by (exists ix; done).
-      destruct (classic (ir x ic)) as [Hxic|Hnxic].
+      destruct (decide (ir x ic)) as [Hxic|Hnxic].
       + right. apply (pop_irI _ _ ic); done.
       + assert (Hpushic : is_push val ic) by (by apply (ir_push_and_pop3 _ _ Hyic)).
         assert (Hicx : ir ic x) by (by apply not_ir_pop_push_ir).
@@ -591,7 +593,7 @@ Section remove_relaxed_stack.
       destruct (linD _ _ Hlinyz) as (iy & iz & Hvaly & Hvalz & Hinszy & Hiryz).
       (* linD gives: Hvaly : val iy y, Hvalz : val iz z, Hinszy : ins iz iy, Hiryz : ir iy z *)
       assert (Hpopz : is_pop val z) by (exists iz; done).
-      destruct (classic (ir ic z)) as [Hicz|Hnicz].
+      destruct (decide (ir ic z)) as [Hicz|Hnicz].
       + right. apply (pop_irI _ _ ic); done.
       + assert (Hpushic : is_push val ic) by (by apply (ir_push_and_pop3 _ _ Hxic)).
         assert (Hzic : ir z ic) by (by apply not_ir_push_pop_ir).
@@ -791,6 +793,13 @@ Section remove_relaxed_stack.
 
   (* remove_relaxed_stack.thy:554-556 *)
   Definition w1 : relation operation := tc (pre ∪ (lin ∪ pop_ir)).
+
+  Local Instance w1_dec : RelDecision w1.
+  Proof.
+    apply tc_decision. intros a b.
+    unfold relation_union, Relation_Operators.union, lin, pop_ir, ins, ins_order, is_push, is_pop.
+    apply _.
+  Qed.
 
   (* remove_relaxed_stack.thy:558-560 *)
   Definition wins1 : relation operation :=
@@ -1020,7 +1029,7 @@ Section remove_relaxed_stack.
     pre a b → ir b c → ir a c.
   Proof.
     intros Hpusha Hpushb Hpopc Hpre Hir.
-    destruct (classic (ir a c)) as [Hirac|Hnirac]; [done|].
+    destruct (decide (ir a c)) as [Hirac|Hnirac]; [done|].
     assert (Hirca : ir c a) by (by apply not_ir_push_pop_ir).
     exfalso.
     assert (Htc : tc (pre ∪ ir) a a).
@@ -1151,7 +1160,7 @@ Section remove_relaxed_stack.
              assert (Hircy : ir c y) by (apply lem_pop_pr_push_then_ir; done).
              (* Use ipr_ooo_ir: ins ic ix, ir ix c gives ¬(ir c y ∧ ir y x) *)
              (* So if ir y x, we get contradiction with ir c y *)
-             destruct (classic (ir x y)) as [Hirxy|Hnirxy]; [done|].
+             destruct (decide (ir x y)) as [Hirxy|Hnirxy]; [done|].
              (* ¬ir x y with x pop, y push gives ir y x *)
              assert (Hiryx : ir y x) by (by apply not_ir_pop_push_ir).
              exfalso.
@@ -1243,7 +1252,7 @@ Section remove_relaxed_stack.
                 destruct (linD _ _ Hlinxc) as (ix & ic & Hvalix & Hvalic & Hinsicix & Hirixc).
                 assert (Hpopc : is_pop val c) by (exists ic; done).
                 assert (Hircy : ir c y) by (apply lem_pop_pr_push_then_ir; done).
-                destruct (classic (ir x y)) as [Hirxy|Hnirxy]; [done|].
+                destruct (decide (ir x y)) as [Hirxy|Hnirxy]; [done|].
                 assert (Hiryx : ir y x) by (by apply not_ir_pop_push_ir).
                 exfalso.
                 eapply (ipr_ooo_ir ic c ix x y); [exact Hvalic|exact Hvalix|exact Hinsicix|exact Hirixc|].
@@ -1262,7 +1271,7 @@ Section remove_relaxed_stack.
           (* Now use Hirxy with Hyz_order - goal is ir x z with x pop, z push *)
           destruct Hyz_order as [Hpreyz | (c & Hiryc & Hircz)].
              ++ (* ir x y, pre y z - derive ir x z *)
-                destruct (classic (ir x z)) as [Hirxz|Hnirxz]; [done|].
+                destruct (decide (ir x z)) as [Hirxz|Hnirxz]; [done|].
                 (* ¬ir x z with x pop, z push gives ir z x *)
                 assert (Hirzx : ir z x) by (by apply not_ir_pop_push_ir).
                 (* y --pre-> z --ir-> x --ir-> y forms a cycle *)
@@ -1301,7 +1310,7 @@ Section remove_relaxed_stack.
                 destruct (linD _ _ Hlinxc) as (ix & ic & Hvalix & Hvalic & Hinsicix & Hirixc).
                 assert (Hpopc : is_pop val c) by (exists ic; done).
                 assert (Hircy : ir c y) by (apply lem_pop_pr_push_then_ir; done).
-                destruct (classic (ir x y)) as [Hirxy|Hnirxy]; [done|].
+                destruct (decide (ir x y)) as [Hirxy|Hnirxy]; [done|].
                 assert (Hiryx : ir y x) by (by apply not_ir_pop_push_ir).
                 exfalso.
                 eapply (ipr_ooo_ir ic c ix x y); [exact Hvalic|exact Hvalix|exact Hinsicix|exact Hirixc|].
@@ -1427,7 +1436,7 @@ Section remove_relaxed_stack.
           right. right. left. split; [done|split; [done|]].
           destruct Hxy as [Hw1xy|Hirxy].
           -- (* w1 x y, ir y z - derive ir x z *)
-             destruct (classic (ir x z)) as [Hirxz|Hnirxz]; [done|].
+             destruct (decide (ir x z)) as [Hirxz|Hnirxz]; [done|].
              (* ¬ir x z implies ir z x by not_ir_pop_push_ir *)
              assert (Hirzx : ir z x) by (by apply not_ir_pop_push_ir).
              (* ir y z and ir z x gives pop_ir y x via pop_irI *)
@@ -1547,6 +1556,9 @@ Section remove_relaxed_stack.
   (* remove_relaxed_stack.thy:972-974 *)
   Definition w1_pop : relation operation :=
     λ a b, is_pop val a ∧ is_pop val b ∧ w1 a b.
+
+  Local Instance w1_pop_dec : RelDecision w1_pop.
+  Proof. intros a b. unfold w1_pop. apply _. Qed.
 
   (* remove_relaxed_stack.thy:976-978 *)
   Lemma w1_popD a b : w1_pop a b → is_pop val a ∧ is_pop val b ∧ w1 a b.
@@ -1704,7 +1716,7 @@ Section remove_relaxed_stack.
     Antisymmetric operation (=) (tc (λ x y, (x = a ∧ y = b) ∨ r x y)).
   Proof.
     intros Htrans Hirr Hanti Hnab Hnba Hneq x y Hxy Hyx.
-    destruct (classic (x = y)) as [|Hne]; [done|].
+    destruct (decide (x = y)) as [|Hne]; [done|].
     exfalso.
     assert (Htcxx : tc (λ x0 y0 : operation, (x0 = a ∧ y0 = b) ∨ r x0 y0) x x).
     { eapply tc_transitive; [exact Hxy|exact Hyx]. }
@@ -1759,7 +1771,7 @@ Section remove_relaxed_stack.
      The proof uses induction on the list of pop pairs.
      For each pair (a,b) of pops, we either already have them ordered, or we add
      the edge (a,b) and take the transitive closure. *)
-  Lemma lem_exists_total_closure : ∃ r, w2 r.
+  Lemma lem_exists_total_closure : ∃ r (_ : RelDecision r), w2 r.
   Proof.
     (* Get the enumeration of pops from FinitePredicate *)
     destruct pop_ops_finite as [enum [Hnodup Henum]].
@@ -1768,14 +1780,14 @@ Section remove_relaxed_stack.
     (* Note: the totality condition is guarded by is_pop, so we don't need
        all elements in pairs to be pops - just that pops in pairs are ordered *)
     assert (Hind : ∀ pairs : list (operation * operation),
-              ∃ r, subrelation w1_pop r ∧
+              ∃ r (_ : RelDecision r), subrelation w1_pop r ∧
                    (∀ a b, is_pop val a → is_pop val b → (a, b) ∈ pairs → a = b ∨ r a b ∨ r b a) ∧
                    Transitive r ∧ Irreflexive r ∧
                    Antisymmetric operation (=) r ∧
                    (∀ a b, r a b → is_pop val a ∧ is_pop val b)).
     { intros pairs. induction pairs as [|[c d] rest IH].
       - (* Base case: no pairs, use w1_pop *)
-        exists w1_pop. split; [|split; [|split; [|split; [|split]]]].
+        exists w1_pop, _. split; [|split; [|split; [|split; [|split]]]].
         + intros x y Hxy. done.
         + intros a b _ _ Hin. exfalso. by apply (not_elem_of_nil (a, b)).
         + exact w1_pop_transitive.
@@ -1783,11 +1795,11 @@ Section remove_relaxed_stack.
         + exact w1_pop_antisymmetric.
         + intros a b Hab. destruct (w1_popD _ _ Hab) as [Hpopa [Hpopb _]]. done.
       - (* Inductive case: pair (c,d) :: rest *)
-        destruct IH as (r & Hsub & Htot & Htrans & Hirr & Hanti & Hpoponly).
+        destruct IH as (r & Hr_dec & Hsub & Htot & Htrans & Hirr & Hanti & Hpoponly).
         (* We need to handle the case where c or d is not a pop *)
-        destruct (classic (is_pop val c ∧ is_pop val d)) as [[Hpopc Hpopd]|Hnotpop].
+        destruct (decide (is_pop val c ∧ is_pop val d)) as [[Hpopc Hpopd]|Hnotpop].
         2: { (* c or d is not a pop - just skip this pair *)
-          exists r.
+          exists r, _.
           split; [exact Hsub|split; [|split; [|split; [|split]]]].
           - intros a b Hpopa Hpopb Hin. apply elem_of_cons in Hin.
             destruct Hin as [Heq'|Hrest].
@@ -1802,8 +1814,8 @@ Section remove_relaxed_stack.
           - exact Hpoponly. }
         (* Both c and d are pops *)
         (* Case 1: c = d *)
-        destruct (classic (c = d)) as [Heq|Hneq].
-        { subst d. exists r.
+        destruct (decide (c = d)) as [Heq|Hneq].
+        { subst d. exists r, _.
           split; [exact Hsub|split; [|split; [|split; [|split]]]].
           - intros a b Hpopa Hpopb Hin. apply elem_of_cons in Hin.
             destruct Hin as [Heq'|Hrest].
@@ -1816,8 +1828,8 @@ Section remove_relaxed_stack.
           - exact Hanti.
           - exact Hpoponly. }
         (* Case 2: (c,d) ∈ r *)
-        destruct (classic (r c d)) as [Hrcd|Hnrcd].
-        { exists r.
+        destruct (decide (r c d)) as [Hrcd|Hnrcd].
+        { exists r, _.
           split; [exact Hsub|split; [|split; [|split; [|split]]]].
           - intros a b Hpopa Hpopb Hin. apply elem_of_cons in Hin.
             destruct Hin as [Heq'|Hrest].
@@ -1830,8 +1842,8 @@ Section remove_relaxed_stack.
           - exact Hanti.
           - exact Hpoponly. }
         (* Case 3: (d,c) ∈ r *)
-        destruct (classic (r d c)) as [Hrdc|Hnrdc].
-        { exists r.
+        destruct (decide (r d c)) as [Hrdc|Hnrdc].
+        { exists r, _.
           split; [exact Hsub|split; [|split; [|split; [|split]]]].
           - intros a b Hpopa Hpopb Hin. apply elem_of_cons in Hin.
             destruct Hin as [Heq'|Hrest].
@@ -1844,7 +1856,9 @@ Section remove_relaxed_stack.
           - exact Hanti.
           - exact Hpoponly. }
         (* Case 4: Neither (c,d) nor (d,c) in r. Add (c,d) and take tc. *)
-        exists (tc (λ x y, (x = c ∧ y = d) ∨ r x y)).
+        assert (Hcd_dec : RelDecision (λ x y, (x = c ∧ y = d) ∨ r x y)).
+        { intros x y. cbv beta. apply _. }
+        exists (tc (λ x y, (x = c ∧ y = d) ∨ r x y)), _.
         split; [|split; [|split; [|split; [|split]]]].
         + (* w1_pop ⊆ tc (insert (c,d) r) *)
           intros x y Hw1pop.
@@ -1875,8 +1889,8 @@ Section remove_relaxed_stack.
     (* Now we need to build the list of all pairs from enum *)
     (* all_pairs enum = [(a,b) | a ∈ enum, b ∈ enum] *)
     set (all_pairs := flat_map (λ a, map (λ b, (a, b)) enum) enum).
-    destruct (Hind all_pairs) as (r & Hsub & Htot & Htrans & Hirr & Hanti & Hpoponly).
-    exists r. unfold w2.
+    destruct (Hind all_pairs) as (r & Hr_dec & Hsub & Htot & Htrans & Hirr & Hanti & Hpoponly).
+    exists r, _. unfold w2.
     split; [exact Hsub|split; [|split; [|split; [|split]]]].
     - (* Totality on pop_ops *)
       intros a b Hpopa Hpopb.
@@ -2362,7 +2376,7 @@ Section remove_relaxed_stack.
     ¬ w1 a b → ir e a → ir e b.
   Proof.
     intros Hw2 Hpopa Hpopb Hrab Hnw1 Hirea.
-    destruct (classic (ir e b)) as [Hireb|Hnireb]; [done|].
+    destruct (decide (ir e b)) as [Hireb|Hnireb]; [done|].
     exfalso.
     assert (Hpushe : is_push val e) by (by apply (ir_push_and_pop4 e a)).
     assert (Hirbe : ir b e) by (by apply not_ir_push_pop_ir).
@@ -2430,7 +2444,7 @@ Section remove_relaxed_stack.
   Lemma help_me' r a b c : w2 r → r a b → w1 a b ∨ (ir c a → ir c b).
   Proof.
     intros Hw2 Hrab.
-    destruct (classic (w1 a b)) as [Hw1|Hnw1]; [left; done|right].
+    destruct (decide (w1 a b)) as [Hw1|Hnw1]; [left; done|right].
     intros Hirca.
     destruct (lem_w2_then_pop r Hw2 a b Hrab) as [Hpopa Hpopb].
     eapply (lem_not_w1_then_same_ir r a b c); done.
@@ -2484,7 +2498,7 @@ Section remove_relaxed_stack.
              (* We have ir a y and r y z with y, z pops *)
              (* Need tc (w1 ∪ ir) a z *)
              (* Check if w1 y z or not *)
-             destruct (classic (w1 y z)) as [Hw1yz|Hnw1yz].
+             destruct (decide (w1 y z)) as [Hw1yz|Hnw1yz].
              ++ (* w1 y z: tc via ir a y, w1 y z *)
                 eapply tc_l; [right; exact Hiray|].
                 apply tc_once. left. exact Hw1yz.
@@ -2545,7 +2559,7 @@ Section remove_relaxed_stack.
                 apply tc_once. left. exact Hw1az.
              ++ (* ∃ c pop, r a c, pre c z *)
                 assert (Hw1cz : w1 c z) by (apply lem_pr_then_w1; done).
-                destruct (classic (w1 x c)) as [Hw1ac|Hnw1ac].
+                destruct (decide (w1 x c)) as [Hw1ac|Hnw1ac].
                 ** eapply tc_l; [left; exact Hw1ac|apply tc_once; left; exact Hw1cz].
                 ** (* ¬ w1 x c: use lem_not_w1_then_same_ir3 *)
                    (* c pop, z push, pre c z → ir c z *)
@@ -2681,7 +2695,7 @@ Section remove_relaxed_stack.
                 exfalso. eapply def_val_order; [exact Hrx|exists ix; left; done].
              ++ (* tc (w1 ∪ ir) x y *)
                 (* We have tc (w1 ∪ ir) x y, y pop, z pop, r y z *)
-                destruct (classic (w1 y z)) as [Hw1yz|Hnw1yz].
+                destruct (decide (w1 y z)) as [Hw1yz|Hnw1yz].
                 ** eapply tc_r; [exact Htcw1ir_xy|left; exact Hw1yz].
                 ** (* ¬ w1 y z but r y z: use lem_not_w1_then_same_ir *)
                    (* From tc (w1 ∪ ir) x y with x push, y pop: ir x y *)
@@ -2712,7 +2726,7 @@ Section remove_relaxed_stack.
           right.
           destruct (ir_push_and_pop x y Hir) as [[Hpushx Hpopy']|[Hpopx Hpushy]].
           -- (* x push, y pop - but we also have y pop from IH *)
-             destruct (classic (w1 y z)) as [Hw1yz|Hnw1yz].
+             destruct (decide (w1 y z)) as [Hw1yz|Hnw1yz].
              ++ eapply tc_l; [right; exact Hir|apply tc_once; left; exact Hw1yz].
              ++ (* ¬ w1 y z but r y z, and ir x y *)
                 (* Use lem_not_w1_then_same_ir *)
@@ -2738,7 +2752,7 @@ Section remove_relaxed_stack.
                 exfalso. eapply def_val_order; [exact Hry|exists iy; left; done].
              ++ (* y pop, z push, ir y z: derive ir x z *)
                 right.
-                destruct (classic (w1 x y)) as [Hw1xy|Hnw1xy].
+                destruct (decide (w1 x y)) as [Hw1xy|Hnw1xy].
                 ** (* w1 x y: chain w1 x y, ir y z *)
                    eapply tc_l; [left; exact Hw1xy|apply tc_once; right; exact Hiryz].
                 ** (* ¬ w1 x y: use lem_not_w1_then_same_ir3 *)
@@ -2827,7 +2841,7 @@ Section remove_relaxed_stack.
         destruct Hpushc as [rc Hrc]. destruct Hpopc as [ic Hic].
         exfalso. eapply def_val_order; [exact Hrc|exists ic; left; done].
       + (* r ca c: both ca and c are pops *)
-        destruct (classic (w1 ca c)) as [Hw1cac|Hnw1cac].
+        destruct (decide (w1 ca c)) as [Hw1cac|Hnw1cac].
         * (* w1 ca c: use push_pop_ordered on b push, ca pop *)
           destruct (push_pop_ordered b ca Hpushb Hpopca) as [Hirbca|Hircab].
           -- (* ir b ca: derive contradiction via cycle *)
@@ -2897,10 +2911,10 @@ Section remove_relaxed_stack.
 
   (* remove_relaxed_stack.thy:1492-1510 *)
   Theorem remove_relaxed_stack_linearizable :
-    ∃ prt, subrelation pre prt ∧ InsertPrRelaxedStack prt val ir.
+    ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ InsertPrRelaxedStack prt val ir.
   Proof.
-    destruct lem_exists_total_closure as [r Hw2].
-    exists (tc (pre ∪ r)).
+    destruct lem_exists_total_closure as (r & Hr_dec & Hw2).
+    exists (tc (pre ∪ r)), _.
     split.
     - (* subrelation pre (tc (pre ∪ r)) *)
       intros a b Hpre. apply tc_once. left. done.
@@ -2927,16 +2941,17 @@ Section remove_relaxed_stack.
 End remove_relaxed_stack.
 
 (* remove_relaxed_stack.thy:1514-1530 *)
-Theorem remove_relaxed_stack_linearizable_final `{abstract_stack_model} pre val ir :
+Theorem remove_relaxed_stack_linearizable_final `{abstract_stack_model} pre val ir
+    `{!RelDecision pre, !RelDecision val, !RelDecision ir} :
   RemoveRelaxedStack pre val ir → linearizable_non_empty_stack pre val.
 Proof.
   intros Hrrs.
   (* Get prt1 with InsertPrRelaxedStack prt1 val ir *)
-  destruct (@remove_relaxed_stack_linearizable _ pre val ir Hrrs) as [prt1 [Hsub1 Hipr]].
+  destruct (remove_relaxed_stack_linearizable pre val ir) as (prt1 & Hprt1_dec & Hsub1 & Hipr).
   (* Get prt2 with InsertRelaxedStack prt2 val *)
-  destruct (@insert_pr_relaxed_stack_linearizable _ prt1 val ir Hipr) as [prt2 [Hsub2 Hir]].
+  destruct (insert_pr_relaxed_stack_linearizable prt1 val ir) as (prt2 & Hprt2_dec & Hsub2 & Hir).
   (* Get prt3 with SequentialStack prt3 val *)
-  destruct (@insert_relaxed_stack_linearizable _ prt2 val Hir) as [prt3 [Hsub3 Hseq]].
+  destruct (insert_relaxed_stack_linearizable prt2 val) as (prt3 & Hprt3_dec & Hsub3 & Hseq).
   (* Construct linearizable_non_empty_stack *)
   unfold linearizable_non_empty_stack.
   split.
@@ -2945,7 +2960,7 @@ Proof.
     destruct Hwf.
     constructor; done.
   - (* ∃ prt, subrelation pre prt ∧ SequentialStack prt val *)
-    exists prt3.
+    exists prt3, _.
     split.
     + (* subrelation pre prt3 *)
       intros a b Hpre.

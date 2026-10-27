@@ -36,9 +36,7 @@ Section empty_queue.
 
   Section concurrent_empty_queue_context.
     Context pre val empty slin elin `{!ConcurrentEmptyQueue pre val empty slin elin}.
-    Context (empty_dec : ∀ a, decidable (empty a)).
-    Context (elin_dec : ∀ a b, decidable (elin a b)).
-    Context (slin_dec : ∀ a b, decidable (slin a b)).
+    Context `{∀ a, Decision (empty a), !RelDecision slin, !RelDecision elin}.
 
     Lemma slin_transitive : Transitive slin.
     Proof.
@@ -66,14 +64,14 @@ Section empty_queue.
     Proof.
       intros Hnea Hneb.
       destruct ceq_queue_linearizable as [Hseqset _].
-      destruct ceq_wellformed as [_ _ _ _ Hapo Henv _].
+      destruct ceq_wellformed as [_ _ _ _ _ Hapo Henv _].
       destruct (Hapo a) as [Hea|[c Hac]]; first done.
       destruct (Hapo b) as [Heb|[d Hbd]]; first done.
       destruct (decide (a = b)) as [->|Hne]; first by left.
       right.
-      assert (Henqa : is_enqueue val a ∨ is_dequeue val a).
+      assert (Henqa : is_push val a ∨ is_pop val a).
       { destruct Hac as [Hac|Hca]; [left; exists c|right; exists c]; done. }
-      assert (Henqb : is_enqueue val b ∨ is_dequeue val b).
+      assert (Henqb : is_push val b ∨ is_pop val b).
       { destruct Hbd as [Hbd|Hdb]; [left; exists d|right; exists d]; done. }
       destruct Henqa as [Henqa|Hdeqa]; destruct Henqb as [Henqb|Hdeqb].
       - (* a is enqueue, b is enqueue *)
@@ -90,7 +88,7 @@ Section empty_queue.
       val a b → slin a b.
     Proof.
       intros Hab.
-      destruct ceq_wellformed as [_ _ _ _ _ Henv _].
+      destruct ceq_wellformed as [_ _ _ _ _ _ Henv _].
       assert (Hnea : ¬ empty a).
       { intros Hea. destruct (Henv a Hea) as [Hnv _]. apply Hnv. exists b. done. }
       assert (Hneb : ¬ empty b).
@@ -168,15 +166,8 @@ Section empty_queue.
       w1 a b → ¬ empty a ∧ ¬ empty b ∧ ∃ c, empty c ∧ elin a c ∧ elin c b.
     Proof. done. Qed.
 
-    Lemma w1_dec a b : decidable (w1 a b).
-    Proof.
-      unfold w1.
-      apply dec_and; first by apply dec_not, empty_dec.
-      apply dec_and; first by apply dec_not, empty_dec.
-      apply dec_exists_op. intros c.
-      apply dec_and; first by apply empty_dec.
-      apply dec_and; by apply elin_dec.
-    Qed.
+    Local Instance w1_dec : RelDecision w1.
+    Proof. intros a b. unfold w1. apply _. Qed.
 
     Lemma w1I a b c :
       ¬ empty a → ¬ empty b → empty c → elin a c → elin c b → w1 a b.
@@ -281,11 +272,11 @@ Section empty_queue.
     Lemma pr_in_witness : subrelation pre witness.
     Proof.
       intros a b Hpre.
-      destruct (empty_dec a) as [Hea|Hnea].
+      destruct (decide (empty a)) as [Hea|Hnea].
       - apply witnessI1; first done. by apply ceq_pr_in_elin.
-      - destruct (empty_dec b) as [Heb|Hneb].
+      - destruct (decide (empty b)) as [Heb|Hneb].
         + apply witnessI2; first done. by apply ceq_pr_in_elin.
-        + destruct (w1_dec a b) as [Hw1|Hnw1].
+        + destruct (decide (w1 a b)) as [Hw1|Hnw1].
           * by apply witnessI3.
           * apply witnessI4; try done.
             -- intros Hw1ba.
@@ -332,9 +323,9 @@ Section empty_queue.
         destruct Hbc as [[Heb' Hbc]|[[Hec Hbc]|[Hw1bc|Hbc4]]].
         + (* 2.1: empty b ∧ elin b c - need to figure out witness a c *)
           assert (Hacelin : elin a c) by (eapply elin_transitive; eauto).
-          destruct (empty_dec a) as [Hea|Hnea].
+          destruct (decide (empty a)) as [Hea|Hnea].
           * apply witnessI1; done.
-          * destruct (empty_dec c) as [Hec'|Hnec].
+          * destruct (decide (empty c)) as [Hec'|Hnec].
             -- apply witnessI2; done.
             -- (* a and c are non-empty, b is empty, construct w1 a c *)
                apply witnessI3. eapply (w1I a c b); done.
@@ -400,9 +391,9 @@ Section empty_queue.
           eapply w1I; try done.
         + (* 4.4: ¬ empty b ∧ ¬ empty c ∧ ... ∧ slin b c *)
           destruct Hbc4 as (Hneb' & Hnec & Hnw1bc & Hnw1cb & Hslinbc).
-          destruct (w1_dec a c) as [Hw1ac|Hnw1ac].
+          destruct (decide (w1 a c)) as [Hw1ac|Hnw1ac].
           * by apply witnessI3.
-          * destruct (w1_dec c a) as [Hw1ca|Hnw1ca].
+          * destruct (decide (w1 c a)) as [Hw1ca|Hnw1ca].
             -- (* w1 c a: derive contradiction *)
                apply w1D in Hw1ca as (_ & _ & d & Hed & Hcd & Hda).
                (* Get elin b d using not_w1_then_same_with_empty *)
@@ -438,43 +429,43 @@ Section empty_queue.
       destruct (elin_total a b) as [Heq|[Hab|Hba]].
       - (* a = b *) right. left. done.
       - (* elin a b *)
-        destruct (empty_dec a) as [Hea|Hnea].
+        destruct (decide (empty a)) as [Hea|Hnea].
         + (* empty a *) left. by apply witnessI1.
-        + destruct (empty_dec b) as [Heb|Hneb].
+        + destruct (decide (empty b)) as [Heb|Hneb].
           * (* empty b *) left. by apply witnessI2.
           * (* ¬ empty a, ¬ empty b - use slin trichotomy *)
             destruct (slin_total a b Hnea Hneb) as [Heq'|[Hsab|Hsba]].
             -- right. left. done.
             -- (* slin a b *)
-               destruct (w1_dec a b) as [Hw1|Hnw1].
+               destruct (decide (w1 a b)) as [Hw1|Hnw1].
                ++ left. by apply witnessI3.
-               ++ destruct (w1_dec b a) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 b a)) as [Hw1'|Hnw1'].
                   ** right. right. by apply witnessI3.
                   ** left. by apply witnessI4.
             -- (* slin b a *)
-               destruct (w1_dec b a) as [Hw1|Hnw1].
+               destruct (decide (w1 b a)) as [Hw1|Hnw1].
                ++ right. right. by apply witnessI3.
-               ++ destruct (w1_dec a b) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 a b)) as [Hw1'|Hnw1'].
                   ** left. by apply witnessI3.
                   ** right. right. by apply witnessI4.
       - (* elin b a *)
-        destruct (empty_dec b) as [Heb|Hneb].
+        destruct (decide (empty b)) as [Heb|Hneb].
         + (* empty b *) right. right. by apply witnessI1.
-        + destruct (empty_dec a) as [Hea|Hnea].
+        + destruct (decide (empty a)) as [Hea|Hnea].
           * (* empty a *) right. right. by apply witnessI2.
           * (* ¬ empty a, ¬ empty b - use slin trichotomy *)
             destruct (slin_total a b Hnea Hneb) as [Heq'|[Hsab|Hsba]].
             -- right. left. done.
             -- (* slin a b *)
-               destruct (w1_dec a b) as [Hw1|Hnw1].
+               destruct (decide (w1 a b)) as [Hw1|Hnw1].
                ++ left. by apply witnessI3.
-               ++ destruct (w1_dec b a) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 b a)) as [Hw1'|Hnw1'].
                   ** right. right. by apply witnessI3.
                   ** left. by apply witnessI4.
             -- (* slin b a *)
-               destruct (w1_dec b a) as [Hw1|Hnw1].
+               destruct (decide (w1 b a)) as [Hw1|Hnw1].
                ++ right. right. by apply witnessI3.
-               ++ destruct (w1_dec a b) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 a b)) as [Hw1'|Hnw1'].
                   ** left. by apply witnessI3.
                   ** right. right. by apply witnessI4.
     Qed.
@@ -494,7 +485,7 @@ Section empty_queue.
     Proof.
       intros Hval Hw.
       apply witnessD in Hw.
-      destruct ceq_wellformed as [_ _ _ _ _ Henv _].
+      destruct ceq_wellformed as [_ _ _ _ _ _ Henv _].
       assert (Hneia : ¬ empty ia).
       { intros Heia. destruct (Henv ia Heia) as [Hnv _]. apply Hnv. exists ra. done. }
       assert (Hnera : ¬ empty ra).
@@ -515,7 +506,7 @@ Section empty_queue.
     Proof.
       intros Hvalia Hvalib Hiaib.
       apply witnessD in Hiaib.
-      destruct ceq_wellformed as [_ _ _ _ _ Henv _].
+      destruct ceq_wellformed as [_ _ _ _ _ _ Henv _].
       (* ia, ra, ib, rb are not empty since they participate in val *)
       assert (Hneia : ¬ empty ia).
       { intros Heia. destruct (Henv ia Heia) as [Hnv _]. apply Hnv. exists ra. done. }
@@ -572,20 +563,8 @@ Section empty_queue.
         apply witnessI4; done.
     Qed.
 
-    Lemma witness_dec a b : decidable (witness a b).
-    Proof.
-      unfold witness.
-      apply dec_or.
-      - apply dec_and; [apply empty_dec | apply elin_dec].
-      - apply dec_or.
-        + apply dec_and; [apply empty_dec | apply elin_dec].
-        + apply dec_or; first by apply w1_dec.
-          apply dec_and; first by apply dec_not, empty_dec.
-          apply dec_and; first by apply dec_not, empty_dec.
-          apply dec_and; first by apply dec_not, w1_dec.
-          apply dec_and; first by apply dec_not, w1_dec.
-          apply slin_dec.
-    Qed.
+    Local Instance witness_dec : RelDecision witness.
+    Proof. intros a b. unfold witness. apply _. Qed.
 
     Lemma witness_sequential_empty_queue : SequentialEmptyQueue witness val empty.
     Proof.
@@ -595,7 +574,7 @@ Section empty_queue.
         + (* SequentialEmptyHistory witness val empty *)
           constructor.
           * (* WellformedEmptyHistory witness val empty *)
-            destruct ceq_wellformed as [Hch Hfin Henqo Hdeqo Hvo Hapo Hetn Hempty_dec Hval_dec].
+            destruct ceq_wellformed as [Hch Hfin Henqo Hdeqo Hvo Hapo Hetn Hvtnp].
             constructor.
             -- (* ConcHistory witness *)
                constructor.
@@ -603,7 +582,7 @@ Section empty_queue.
                ++ apply witness_antisymmetric.
                ++ apply witness_irreflexive.
                ++ apply lem_trichotomy_then_abcd; [apply witness_trichotomy | apply witness_transitive].
-               ++ apply witness_dec.
+            -- done.
             -- done.
             -- done.
             -- done.
@@ -611,8 +590,6 @@ Section empty_queue.
             -- done.
             -- intros a b Hval Hw.
                by eapply val_then_not_witness.
-            -- exact Hempty_dec.
-            -- exact Hval_dec.
           * apply witness_trichotomy.
         + intros a Hea ib rb Hval.
           by apply witness_correct_empty.
@@ -622,9 +599,9 @@ Section empty_queue.
     Qed.
 
     Theorem concurrent_empty_queue_linearizable :
-      ∃ prt, subrelation pre prt ∧ SequentialEmptyQueue prt val empty.
+      ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ SequentialEmptyQueue prt val empty.
     Proof.
-      exists witness. split.
+      exists witness, _. split.
       - apply pr_in_witness.
       - apply witness_sequential_empty_queue.
     Qed.
@@ -635,13 +612,15 @@ Section empty_queue.
   Lemma queue_set_then_set pre val empty :
     linearizable_non_empty_queue (non_empty_pre pre empty) val →
     linearizable_set pre val empty →
-    ∃ elin slin, ConcurrentEmptyQueue pre val empty slin elin.
+    ∃ elin slin (_ : RelDecision elin) (_ : RelDecision slin),
+      ConcurrentEmptyQueue pre val empty slin elin.
   Proof.
-    intros [Hch_ne (slin & Hsub_slin & Hslin)] [Hch_pre (elin & Hsub_elin & Hselin)].
-    exists elin, slin.
+    intros [Hch_ne (slin & Hslin_dec & Hsub_slin & Hslin)]
+      [Hch_pre (elin & Helin_dec & Hsub_elin & Hselin)].
+    exists elin, slin, _, _.
     destruct Hselin as [Hselin_seh Hselin_ce].
     destruct Hselin_seh as [Hselin_weh Hselin_total].
-    destruct Hselin_weh as [Hch_elin Henqo_elin Hdeqo_elin Hvo_elin Hapo Hetn Hvtnp_elin Hempty_dec Hval_dec].
+    destruct Hselin_weh as [Hch_elin Hfin_elin Henqo_elin Hdeqo_elin Hvo_elin Hapo Hetn Hvtnp_elin].
     destruct Hslin as [Hslin_ss Hslin_fifo].
     destruct Hslin_ss as [Hslin_wh Htotenq Htotdeq Htoted].
     destruct Hslin_wh as [Hch_slin Henqo_slin Hdeqo_slin Hvo_slin Henqdeq_slin Hvtnp_slin].
@@ -674,29 +653,20 @@ Section empty_queue.
       by apply Hsub_elin.
   Qed.
 
-  Theorem concurrent_empty_queue_linearizable_main pre val empty :
+  Theorem concurrent_empty_queue_linearizable_main pre val empty `{∀ a, Decision (empty a)} :
     linearizable_non_empty_queue (non_empty_pre pre empty) val →
     linearizable_set pre val empty →
     linearizable_queue pre val empty.
   Proof.
     intros Hne Hls.
-    destruct (queue_set_then_set pre val empty Hne Hls) as (elin & slin & Hceq).
-    pose proof Hceq as Hceq'.
-    destruct Hceq' as [Hwf Hsq Hpr_slin Hsel Hpr_elin].
-    assert (Hempty_dec0 : ∀ a, decidable (empty a)) by apply Hwf.
-    assert (Helin_dec0 : ∀ a b, decidable (elin a b)).
-    { destruct Hsel as [Hseh _]. destruct Hseh as [Hweh _].
-      destruct Hweh as [Hch _ _ _ _ _ _ _ _]. apply conc_pre_decidable. }
-    assert (Hslin_dec0 : ∀ a b, decidable (slin a b)).
-    { destruct Hsq as [Hss _]. destruct Hss as [Hwh _ _ _].
-      destruct Hwh as [_ _ _ _ _ _ _ _ Hd _]. exact Hd. }
+    destruct (queue_set_then_set pre val empty Hne Hls)
+      as (elin & slin & Helin_dec & Hslin_dec & Hceq).
     unfold linearizable_queue.
     split.
     - destruct Hls as [Hch _]. done.
-    - destruct (concurrent_empty_queue_linearizable pre val empty slin elin
-                  Hempty_dec0 Helin_dec0 Hslin_dec0)
-        as (prt & Hsub & Hseq).
-      exists prt. done.
+    - destruct (concurrent_empty_queue_linearizable pre val empty slin elin)
+        as (prt & Hprt_dec & Hsub & Hseq).
+      exists prt, _. done.
   Qed.
 
 End empty_queue.

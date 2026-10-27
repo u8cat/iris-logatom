@@ -1,54 +1,17 @@
 From stdpp Require Import finite.
 From iris_logatom.lib Require Import list.
-From iris_logatom.pure_logic.aspect.queue Require binder.
-From iris_logatom.pure_logic.aspect.queue.ext Require conc_his_rel.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import conc_his_rel vis_rr.
 From iris_logatom.pure_logic.aspect.bag Require Import base binder.
+From iris_logatom.pure_logic.aspect.bag Require set_binder.
 From iris_logatom.pure_logic.aspect.stack Require Import base vis.
 
-(* The trace <-> history binding for stacks. The history instance and the set-part of
-   the binding are shared with queues: the queue development already proves that a
-   complete, closed trace is linearizable as a set (in the queue port's classes), and
-   the bridge below transports this to the stack port's classes. *)
-
-Module Q := iris_logatom.pure_logic.aspect.queue.ext.conc_his_rel.
+(* The trace <-> history binding for stacks. The history instance and the linearizability
+   of a complete, closed trace as a set history are shared with queues (bag/binder.v and
+   bag/set_binder.v); the relations below are those of bag/binder.v, typed by the stack
+   model of the trace. *)
 
 Local Instance relation_union {A} : Union (relation A) :=
   λ r1 r2, Relation_Operators.union A r1 r2.
-
-(* ===== Bridge between the queue port's and the stack port's history classes ===== *)
-Section bridge.
-  Context {A : Type} `{!EqDecision A} `{!Finite A}.
-
-  Local Instance bridge_queue_model : Q.abstract_queue_model :=
-    Q.AbstractQueueModel A _ _.
-  Local Instance bridge_stack_model : abstract_stack_model :=
-    AbstractStackModel A _ _.
-
-  Lemma conc_history_queue_stack (pre : relation A) :
-    Q.ConcHistory pre → ConcHistory pre.
-  Proof. intros [Htrans Hanti Hirr Habcd _]. constructor; [done..|exact Habcd]. Qed.
-
-  Lemma linearizable_set_queue_stack (pre val : relation A) (empty : A → Prop) :
-    Q.linearizable_set pre val empty → linearizable_set pre val empty.
-  Proof.
-    intros [Hch (prt & Hsub & Hset)].
-    split; first by apply conc_history_queue_stack.
-    exists prt. split; first done.
-    destruct Hset as [[[Hch' Hpush Hpop Hvo Hadq Hetnv Hvnp _ _] Htri] Hce].
-    constructor; [constructor; [constructor|]|].
-    - by apply conc_history_queue_stack.
-    - exists (enum A). split; [apply NoDup_enum | intros x _; apply elem_of_enum].
-    - exact Hpush.
-    - exact Hpop.
-    - exact Hvo.
-    - exact Hadq.
-    - exact Hetnv.
-    - exact Hvnp.
-    - exact Htri.
-    - exact Hce.
-  Qed.
-End bridge.
 
 (* ===== The stack history of a complete, closed trace ===== *)
 Section stack_binder.
@@ -71,20 +34,24 @@ Section stack_binder.
     λ op, empty_of_trace_match ts m (`op).
 
   Lemma conc_history_trace_pre : ConcHistory trace_pre.
-  Proof.
-    apply (conc_history_queue_stack (A:=trace_op ts)).
-    exact (queue.binder.conc_history_trace_pre ts m Hvalid Hcomplete Hclosed).
-  Qed.
+  Proof. exact (set_binder.conc_history_trace_pre ts m Hvalid Hcomplete Hclosed). Qed.
+
+  Global Instance trace_pre_dec : RelDecision trace_pre.
+  Proof. intros a b. unfold trace_pre. apply _. Qed.
+
+  Global Instance trace_val_dec : RelDecision trace_val.
+  Proof. intros a b. unfold trace_val. apply _. Qed.
+
+  Global Instance trace_empty_dec a : Decision (trace_empty a).
+  Proof. unfold trace_empty. apply _. Qed.
 
   Lemma trace_linearizable_bag__linearizable_set :
     per_tag_wellformed_bag rme valid_value ts →
     per_tag_pop_empty_sound ts m →
     linearizable_set trace_pre trace_val trace_empty.
   Proof.
-    intros Hwf Hes.
-    apply (linearizable_set_queue_stack (A:=trace_op ts)).
-    exact (queue.binder.trace_linearizable_bag__linearizable_set
-             rme valid_value ts m Hvalid Hcomplete Hclosed Hwf Hes).
+    exact (set_binder.trace_linearizable_bag__linearizable_set
+             rme valid_value ts m Hvalid Hcomplete Hclosed).
   Qed.
 
   (* ===== The premise on a closed trace gives order-correctness ===== *)
@@ -123,7 +90,9 @@ Section stack_binder.
       apply (push_xor_pop_of_trace ts rme valid_value x Hwf Hx).
       apply (list_elem_of_fmap_2 fst _ (x, Call Pop #())).
       apply list_elem_of_filter_2; [done|exact (valid_match_call_pop _ _ _ _ Hvalid Hin)]. }
-    exists (trace_ir ir). split_and!.
+    assert (Hir_dec : RelDecision (trace_ir ir)).
+    { intros a b. unfold trace_ir, ir_rel, push_of_trace. apply _. }
+    exists (trace_ir ir), Hir_dec. split_and!.
     - constructor.
       + intros a b [Hin|(Ha & Hb & _)].
         * destruct (Hirwf _ _ Hin) as [Hap Hbm].
@@ -573,7 +542,7 @@ Section stack_binder.
     linearizable_stack trace_pre trace_val trace_empty →
     trace_linearizable (M:=stack_model rme valid_value) ts.
   Proof.
-    intros Hper_tag_wf (Hch & prt & Hsub & Hseq).
+    intros Hper_tag_wf (Hch & prt & _ & Hsub & Hseq).
     destruct Hseq as [Hses Hlifo].
     destruct Hses as [Hseh Hcorrect].
     destruct Hseh as [Hwfe Htri].

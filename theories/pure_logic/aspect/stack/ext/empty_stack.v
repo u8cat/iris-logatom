@@ -1,6 +1,5 @@
 (* empty_stack.v, ported from empty_stack.thy *)
 
-From Stdlib Require Import Classical.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import conc_his_rel.
 
 Section empty_stack.
@@ -35,6 +34,7 @@ Section empty_stack.
 
   Section concurrent_empty_stack_context.
     Context pre val empty slin elin `{!ConcurrentEmptyStack pre val empty slin elin}.
+    Context `{∀ a, Decision (empty a), !RelDecision slin, !RelDecision elin}.
 
     (* empty_stack.thy:37-45 *)
     Lemma slin_transitive : Transitive slin.
@@ -176,6 +176,9 @@ Section empty_stack.
     (* empty_stack.thy:138-139 - Definition of w1 *)
     Definition w1 : relation operation :=
       λ a b, ¬ empty a ∧ ¬ empty b ∧ ∃ c, empty c ∧ elin a c ∧ elin c b.
+
+    Local Instance w1_dec : RelDecision w1.
+    Proof. intros a b. unfold w1. apply _. Qed.
 
     (* empty_stack.thy:141-143 *)
     Lemma w1D a b :
@@ -355,6 +358,9 @@ Section empty_stack.
              w1 a b ∨
              (¬ empty a ∧ ¬ empty b ∧ ¬ w1 a b ∧ ¬ w1 b a ∧ slin a b).
 
+    Local Instance witness_dec : RelDecision witness.
+    Proof. intros a b. unfold witness. apply _. Qed.
+
     (* empty_stack.thy:200-205 *)
     Lemma witnessD a b :
       witness a b →
@@ -388,11 +394,11 @@ Section empty_stack.
     Lemma pr_in_witness : subrelation pre witness.
     Proof.
       intros a b Hpre.
-      destruct (classic (empty a)) as [Hea|Hnea].
+      destruct (decide (empty a)) as [Hea|Hnea].
       - apply witnessI1; first done. by apply ces_pr_in_elin.
-      - destruct (classic (empty b)) as [Heb|Hneb].
+      - destruct (decide (empty b)) as [Heb|Hneb].
         + apply witnessI2; first done. by apply ces_pr_in_elin.
-        + destruct (classic (w1 a b)) as [Hw1|Hnw1].
+        + destruct (decide (w1 a b)) as [Hw1|Hnw1].
           * by apply witnessI3.
           * apply witnessI4; try done.
             -- intros Hw1ba. eapply w1_then_not_inv_pr; eauto.
@@ -434,9 +440,9 @@ Section empty_stack.
         destruct Hbc as [[Heb' Hbc]|[[Hec Hbc]|[Hw1bc|Hbc4]]].
         + (* 2.1: empty b ∧ elin b c - need to figure out witness a c *)
           assert (Hacelin : elin a c) by (eapply elin_transitive; eauto).
-          destruct (classic (empty a)) as [Hea|Hnea].
+          destruct (decide (empty a)) as [Hea|Hnea].
           * apply witnessI1; done.
-          * destruct (classic (empty c)) as [Hec'|Hnec].
+          * destruct (decide (empty c)) as [Hec'|Hnec].
             -- apply witnessI2; done.
             -- (* a and c are non-empty, b is empty, construct w1 a c *)
                apply witnessI3. eapply (w1I a c b); done.
@@ -502,9 +508,9 @@ Section empty_stack.
           eapply w1I; try done.
         + (* 4.4: ¬ empty b ∧ ¬ empty c ∧ ... ∧ slin b c *)
           destruct Hbc4 as (Hneb' & Hnec & Hnw1bc & Hnw1cb & Hslinbc).
-          destruct (classic (w1 a c)) as [Hw1ac|Hnw1ac].
+          destruct (decide (w1 a c)) as [Hw1ac|Hnw1ac].
           * by apply witnessI3.
-          * destruct (classic (w1 c a)) as [Hw1ca|Hnw1ca].
+          * destruct (decide (w1 c a)) as [Hw1ca|Hnw1ca].
             -- (* w1 c a: derive contradiction *)
                apply w1D in Hw1ca as (_ & _ & d & Hed & Hcd & Hda).
                (* Get elin b d using not_w1_then_same_with_empty *)
@@ -543,43 +549,43 @@ Section empty_stack.
       destruct (elin_total a b) as [Heq|[Hab|Hba]].
       - (* a = b *) right. left. done.
       - (* elin a b *)
-        destruct (classic (empty a)) as [Hea|Hnea].
+        destruct (decide (empty a)) as [Hea|Hnea].
         + (* empty a *) left. by apply witnessI1.
-        + destruct (classic (empty b)) as [Heb|Hneb].
+        + destruct (decide (empty b)) as [Heb|Hneb].
           * (* empty b *) left. by apply witnessI2.
           * (* ¬ empty a, ¬ empty b - use slin trichotomy *)
             destruct (slin_total a b Hnea Hneb) as [Heq'|[Hsab|Hsba]].
             -- right. left. done.
             -- (* slin a b *)
-               destruct (classic (w1 a b)) as [Hw1|Hnw1].
+               destruct (decide (w1 a b)) as [Hw1|Hnw1].
                ++ left. by apply witnessI3.
-               ++ destruct (classic (w1 b a)) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 b a)) as [Hw1'|Hnw1'].
                   ** right. right. by apply witnessI3.
                   ** left. by apply witnessI4.
             -- (* slin b a *)
-               destruct (classic (w1 b a)) as [Hw1|Hnw1].
+               destruct (decide (w1 b a)) as [Hw1|Hnw1].
                ++ right. right. by apply witnessI3.
-               ++ destruct (classic (w1 a b)) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 a b)) as [Hw1'|Hnw1'].
                   ** left. by apply witnessI3.
                   ** right. right. by apply witnessI4.
       - (* elin b a *)
-        destruct (classic (empty b)) as [Heb|Hneb].
+        destruct (decide (empty b)) as [Heb|Hneb].
         + (* empty b *) right. right. by apply witnessI1.
-        + destruct (classic (empty a)) as [Hea|Hnea].
+        + destruct (decide (empty a)) as [Hea|Hnea].
           * (* empty a *) right. right. by apply witnessI2.
           * (* ¬ empty a, ¬ empty b - use slin trichotomy *)
             destruct (slin_total a b Hnea Hneb) as [Heq'|[Hsab|Hsba]].
             -- right. left. done.
             -- (* slin a b *)
-               destruct (classic (w1 a b)) as [Hw1|Hnw1].
+               destruct (decide (w1 a b)) as [Hw1|Hnw1].
                ++ left. by apply witnessI3.
-               ++ destruct (classic (w1 b a)) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 b a)) as [Hw1'|Hnw1'].
                   ** right. right. by apply witnessI3.
                   ** left. by apply witnessI4.
             -- (* slin b a *)
-               destruct (classic (w1 b a)) as [Hw1|Hnw1].
+               destruct (decide (w1 b a)) as [Hw1|Hnw1].
                ++ right. right. by apply witnessI3.
-               ++ destruct (classic (w1 a b)) as [Hw1'|Hnw1'].
+               ++ destruct (decide (w1 a b)) as [Hw1'|Hnw1'].
                   ** left. by apply witnessI3.
                   ** right. right. by apply witnessI4.
     Qed.
@@ -688,9 +694,9 @@ Section empty_stack.
           destruct Hibra4 as (? & ? & Hnw1ibra & Hnw1raib & Hslibra).
           (* Use slin_ooo to get slin rb ra *)
           pose proof (slin_ooo ia ra ib rb Hvalia Hvalib Hsliaib Hslibra) as Hslrbra.
-          destruct (classic (w1 rb ra)) as [Hw1|Hnw1].
+          destruct (decide (w1 rb ra)) as [Hw1|Hnw1].
           * by apply witnessI3.
-          * destruct (classic (w1 ra rb)) as [Hw1'|Hnw1'].
+          * destruct (decide (w1 ra rb)) as [Hw1'|Hnw1'].
             -- (* w1 ra rb - derive contradiction *)
                apply w1D in Hw1' as (? & ? & e & Hee & Hrae & Herb).
                assert (Hibe : elin ib e) by (eapply not_w1_then_same_with_empty; try done).
@@ -763,9 +769,9 @@ Section empty_stack.
 
     (* empty_stack.thy:325-329 *)
     Theorem concurrent_empty_stack_linearizable :
-      ∃ prt, subrelation pre prt ∧ SequentialEmptyStack prt val empty.
+      ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ SequentialEmptyStack prt val empty.
     Proof.
-      exists witness. split.
+      exists witness, _. split.
       - apply pr_in_witness.
       - apply witness_sequential_empty_stack.
     Qed.
@@ -776,10 +782,12 @@ Section empty_stack.
   Lemma stack_set_then_set pre val empty :
     linearizable_non_empty_stack (non_empty_pre pre empty) val →
     linearizable_set pre val empty →
-    ∃ elin slin, ConcurrentEmptyStack pre val empty slin elin.
+    ∃ elin slin (_ : RelDecision elin) (_ : RelDecision slin),
+      ConcurrentEmptyStack pre val empty slin elin.
   Proof.
-    intros [Hch_ne (slin & Hsub_slin & Hslin)] [Hch_pre (elin & Hsub_elin & Hselin)].
-    exists elin, slin.
+    intros [Hch_ne (slin & Hslin_dec & Hsub_slin & Hslin)]
+      [Hch_pre (elin & Hselin_dec & Hsub_elin & Hselin)].
+    exists elin, slin, _, _.
     (* Get wellformed properties from SequentialEmptySet *)
     destruct Hselin as [Hselin_seh Hselin_ce].
     destruct Hselin_seh as [Hselin_weh Hselin_total].
@@ -821,20 +829,22 @@ Section empty_stack.
   Qed.
 
   (* empty_stack.thy:387-393 *)
-  Theorem concurrent_empty_stack_linearizable_main pre val empty :
+  Theorem concurrent_empty_stack_linearizable_main pre val empty `{∀ a, Decision (empty a)} :
     linearizable_non_empty_stack (non_empty_pre pre empty) val →
     linearizable_set pre val empty →
     linearizable_stack pre val empty.
   Proof.
     intros Hne Hls.
-    destruct (stack_set_then_set pre val empty Hne Hls) as (elin & slin & Hces).
+    destruct (stack_set_then_set pre val empty Hne Hls)
+      as (elin & slin & Helin_dec & Hslin_dec & Hces).
     unfold linearizable_stack.
     split.
     - (* ConcHistory pre *)
       destruct Hls as [Hch _]. done.
     - (* ∃ prt, subrelation pre prt ∧ SequentialEmptyStack prt val empty *)
-      destruct (@concurrent_empty_stack_linearizable _ _ _ _ _ Hces) as (prt & Hsub & Hses).
-      exists prt. done.
+      destruct (concurrent_empty_stack_linearizable pre val empty slin elin)
+        as (prt & Hprt_dec & Hsub & Hses).
+      exists prt, _. done.
   Qed.
 
 End empty_stack.

@@ -25,7 +25,7 @@ Proof.
   apply (trace_linearizable_prefix ts_mid ts'); first exact Hpfx_mid.
   apply (linearizable_stack__trace_linearizable_stack rme valid_value ts' m'
            Hvalid' Hcomplete' Hclosed' Hwf').
-  apply abstract_stack_theorem.
+  apply (abstract_stack_theorem (trace_pre ts') (trace_val ts' m') (trace_empty ts' m')).
   - apply (trace_linearizable_bag__linearizable_set rme valid_value ts' m'
              Hvalid' Hcomplete' Hclosed' Hwf').
     by destruct HI' as (_ & ? & _).
@@ -54,7 +54,7 @@ Proof.
   apply (trace_linearizable_prefix ts_mid ts'); first exact Hpfx_mid.
   apply (linearizable_stack__trace_linearizable_stack rme valid_value ts' m'
            Hvalid' Hcomplete' Hclosed' Hwf').
-  eapply abstract_stack_theorem_vis.
+  eapply (abstract_stack_theorem_vis (trace_pre ts') (trace_val ts' m') (trace_empty ts' m') _ _).
   - apply (trace_linearizable_bag__linearizable_set rme valid_value ts' m'
              Hvalid' Hcomplete' Hclosed' Hwf').
     exact (close_preserves_pop_empty_sound rme valid_value ts m Hwf (isv_empty _ _ _ HI) Hvalid).

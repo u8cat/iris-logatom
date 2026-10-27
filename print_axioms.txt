@@ -1,3 +1,2 @@
-Classical_Prop.classic
 FunctionalExtensionality.functional_extensionality_dep
 PropExtensionality.propositional_extensionality

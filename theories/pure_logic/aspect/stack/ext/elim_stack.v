@@ -1,6 +1,5 @@
 (* elim_stack.v, ported from elimination_stack.thy *)
 
-From Stdlib Require Import Classical.
 From stdpp Require Import finite.
 From iris_logatom.lib Require Import list.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import conc_his_rel.
@@ -9,6 +8,7 @@ Section elimination_stack.
   Context `{abstract_stack_model}.
   Context (pre val : relation operation).
   Context (lin : relation operation).
+  Context `{!RelDecision pre, !RelDecision val, !RelDecision lin}.
 
   (* Assumptions of the elimination_stack locale *)
   Context (wf_history : WellformedHistory pre val).
@@ -179,7 +179,7 @@ Section elimination_stack.
   Proof.
     intros Hab.
     destruct (always_same_val1 a b Hab) as [c Hsvc].
-    destruct (classic (elim_free pre val a)) as [Hef|Hnef].
+    destruct (decide (elim_free pre val a)) as [Hef|Hnef].
     - right. done.
     - left. split.
       + destruct Hsvc as [Hac|Hca].
@@ -192,7 +192,7 @@ Section elimination_stack.
   Proof.
     intros Hab.
     destruct (always_same_val2 a b Hab) as [c Hsvc].
-    destruct (classic (elim_free pre val b)) as [Hef|Hnef].
+    destruct (decide (elim_free pre val b)) as [Hef|Hnef].
     - right. done.
     - left. split.
       + destruct Hsvc as [Hbc|Hcb].
@@ -204,7 +204,7 @@ Section elimination_stack.
   Lemma push_then_el_or_ef a : is_push val a -> elim pre val a \/ elim_free pre val a.
   Proof.
     intros [b Hab].
-    destruct (classic (elim_free pre val a)) as [Hef|Hnef].
+    destruct (decide (elim_free pre val a)) as [Hef|Hnef].
     - right. done.
     - left. split; [left; exists b|]; done.
   Qed.
@@ -212,7 +212,7 @@ Section elimination_stack.
   Lemma pop_then_el_or_ef a : is_pop val a -> elim pre val a \/ elim_free pre val a.
   Proof.
     intros [b Hba].
-    destruct (classic (elim_free pre val a)) as [Hef|Hnef].
+    destruct (decide (elim_free pre val a)) as [Hef|Hnef].
     - right. done.
     - left. split; [right; exists b|]; done.
   Qed.
@@ -257,6 +257,9 @@ Section elimination_stack.
   Definition minf : relation operation :=
     fun a b => exists ra rb, same_val val a ra /\ same_val val b rb /\
       Nat.min (f a) (f ra) < Nat.min (f b) (f rb).
+
+  Local Instance minf_dec : RelDecision minf.
+  Proof. intros a b. unfold minf. apply _. Qed.
 
   Lemma minfD a b :
     minf a b -> exists ra rb, same_val val a ra /\ same_val val b rb.
@@ -355,7 +358,7 @@ Section elimination_stack.
     intros Hnab Hnba Hppa Hppb.
     destruct (decide (a = b)) as [Heq|Hneq].
     - right. done.
-    - destruct (classic (same_val val a b)) as [Hsv|Hnsv].
+    - destruct (decide (same_val val a b)) as [Hsv|Hnsv].
       + left. done.
       + exfalso.
         destruct Hppa as [[ra Hara]|[ra Hraa]];
@@ -412,6 +415,9 @@ Section elimination_stack.
   (* elimination_stack.thy:223-243 - el_pre *)
   Definition el_pre : relation operation :=
     fun a b => exists c, same_val val b c /\ (pre a b \/ pre a c).
+
+  Local Instance el_pre_dec : RelDecision el_pre.
+  Proof. intros a b. unfold el_pre. apply _. Qed.
 
   Lemma el_preD1 a b : el_pre a b -> exists c, same_val val b c /\ (pre a b \/ pre a c).
   Proof. done. Qed.
@@ -484,7 +490,7 @@ Section elimination_stack.
     - apply NoDup_cons in Hnodup. destruct Hnodup as [Hxnin Hnodup'].
       assert (HefL' : forall y, y ∈ xs -> elim_free pre val y) by (intros y Hy; apply HefL; by right).
       specialize (IH Hnodup' HefL').
-      destruct (classic (el_pre x b)) as [Hxb|Hnxb].
+      destruct (decide (el_pre x b)) as [Hxb|Hnxb].
       + (* el_pre x b *)
         destruct IH as [Hnoef|[a (Hain & Hab & Hmin)]].
         * (* No element in xs has el_pre *)
@@ -539,7 +545,7 @@ Section elimination_stack.
                    destruct Hwflin as [_ _ Hirr _ _ _ _ _ _].
                    exfalso. by eapply Hirr.
                 ** assert (Hefc : elim_free pre val c) by (apply HefL'; done).
-                   destruct (classic (lin a c)) as [Hlinac|Hnlinac].
+                   destruct (decide (lin a c)) as [Hlinac|Hnlinac].
                    --- apply Hmin. split; done.
                    --- assert (Hppc : is_push (elim_free_val pre val) c ∨ is_pop (elim_free_val pre val) c).
                        { destruct (ef_then_push_or_pop c Hefc) as [[d Hcd]|[d Hdc]].
@@ -595,7 +601,7 @@ Section elimination_stack.
       - left. intros a _ Ha. inversion Ha.
       - apply NoDup_cons in Hnodup. destruct Hnodup as [Hxnin Hnodup'].
         specialize (IH Hnodup').
-        destruct (classic (elim_free pre val x /\ el_pre x b)) as [[Hefx Hprex]|Hnx].
+        destruct (decide (elim_free pre val x /\ el_pre x b)) as [[Hefx Hprex]|Hnx].
         + (* x is ef and has el_pre to b *)
           destruct IH as [Hnoef|[a (Hefa & Hain & Hprea & Hmina)]].
           * (* No previous ef element has el_pre *)
@@ -657,7 +663,7 @@ Section elimination_stack.
                   ** subst c.
                      destruct Hwflin as [_ _ Hirr _ _ _ _ _ _].
                      exfalso. by eapply Hirr.
-                  ** destruct (classic (lin a c)) as [Hlinac|Hnlinac].
+                  ** destruct (decide (lin a c)) as [Hlinac|Hnlinac].
                      --- apply Hmina. split; [|split]; done.
                      --- destruct (decide (c = a)) as [Hcaeq|Hcaneq].
                          +++ subst c.
@@ -702,6 +708,9 @@ Section elimination_stack.
   Definition el_pos : relation operation :=
     fun a b => elim_free pre val a /\ elim pre val b /\ el_pre a b /\
       (forall c, elim_free pre val c /\ lin a c -> ~ el_pre c b).
+
+  Local Instance el_pos_dec : RelDecision el_pos.
+  Proof. intros a b. unfold el_pos. apply _. Qed.
 
   Lemma el_posD a b :
     el_pos a b ->
@@ -974,7 +983,7 @@ Section elimination_stack.
   Lemma pr_in_ef_el2 x y : elim pre val x -> elim_free pre val y -> pre x y -> ef_el x y.
   Proof.
     intros Helx Hefy Hprexy.
-    destruct (classic (exists a, el_pos a x)) as [[a Hpos]|Hnpos].
+    destruct (decide (exists a, el_pos a x)) as [[a Hpos]|Hnpos].
     - (* el_pos a x exists *)
       apply (ef_elI2 x y a Helx Hefy Hpos).
       apply (pr_then_lin x y a wf_history Helx Hefy Hprexy Hpos).
@@ -1131,15 +1140,15 @@ Section elimination_stack.
   Proof.
     intros Helx Hely.
     destruct (decide (x = y)) as [Heq|Hneq]; [by left|right].
-    destruct (classic (same_val val x y)) as [Hsv|Hnsv].
+    destruct (decide (same_val val x y)) as [Hsv|Hnsv].
     { (* same_val x y *)
       destruct (same_valD x y Hsv) as [Hval|Hval].
       - left. apply el_elI1; done.
       - right. apply el_elI1; done. }
     (* ~same_val x y *)
-    destruct (classic (exists a, el_pos a x)) as [[a Hposa]|Hnposa].
+    destruct (decide (exists a, el_pos a x)) as [[a Hposa]|Hnposa].
     - (* exists el_pos a x *)
-      destruct (classic (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
+      destruct (decide (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
       + (* exists el_pos b y *)
         destruct (el_posD a x Hposa) as (Hefa & _ & _ & _).
         destruct (el_posD b y Hposb) as (Hefb & _ & _ & _).
@@ -1147,14 +1156,14 @@ Section elimination_stack.
         * (* a = b - same position *)
           subst b.
           (* Check el_pre subsumption *)
-          destruct (classic (forall c, el_pos a c /\ el_pre c x -> el_pre c y)) as [Hsubxy|Hnsubxy].
+          destruct (decide (forall c, el_pos a c /\ el_pre c x -> el_pre c y)) as [Hsubxy|Hnsubxy].
           { (* el_pre x implies el_pre y *)
-            destruct (classic (minf x y)) as [Hmxy|Hnmxy].
+            destruct (decide (minf x y)) as [Hmxy|Hnmxy].
             - left. apply (el_elI7 x y a Helx Hely Hposa Hposb Hsubxy Hmxy).
             - (* ~minf x y *)
-              destruct (classic (forall c, el_pos a c /\ el_pre c y -> el_pre c x)) as [Hsubyx|Hnsubyx].
+              destruct (decide (forall c, el_pos a c /\ el_pre c y -> el_pre c x)) as [Hsubyx|Hnsubyx].
               + (* el_pre y implies el_pre x *)
-                destruct (classic (minf y x)) as [Hmyx|Hnmyx].
+                destruct (decide (minf y x)) as [Hmyx|Hnmyx].
                 ++ right. apply (el_elI7 y x a Hely Helx Hposb Hposa Hsubyx Hmyx).
                 ++ (* ~minf x y and ~minf y x *)
                    (* By not_minf_then_same_val, same_val x y, contradiction *)
@@ -1166,14 +1175,18 @@ Section elimination_stack.
                    destruct (not_minf_then_same_val x y Hnmxy Hnmyx Hppx Hppy) as [?|?]; done.
               + (* ~(el_pre y implies el_pre x) *)
                 left. apply (el_elI6 x y a Helx Hely Hposa Hposb).
-                apply not_all_ex_not in Hnsubyx. destruct Hnsubyx as [c Hc].
-                apply imply_to_and in Hc. destruct Hc as [[Hposc Hprecy] Hnprecx].
-                exists c. split; [|split]; done. }
+                destruct (decide (exists c, (el_pos a c /\ el_pre c y) /\ ~ el_pre c x))
+                  as [(c & [Hposc Hprecy] & Hnprecx)|Hno].
+                { exists c. split; [|split]; done. }
+                exfalso. apply Hnsubyx. intros c Hc.
+                destruct (decide (el_pre c x)); naive_solver. }
           { (* ~(el_pre x implies el_pre y) *)
             right. apply (el_elI6 y x a Hely Helx Hposb Hposa).
-            apply not_all_ex_not in Hnsubxy. destruct Hnsubxy as [c Hc].
-            apply imply_to_and in Hc. destruct Hc as [[Hposc Hprecx] Hnprecy].
-            exists c. split; [|split]; done. }
+            destruct (decide (exists c, (el_pos a c /\ el_pre c x) /\ ~ el_pre c y))
+              as [(c & [Hposc Hprecx] & Hnprecy)|Hno].
+            { exists c. split; [|split]; done. }
+            exfalso. apply Hnsubxy. intros c Hc.
+            destruct (decide (el_pre c y)); naive_solver. }
         * (* a ≠ b - different positions, use lin totality *)
           assert (Hppx : is_push (elim_free_val pre val) a ∨ is_pop (elim_free_val pre val) a).
           { destruct (ef_then_push_or_pop a Hefa) as [[d Had]|[d Hda]].
@@ -1198,17 +1211,17 @@ Section elimination_stack.
       + (* ~exists el_pos b y *)
         right. apply (el_elI2 y x a Hely Helx Hnposb Hposa).
     - (* ~exists el_pos a x *)
-      destruct (classic (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
+      destruct (decide (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
       + (* exists el_pos b y *)
         left. apply (el_elI2 x y b Helx Hely Hnposa Hposb).
       + (* ~exists el_pos for x or y - use el_elI3/el_elI4 with minf *)
         destruct (elD x wf_history Helx) as (rx & Hsvrx & _).
         destruct (elD y wf_history Hely) as (ry & Hsvry & _).
         (* Check if el_pre conditions differ *)
-        destruct (classic (exists c, ~ el_pre c x /\ el_pre c y)) as [[c [Hnx Hy]]|Hnxy].
+        destruct (decide (exists c, ~ el_pre c x /\ el_pre c y)) as [[c [Hnx Hy]]|Hnxy].
         { (* exists c with ~el_pre c x and el_pre c y - use el_elI3 *)
           left. apply (el_elI3 x y c Helx Hely Hnposa Hnposb Hnx Hy). }
-        destruct (classic (exists c, el_pre c x /\ ~ el_pre c y)) as [[c [Hx Hny]]|Hnyx].
+        destruct (decide (exists c, el_pre c x /\ ~ el_pre c y)) as [[c [Hx Hny]]|Hnyx].
         { (* exists c with el_pre c x and ~el_pre c y - use el_elI3 symmetric *)
           right. apply (el_elI3 y x c Hely Helx Hnposb Hnposa Hny Hx). }
         (* el_pre are equivalent - use el_elI4 with minf *)
@@ -1216,13 +1229,13 @@ Section elimination_stack.
         * (* minf x y *)
           left. apply (el_elI4 x y Helx Hely Hnposa Hnposb).
           -- intros c Hprecx.
-             destruct (classic (el_pre c y)) as [Hprecy|Hnprecy]; [done|].
+             destruct (decide (el_pre c y)) as [Hprecy|Hnprecy]; [done|].
              exfalso. apply Hnyx. exists c. done.
           -- done.
         * (* minf y x *)
           right. apply (el_elI4 y x Hely Helx Hnposb Hnposa).
           -- intros c Hprecy.
-             destruct (classic (el_pre c x)) as [Hprecx|Hnprecx]; [done|].
+             destruct (decide (el_pre c x)) as [Hprecx|Hnprecx]; [done|].
              exfalso. apply Hnxy. exists c. done.
           -- done.
   Qed.
@@ -1266,7 +1279,7 @@ Section elimination_stack.
           pose proof (same_val_unique x c d Hwf Hsvc Hsvd) as Heq. subst d.
           apply Hnprexd. done. }
     (* By pr_in_ef_el_help, there must exist el_pos to y *)
-    destruct (classic (exists b, el_pos b y)) as [Hex|Hnex]; [done|].
+    destruct (decide (exists b, el_pos b y)) as [Hex|Hnex]; [done|].
     exfalso. apply (pr_in_ef_el_help a y Hefa Hely Hpreay Hnex).
   Qed.
 
@@ -1280,14 +1293,14 @@ Section elimination_stack.
     { subst y. destruct Hwf as [_ _ Hirr _ _ _ _ _ _].
       exfalso. by eapply Hirr. }
     (* Case: same_val x y *)
-    destruct (classic (same_val val x y)) as [Hsv|Hnsv].
+    destruct (decide (same_val val x y)) as [Hsv|Hnsv].
     { destruct (same_valD x y Hsv) as [Hval|Hval].
       - apply el_elI1; done.
       - exfalso. eapply def_val_then_not_pr; [exact Hval|exact Hprexy]. }
     (* Case: ~same_val x y *)
-    destruct (classic (exists a, el_pos a x)) as [[a Hposa]|Hnposa].
+    destruct (decide (exists a, el_pos a x)) as [[a Hposa]|Hnposa].
     - (* exists a, el_pos a x *)
-      destruct (classic (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
+      destruct (decide (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
       + (* exists b, el_pos b y *)
         destruct (lem_pr_in_el_el_help x y a b Hwf Helx Hely Hprexy Hposa Hposb) as [Heqab|Hlinab].
         * (* a = b *)
@@ -1311,7 +1324,7 @@ Section elimination_stack.
       + (* ~ exists b, el_pos b y - contradiction *)
         exfalso. apply Hnposb. apply (lem_pr_in_el_el_help2 x y a Hwf Helx Hely Hprexy Hposa).
     - (* ~ exists a, el_pos a x *)
-      destruct (classic (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
+      destruct (decide (exists b, el_pos b y)) as [[b Hposb]|Hnposb].
       + (* exists b, el_pos b y *)
         apply (el_elI2 x y b Helx Hely Hnposa Hposb).
       + (* ~ exists b, el_pos b y - use el_elI3 with c = x *)
@@ -1346,7 +1359,7 @@ Section elimination_stack.
       - left. intros a _ Ha. inversion Ha.
       - apply NoDup_cons in Hnodup. destruct Hnodup as [Hxnin Hnodup'].
         specialize (IH Hnodup').
-        destruct (classic (elim_free pre val x /\ (pre x ia \/ pre x ra))) as [[Hefx Hprex]|Hnx].
+        destruct (decide (elim_free pre val x /\ (pre x ia \/ pre x ra))) as [[Hefx Hprex]|Hnx].
         + (* x is ef and has pre to ia or ra *)
           destruct IH as [Hnoef|[a (Hefa & Hain & Hprea & Hmina)]].
           * (* No previous ef element has pre to ia or ra *)
@@ -1408,7 +1421,7 @@ Section elimination_stack.
                   ** subst b.
                      destruct Hwflin as [_ _ Hirr _ _ _ _ _ _].
                      exfalso. by eapply Hirr.
-                  ** destruct (classic (lin a b)) as [Hlinab|Hnlinab].
+                  ** destruct (decide (lin a b)) as [Hlinab|Hnlinab].
                      --- apply Hmina. split; [|split]; done.
                      --- destruct (decide (b = a)) as [Hbaeq|Hbaneq].
                          +++ subst b.
@@ -2098,7 +2111,7 @@ Section elimination_stack.
     - destruct Hcase7xy as [[a [Hposax [Hposay Hcond]]] _].
       destruct Hcase6yz as [a' [Hposa' [Hposa'z [c [Hposac [Hnprecy Hprecz]]]]]].
       pose proof (one_el_pos a y a' Hposay Hposa') as Heq. subst a'.
-      destruct (classic (el_pre c x)) as [Hprecx|Hnprecx].
+      destruct (decide (el_pre c x)) as [Hprecx|Hnprecx].
       + pose proof (Hcond c (conj Hposac Hprecx)) as Hprecy.
         exfalso. apply Hnprecy. done.
       + apply (el_elI6 x z a Helx Helz Hposax Hposa'z).
@@ -2700,7 +2713,7 @@ Section elimination_stack.
         destruct Hcase3 as (Hnposa & Hnposx & [c [Hnpreca Hprecx]]).
         pose proof (val_then_el_pre x y c Hsv Hprecx) as Hprecy.
         right. apply el_el_then_witness.
-        destruct (classic (el_pre c a)) as [Hpreca|Hnpreca'].
+        destruct (decide (el_pre c a)) as [Hpreca|Hnpreca'].
         * (* el_pre c a - use el_elI2 or el_elI3 *)
           pose proof (val_not_el_pos_then_not_el_pos y x Hwf (same_val_commutative x y Hsv) Hnposx) as Hnposy.
           apply (el_elI3 a y c Hela (elI3 x y Hwf Helx Hsv) Hnposa Hnposy Hnpreca Hprecy).
@@ -3105,12 +3118,17 @@ Section elimination_stack.
     - exact witness_ooo.
   Qed.
 
+  Local Instance witness_dec : RelDecision witness.
+  Proof.
+    intros a b. unfold witness, ef_lin, ef_el, el_el. apply _.
+  Qed.
+
   Theorem elimination_stack_linearizable :
     WellformedHistory pre val ->
-    exists prt, subrelation pre prt /\ SequentialStack prt val.
+    exists prt (_ : RelDecision prt), subrelation pre prt /\ SequentialStack prt val.
   Proof.
     intros Hwf.
-    exists witness. split.
+    exists witness, _. split.
     - exact pr_in_witness.
     - exact (witness_sequential_stack Hwf).
   Qed.
@@ -3123,21 +3141,22 @@ Lemma help_elimination_stack `{abstract_stack_model} pre val :
   linearizable_non_empty_stack (elim_free_pre pre val) (elim_free_val pre val) ->
   exists lin, forall a b, elim_free_pre pre val a b -> lin a b.
 Proof.
-  intros Hwf Habcd (Hch & prt & Hsub & Hseq).
+  intros Hwf Habcd (Hch & prt & _ & Hsub & Hseq).
   exists prt.
   intros a b Hpre.
   apply Hsub. done.
 Qed.
 
 (* elimination_stack.thy:1284-1306 *)
-Theorem elimination_theorem `{abstract_stack_model} pre val :
+Theorem elimination_theorem `{abstract_stack_model} pre val
+    `{!RelDecision pre, !RelDecision val} :
   WellformedHistory pre val -> Abcd pre ->
   linearizable_non_empty_stack (elim_free_pre pre val) (elim_free_val pre val) ->
   linearizable_non_empty_stack pre val.
 Proof.
   intros Hwf Habcd Hlin.
   (* Get the SequentialStack from Hlin *)
-  destruct Hlin as (Hch & prt & Hsub & Hseq).
+  destruct Hlin as (Hch & prt & Hprt_dec & Hsub & Hseq).
   (* Derive pr_in_prt from subrelation *)
   assert (Hpr_in_prt : forall a b, elim_free_pre pre val a b -> prt a b).
   { intros a b Hpre. apply Hsub. done. }
@@ -3162,6 +3181,7 @@ Proof.
       rewrite !Pos2Nat.id in Heq.
       by apply (inj encode). }
     (* Use elimination_stack_linearizable with prt *)
-    pose proof (@elimination_stack_linearizable _ pre val prt Hwf Hseq Hpr_in_prt Hfinef Habcd f f_inj Hwf) as [wit [Hsub_pre Hwit_seq]].
-    exists wit. done.
+    pose proof (elimination_stack_linearizable pre val prt Hwf Hseq Hpr_in_prt Hfinef Habcd f f_inj Hwf)
+      as (wit & Hwit_dec & Hsub_pre & Hwit_seq).
+    exists wit, _. done.
 Qed.

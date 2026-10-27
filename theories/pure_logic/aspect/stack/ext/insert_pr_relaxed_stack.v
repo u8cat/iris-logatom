@@ -1,6 +1,6 @@
-From Stdlib Require Import Classical.
 From stdpp Require Import finite.
 From iris_logatom.lib Require Import list.
+From iris_logatom.pure_logic.aspect.bag.ext Require Import strict_partial_order_extension.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import conc_his_rel insert_relaxed_stack.
 
 Local Instance relation_union {A} : Union (relation A) :=
@@ -21,6 +21,7 @@ Section insert_pr_relaxed_stack.
   }.
 
   Context pre val ir `{!InsertPrRelaxedStack pre val ir}.
+  Context `{!RelDecision pre, !RelDecision val}.
 
   (* Make parent class instances available *)
   #[local] Existing Instance ipr_stack_wellformed.
@@ -179,9 +180,9 @@ Section insert_pr_relaxed_stack.
     intros Hwir. induction Hwir as [a b Hpre Hpush Hpop | a b ix rx ra H0 H1 H2 Hwir1 IHHwir1 H3 H4 Hwir2 IHHwir2].
     - (* wir_intro case *)
       intros c.
-      destruct (classic (is_push val c)) as [Hpushc|Hnotpushc].
+      destruct (decide (is_push val c)) as [Hpushc|Hnotpushc].
       + left. done.
-      + destruct (classic (pre b c)) as [Hprebc|Hnotprebc].
+      + destruct (decide (pre b c)) as [Hprebc|Hnotprebc].
         * right. right.
           assert (Hpopc : is_pop val c).
           { destruct (def_push_or_pop _ _ Hprebc) as [_ [e [He|He]]].
@@ -193,9 +194,9 @@ Section insert_pr_relaxed_stack.
         * right. left. done.
     - (* wir_step case *)
       intros c.
-      destruct (classic (is_push val c)) as [Hpushc|Hnotpushc].
+      destruct (decide (is_push val c)) as [Hpushc|Hnotpushc].
       + left. done.
-      + destruct (classic (pre b c)) as [Hprebc|Hnotprebc].
+      + destruct (decide (pre b c)) as [Hprebc|Hnotprebc].
         * right. right.
           assert (Hpopc : is_pop val c).
           { destruct (def_push_or_pop _ _ Hprebc) as [_ [e [He|He]]].
@@ -485,6 +486,46 @@ Section insert_pr_relaxed_stack.
     - done.
   Qed.
 
+  (* [rwir a] is reachability from the base pairs of [rwir_intro] along [rwir_step]. *)
+  Local Definition rwir_base a b : Prop := pre a b ∧ is_push val a ∧ is_pop val b.
+  Local Definition rwir_succ a rx b : Prop :=
+    ∃ ix ra, val ix rx ∧ val a ra ∧ is_pop val b ∧ pre ix b ∧ pre rx ra ∧ pre b rx.
+
+  Local Lemma rwir_reach a b :
+    rwir a b ↔ rwir_base a b ∨ ∃ b0, rwir_base a b0 ∧ tc (rwir_succ a) b0 b.
+  Proof.
+    split.
+    - induction 1 as [a b Hpre Hpush Hpop|a b ix rx ra Hvalix Hvala Hpop Hprixb Hprrxra Hprbrx _ IH].
+      + by left.
+      + right. assert (Hsucc : rwir_succ a rx b) by (exists ix, ra; done).
+        destruct IH as [Hbase|(b0 & Hbase & Hb0rx)].
+        * exists rx. split; [done|by apply tc_once].
+        * exists b0. split; [done|by eapply tc_r].
+    - intros [(Hpre & Hpush & Hpop)|(b0 & (Hpre & Hpush & Hpop) & Hb0b)];
+        first by apply rwir_intro.
+      assert (Hb0 : rwir a b0) by by apply rwir_intro.
+      clear Hpre Hpush Hpop. revert Hb0.
+      induction Hb0b as [b0 b Hsucc|b0 c b Hsucc _ IH]; intros Hb0;
+        destruct Hsucc as (ix & ra & ? & ? & ? & ? & ? & ?).
+      + by apply (rwir_step _ _ ix b0 ra).
+      + apply IH. by apply (rwir_step _ _ ix b0 ra).
+  Qed.
+
+  Local Instance rwir_base_dec : RelDecision rwir_base.
+  Proof. intros a b. unfold rwir_base, is_push, is_pop. apply _. Qed.
+
+  Local Instance rwir_succ_dec a : RelDecision (rwir_succ a).
+  Proof. intros rx b. unfold rwir_succ, is_pop. apply _. Qed.
+
+  Local Instance wir_dec : RelDecision wir.
+  Proof.
+    intros a b.
+    destruct (decide (rwir_base a b ∨ ∃ b0, rwir_base a b0 ∧ tc (rwir_succ a) b0 b))
+      as [Hr|Hnr].
+    - left. by apply lem_rwir_then_wir, rwir_reach.
+    - right. intros Hwir. by apply Hnr, rwir_reach, lem_wir_then_rwir.
+  Qed.
+
   (* insert_pr_relaxed_stack.thy:250-252 *)
   Definition wri : relation operation :=
     λ a b, is_pop val a ∧ is_push val b ∧ ¬ wir b a.
@@ -522,7 +563,7 @@ Section insert_pr_relaxed_stack.
   Lemma lem_wir_wri_total a b : is_push val a → is_pop val b → wir a b ∨ wri b a.
   Proof.
     intros Hpusha Hpopb.
-    destruct (classic (wir a b)) as [Hwir | Hnwir].
+    destruct (decide (wir a b)) as [Hwir | Hnwir].
     - left. done.
     - right. unfold wri. done.
   Qed.
@@ -776,10 +817,8 @@ Section insert_pr_relaxed_stack.
     destruct (lem_val_then_push_and_pop _ _ Hvalia) as [Hpushia Hpopra].
     destruct (lem_val_then_push_and_pop _ _ Hvalib) as [Hpushib Hpoprb].
     (* Proof by contradiction: assume ¬ ir ra ib *)
-    destruct (classic (ir ra ib)) as [Hir | Hnir]; [done|].
+    destruct (push_pop_ordered ib ra Hpushib Hpopra) as [Hiriba|Hir]; [|done].
     exfalso.
-    (* From ¬ ir ra ib, is_pop ra, is_push ib, we get ir ib ra *)
-    assert (Hiriba : ir ib ra) by (apply not_ir_pop_push_ir; done).
     (* From ipr_ooo: val ia ra, val ib rb, ins ia ib, ir ib ra → pre rb ra *)
     assert (Hprerba : pre rb ra) by (apply (ipr_ooo ia ra ib rb); done).
     (* But pre ra rb and pre rb ra means ra = rb by antisymmetry *)
@@ -816,7 +855,7 @@ Section insert_pr_relaxed_stack.
       assert (a = c) by (eapply def_push_once; eauto). subst c. done.
     - destruct (ipr_pop_ordered ra rc Hpopra Hpoprc Hneq) as [Hprarc|Hprcra].
       + (* pre ra rc *)
-        destruct (classic (pre a b)) as [Hpreab|Hnotpreab].
+        destruct (decide (pre a b)) as [Hpreab|Hnotpreab].
         * (* pre a b: pre c b by transitivity, then wir_intro *)
           apply wir_intro.
           -- etrans; done.
@@ -1319,10 +1358,17 @@ Section insert_pr_relaxed_stack.
   Qed.
 
   (* insert_pr_relaxed_stack.thy:604-616 *)
-  Theorem insert_pr_relaxed_stack_linearizable :
-    ∃ prt, subrelation pre prt ∧ InsertRelaxedStack prt val.
+  Local Instance pr_witness_dec : RelDecision pr_witness.
   Proof.
-    exists pr_witness.
+    apply tc_decision. intros a b.
+    unfold relation_union, Relation_Operators.union, wri, wii, wrr, is_push, is_pop.
+    apply _.
+  Qed.
+
+  Theorem insert_pr_relaxed_stack_linearizable :
+    ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ InsertRelaxedStack prt val.
+  Proof.
+    exists pr_witness, _.
     split.
     - (* subrelation pre pr_witness *)
       intros a b Hpre. apply lem_pr_in_pr_witness. done.

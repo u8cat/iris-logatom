@@ -17,8 +17,8 @@ Section insert_relaxed_queue.
   *)
   Class InsertRelaxedQueue pre val := {
     #[local] ir_queue_wellformed :: WellformedHistory pre val;
-    dequeue_ordered a b : is_dequeue val a → is_dequeue val b → a ≠ b → pre a b ∨ pre b a;
-    enqueue_dequeue_ordered a b : is_enqueue val a → is_dequeue val b → pre a b ∨ pre b a;
+    dequeue_ordered a b : is_pop val a → is_pop val b → a ≠ b → pre a b ∨ pre b a;
+    enqueue_dequeue_ordered a b : is_push val a → is_pop val b → pre a b ∨ pre b a;
     (* FIFO ordering: if enq(ia) < enq(ib) and enq(ib) < deq(ra), then deq(ra) < deq(rb)
        This ensures first-in-first-out behavior *)
     ir_ooo ia ra ib rb : val ia ra → val ib rb → pre ia ib → pre ib ra → pre ra rb;
@@ -103,21 +103,21 @@ Section insert_relaxed_queue.
   Proof. intros a b. apply witnessI1. Qed.
 
   Lemma lem_witness_total_on_dequeue a b :
-    is_dequeue val a → is_dequeue val b → a ≠ b → witness a b ∨ witness b a.
+    is_pop val a → is_pop val b → a ≠ b → witness a b ∨ witness b a.
   Proof.
     intros Ha Hb Hneq.
     destruct (dequeue_ordered a b Ha Hb Hneq) as [Hab|Hba]; [left|right]; by apply witnessI1.
   Qed.
 
   Lemma lem_witness_total_on_enqueue_dequeue a b :
-    is_enqueue val a → is_dequeue val b → witness a b ∨ witness b a.
+    is_push val a → is_pop val b → witness a b ∨ witness b a.
   Proof.
     intros Ha Hb.
     destruct (enqueue_dequeue_ordered a b Ha Hb) as [Hab|Hba]; [left|right]; by apply witnessI1.
   Qed.
 
   Lemma lem_witness_total_on_enqueue a b :
-    is_enqueue val a → is_enqueue val b → a ≠ b → witness a b ∨ witness b a.
+    is_push val a → is_push val b → a ≠ b → witness a b ∨ witness b a.
   Proof.
     intros [ra Hva] [rb Hvb] Hneq.
     destruct (enqueue_dequeue_ordered a rb) as [Harb|Hrba].
@@ -127,8 +127,8 @@ Section insert_relaxed_queue.
       + exists rb. done.
       + exists a. done.
       + (* pre a rb, pre b ra *)
-        assert (Hra : is_dequeue val ra) by (exists a; done).
-        assert (Hrb : is_dequeue val rb) by (exists b; done).
+        assert (Hra : is_pop val ra) by (exists a; done).
+        assert (Hrb : is_pop val rb) by (exists b; done).
         destruct (decide (ra = rb)) as [Heq|Hneq_r].
         * subst rb. exfalso. apply Hneq. eapply def_enqueue_once; eauto.
         * destruct (dequeue_ordered ra rb Hra Hrb Hneq_r) as [Hrarb|Hrbra].
@@ -212,8 +212,8 @@ Section insert_relaxed_queue.
           (* Now Hxy : pre z z, which contradicts irreflexivity *)
           eapply wf_pre_irreflexive. exact Hxy.
         * (* cx ≠ rz *)
-          assert (Hcx_deq : is_dequeue val cx) by (exists x; done).
-          assert (Hrz_deq : is_dequeue val rz) by (exists z; done).
+          assert (Hcx_deq : is_pop val cx) by (exists x; done).
+          assert (Hrz_deq : is_pop val rz) by (exists z; done).
           destruct (dequeue_ordered cx rz Hcx_deq Hrz_deq Hneq) as [Hcxrz|Hrzcx].
           -- (* pre cx rz *)
              eapply (witnessI3 x cx z rz); try done.
@@ -435,12 +435,12 @@ Section insert_relaxed_queue.
   Local Lemma lem_witness_abcd : Abcd witness.
   Proof.
     intros a b c d Hab Hcd.
-    assert (Ha : is_enqueue val a ∨ is_dequeue val a).
+    assert (Ha : is_push val a ∨ is_pop val a).
     { destruct (witnessD _ _ Hab) as [Hpre|[(ra & rb & Hva & _ & _)|(ra & rb & Hva & _ & _)]].
       - destruct (def_enqueue_or_dequeue _ _ Hpre) as [[ca [?|?]] _]; [left|right]; eexists; eauto.
       - left. eexists. exact Hva.
       - left. eexists. exact Hva. }
-    assert (Hd : is_enqueue val d ∨ is_dequeue val d).
+    assert (Hd : is_push val d ∨ is_pop val d).
     { destruct (witnessD _ _ Hcd) as [Hpre|[(_ & rd & _ & Hvd & _)|(_ & rd & _ & Hvd & _)]].
       - destruct (def_enqueue_or_dequeue _ _ Hpre) as [_ [cd [?|?]]]; [left|right]; eexists; eauto.
       - left. eexists. exact Hvd.
@@ -525,19 +525,6 @@ Section insert_relaxed_queue.
       apply witnessI1. exact Hriarb.
   Qed.
 
-  Lemma lem_witness_dec a b : decidable (witness a b).
-  Proof.
-    unfold witness.
-    apply dec_or; first by apply def_wf_pre_decidable.
-    apply dec_exists_op. intros ra.
-    apply dec_exists_op. intros rb.
-    apply dec_and; first by apply def_wf_val_decidable.
-    apply dec_and; first by apply def_wf_val_decidable.
-    apply dec_or; first by apply def_wf_pre_decidable.
-    apply dec_and; first by apply def_wf_pre_decidable.
-    apply dec_and; by apply def_wf_pre_decidable.
-  Qed.
-
   Lemma lem_witness_sequential_set : SequentialSet witness val.
   Proof.
     constructor.
@@ -559,8 +546,6 @@ Section insert_relaxed_queue.
       + (* val_then_not_pr witness val *)
         intros a b Hval Hw.
         by eapply lem_val_then_not_witness.
-      + apply lem_witness_dec.
-      + apply def_wf_val_decidable.
     - (* total_on_enqueue *)
       intros a b Ha Hb Hneq.
       by apply lem_witness_total_on_enqueue.
@@ -582,10 +567,13 @@ Section insert_relaxed_queue.
       eapply lem_witness_fifo; eauto.
   Qed.
 
-  Theorem insert_relaxed_queue_linearizable :
-    ∃ prt, subrelation pre prt ∧ SequentialQueue prt val.
+  Local Instance witness_dec `{!RelDecision pre, !RelDecision val} : RelDecision witness.
+  Proof. intros a b. unfold witness. apply _. Qed.
+
+  Theorem insert_relaxed_queue_linearizable `{!RelDecision pre, !RelDecision val} :
+    ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ SequentialQueue prt val.
   Proof.
-    exists witness. split.
+    exists witness, _. split.
     - apply lem_pr_in_witness.
     - apply lem_witness_sequential_queue.
   Qed.

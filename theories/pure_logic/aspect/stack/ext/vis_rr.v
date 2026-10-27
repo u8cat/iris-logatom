@@ -10,7 +10,7 @@
    (pre ∪ vis)-before x, by condition 2 and the maximality of p); otherwise x has no
    predecessor, p has no successor, and x ⋅ (rest) ⋅ p is a linearization. *)
 
-From Stdlib Require Import Classical.
+From iris_logatom.pure_logic.aspect.bag.ext Require Import strict_partial_order_extension.
 From iris_logatom.pure_logic.aspect.stack.ext Require Export conc_his_rel.
 From iris_logatom.pure_logic.aspect.stack.ext Require Import elim_stack empty_stack.
 
@@ -92,6 +92,7 @@ Section vis_rr.
 
   Section lemma3.
     Context pre val vis rr `{!WellformedHistory pre val} `{!VisRr pre val vis rr}.
+    Context `{!RelDecision pre, !RelDecision val}.
     Hypothesis Hvp : ∀ a b, val a b → pre a b.
 
     #[local] Existing Instance wf_pre_transitive.
@@ -145,7 +146,7 @@ Section vis_rr.
     Qed.
 
     (* A finite set of operations containing a pop has an rr-last pop. *)
-    Local Lemma rr_max (S : operation → Prop) (l : list operation) :
+    Local Lemma rr_max (S : operation → Prop) `{∀ o, Decision (S o)} (l : list operation) :
       (∀ o, S o → o ∈ l) → (∃ q, S q ∧ is_pop val q) →
       ∃ p, S p ∧ is_pop val p ∧ ∀ q, S q → is_pop val q → q ≠ p → rr q p.
     Proof.
@@ -158,16 +159,18 @@ Section vis_rr.
       intros l'.
       induction l' as [|y l' IH]; intros (q & Hin & Hq & Hqp).
       { by apply elem_of_nil in Hin. }
-      destruct (classic (∃ q, q ∈ l' ∧ S q ∧ is_pop val q)) as [Hex|Hnex].
+      destruct (decide (∃ q, q ∈ l' ∧ S q ∧ is_pop val q)) as [Hex|Hnex].
       - destruct (IH Hex) as (p & Hp & Hpp & Hmax).
-        destruct (classic (S y ∧ is_pop val y ∧ y ≠ p ∧ rr p y)) as [(Hy & Hyp & Hyne & Hpy)|Hny].
-        + exists y. split_and!; [done|done|]. intros q' Hin' Hq' Hq'p Hne'.
-          apply elem_of_cons in Hin' as [->|Hin']; first done.
-          destruct (decide (q' = p)) as [->|Hne'']; first done.
-          eapply rr_trans; [done|done|by apply Hmax|done].
+        destruct (decide (S y ∧ is_pop val y ∧ y ≠ p)) as [(Hy & Hyp & Hyne)|Hny].
+        + destruct (vis_rr_total y p Hyp Hpp Hyne) as [Hyp'|Hpy].
+          * exists p. split_and!; [done|done|]. intros q' Hin' Hq' Hq'p Hne'.
+            apply elem_of_cons in Hin' as [->|Hin']; [done|by apply Hmax].
+          * exists y. split_and!; [done|done|]. intros q' Hin' Hq' Hq'p Hne'.
+            apply elem_of_cons in Hin' as [->|Hin']; first done.
+            destruct (decide (q' = p)) as [->|Hne'']; first done.
+            eapply rr_trans; [done|done|by apply Hmax|done].
         + exists p. split_and!; [done|done|]. intros q' Hin' Hq' Hq'p Hne'.
           apply elem_of_cons in Hin' as [->|Hin']; last by apply Hmax.
-          destruct (vis_rr_total y p) as [|Hpq]; [done..|].
           exfalso. by apply Hny.
       - apply elem_of_cons in Hin as [->|Hin]; last by (exfalso; eauto).
         exists y. split_and!; [done|done|]. intros q' Hin' Hq' Hq'p Hne'.
@@ -188,7 +191,7 @@ Section vis_rr.
     Qed.
 
     (* Concatenation: [D] is closed under precedence predecessors within [S]. *)
-    Local Lemma lin_of_app (S D : operation → Prop) R1 R2 :
+    Local Lemma lin_of_app (S D : operation → Prop) `{∀ o, Decision (D o)} R1 R2 :
       (∀ o, D o → S o) → val_closed val D →
       (∀ a b, S a → D b → pre a b → D a) →
       lin_of pre val D R1 → lin_of pre val (λ o, S o ∧ ¬ D o) R2 →
@@ -214,19 +217,19 @@ Section vis_rr.
         + right; right. by destruct (Hdom2 _ _ Hbc) as [_ [? ?]].
         + done.
       - intros a b Ha Hb Hne.
-        destruct (classic (D a)) as [Hda|Hda], (classic (D b)) as [Hdb|Hdb].
+        destruct (decide (D a)) as [Hda|Hda], (decide (D b)) as [Hdb|Hdb].
         + destruct (lin_total _ _ _ _ HR1 a b) as [|]; auto.
         + left. auto.
         + right. auto.
         + destruct (lin_total _ _ _ _ HR2 a b) as [|]; auto.
       - intros a b Ha Hb Hab.
-        destruct (classic (D a)) as [Hda|Hda], (classic (D b)) as [Hdb|Hdb].
+        destruct (decide (D a)) as [Hda|Hda], (decide (D b)) as [Hdb|Hdb].
         + left. by apply (lin_pre _ _ _ _ HR1).
         + auto.
         + by destruct Hda; apply (HDdown a b).
         + right; left. by apply (lin_pre _ _ _ _ HR2).
       - intros ia ib ra rb Ha Hb Hiab Hibra.
-        destruct (classic (D ra)) as [Hdra|Hdra].
+        destruct (decide (D ra)) as [Hdra|Hdra].
         + assert (Hdia : D ia) by (by apply (HDval ia ra)).
           assert (Hdib : D ib).
           { destruct Hibra as [Hibra|[Hibra|(_ & _ & ?)]]; [by destruct (Hdom1 _ _ Hibra)| |done].
@@ -315,6 +318,46 @@ Section vis_rr.
     | clo_pop o r : clo S x r → val o r → clo S x o
     | clo_down w o : S w → pre w o → clo S x o → clo S x w.
 
+    (* [clo S x] is reachability from the predecessors of [x]. *)
+    Local Definition clo_step (S : operation → Prop) : relation operation :=
+      λ u v, val u v ∨ val v u ∨ (S v ∧ pre v u).
+
+    Local Lemma clo_reach S x o :
+      clo S x o ↔ ∃ w, (S w ∧ pre w x) ∧ (w = o ∨ tc (clo_step S) w o).
+    Proof.
+      split.
+      - induction 1 as [o Ho Hox|o r _ IH Hor|o r _ IH Hor|w o Hw Hwo _ IH].
+        + exists o. naive_solver.
+        + destruct IH as (w & Hw & Hwo). exists w. split; first done. right.
+          assert (clo_step S o r) by (left; done).
+          destruct Hwo as [<-|Hwo]; [by apply tc_once|by eapply tc_r].
+        + destruct IH as (w & Hw & Hwr). exists w. split; first done. right.
+          assert (clo_step S r o) by (right; left; done).
+          destruct Hwr as [<-|Hwr]; [by apply tc_once|by eapply tc_r].
+        + destruct IH as (w' & Hw' & Hw'o). exists w'. split; first done. right.
+          assert (clo_step S o w) by (right; right; done).
+          destruct Hw'o as [<-|Hw'o]; [by apply tc_once|by eapply tc_r].
+      - intros (w & [Hw Hwx] & Hwo).
+        assert (Hstep : ∀ u v, clo_step S u v → clo S x u → clo S x v).
+        { intros u v [Huv|[Hvu|[Hv Hvu]]] Hu.
+          - by eapply clo_push.
+          - by eapply clo_pop.
+          - by eapply clo_down. }
+        assert (Hw' : clo S x w) by by apply clo_pre.
+        destruct Hwo as [<-|Hwo]; first done.
+        clear Hw Hwx. induction Hwo as [u v Huv|u y v Huy _ IH]; [by eapply Hstep|].
+        apply IH. by eapply Hstep.
+    Qed.
+
+    Local Instance clo_dec S `{∀ o, Decision (S o)} x o : Decision (clo S x o).
+    Proof.
+      assert (RelDecision (clo_step S)).
+      { intros u v. unfold clo_step. apply _. }
+      destruct (decide (∃ w, (S w ∧ pre w x) ∧ (w = o ∨ tc (clo_step S) w o))) as [Hr|Hnr].
+      - left. by apply clo_reach.
+      - right. by rewrite clo_reach.
+    Qed.
+
     Section closure.
       Context (S : operation → Prop) (x p : operation).
       Hypotheses (HSop : ∀ o, S o → is_push val o ∨ is_pop val o) (HSval : val_closed val S)
@@ -394,14 +437,16 @@ Section vis_rr.
     Qed.
 
     Local Lemma lin_exists n : ∀ (S : operation → Prop) (l : list operation),
+      (∀ o, Decision (S o)) →
       length l ≤ n → (∀ o, S o → o ∈ l) →
-      (∀ o, S o → is_push val o ∨ is_pop val o) → val_closed val S → ∃ R, lin_of pre val S R.
+      (∀ o, S o → is_push val o ∨ is_pop val o) → val_closed val S →
+      ∃ R (_ : RelDecision R), lin_of pre val S R.
     Proof.
-      induction n as [|n IH]; intros S l Hlen Hl HSop HSval.
-      { exists (λ _ _, False). apply lin_of_empty. intros o Ho.
+      induction n as [|n IH]; intros S l HS_dec Hlen Hl HSop HSval.
+      { exists (λ _ _, False), (λ _ _, False_dec). apply lin_of_empty. intros o Ho.
         destruct l; [by apply (elem_of_nil o), Hl|simpl in Hlen; lia]. }
-      destruct (classic (∃ q, S q ∧ is_pop val q)) as [Hne|Hnone].
-      2:{ exists (λ _ _, False). apply lin_of_empty. intros o Ho. apply Hnone.
+      destruct (decide (∃ q, S q ∧ is_pop val q)) as [Hne|Hnone].
+      2:{ exists (λ _ _, False), (λ _ _, False_dec). apply lin_of_empty. intros o Ho. apply Hnone.
           destruct (HSop o Ho) as [[r Hor]|Hop]; last by exists o.
           exists r. split; [by apply (HSval o r)|by exists o]. }
       destruct (rr_max S l Hl Hne) as (p & HSp & [x Hxp] & Hmax).
@@ -412,18 +457,21 @@ Section vis_rr.
       { intros S' y Hy Hny HS'. exists (filter (λ o, o ≠ y) l). split.
         - pose proof (length_filter_lt (λ o, o ≠ y) l y (Hl y Hy) (λ Hn, Hn eq_refl)). lia.
         - intros o Ho. apply list_elem_of_filter. split; [by intros ->|by apply Hl, HS']. }
-      destruct (classic (∃ o, clo S x o)) as [[o Ho]|Hnclo].
+      destruct (decide (∃ o, clo S x o)) as [[o Ho]|Hnclo].
       - assert (HDS : ∀ o, clo S x o → S o) by (intros o'; by eapply clo_S).
         assert (HDval : val_closed val (clo S x)).
         { intros a b Hab. split; intros Hclo; [by eapply clo_push|by eapply clo_pop]. }
         destruct (Hsub (clo S x) x HSx (clo_not_x S x p HSop HSval Hxp Hmax) HDS)
           as (l1 & Hlen1 & Hl1).
-        destruct (IH (clo S x) l1) as [R1 HR1]; [done|done|auto|done|].
+        destruct (IH (clo S x) l1) as (R1 & HR1_dec & HR1); [apply _|done|done|auto|done|].
         destruct (Hsub (λ o, S o ∧ ¬ clo S x o) o (HDS o Ho) (λ Hn, proj2 Hn Ho)
           (λ _ Ho', proj1 Ho')) as (l2 & Hlen2 & Hl2).
-        destruct (IH (λ o, S o ∧ ¬ clo S x o) l2) as [R2 HR2]; [done|done|naive_solver| |].
+        destruct (IH (λ o, S o ∧ ¬ clo S x o) l2) as (R2 & HR2_dec & HR2);
+          [intros o'; cbv beta; apply _|done|done|naive_solver| |].
         { intros a b Hab. rewrite (HSval a b Hab) (HDval a b Hab). done. }
-        eexists. apply (lin_of_app S (clo S x) R1 R2 HDS HDval); [|done|done].
+        assert (HR_dec : RelDecision (λ a b, R1 a b ∨ R2 a b ∨ (clo S x a ∧ S b ∧ ¬ clo S x b))).
+        { intros a b. cbv beta. apply _. }
+        eexists _, HR_dec. apply (lin_of_app S (clo S x) R1 R2 HDS HDval); [|done|done].
         intros a b Ha Hb Hab. by eapply clo_down.
       - assert (Hnpre_x : ∀ o, S o → ¬ pre o x).
         { intros o' Ho' Hpre. apply Hnclo. exists o'. by constructor. }
@@ -431,7 +479,8 @@ Section vis_rr.
         assert (Hxnp : x ≠ p) by (intros ->; exact (pre_irrefl _ (Hvp _ _ Hxp))).
         destruct (Hsub (λ o, S o ∧ o ≠ x ∧ o ≠ p) x HSx (λ Hn, proj1 (proj2 Hn) eq_refl)
           (λ _ Ho', proj1 Ho')) as (l0 & Hlen0 & Hl0).
-        destruct (IH (λ o, S o ∧ o ≠ x ∧ o ≠ p) l0) as [R0 HR0]; [done|done|naive_solver| |].
+        destruct (IH (λ o, S o ∧ o ≠ x ∧ o ≠ p) l0) as (R0 & HR0_dec & HR0);
+          [intros o'; cbv beta; apply _|done|done|naive_solver| |].
         { intros a b Hab. rewrite (HSval a b Hab). split.
           - intros (Hb & Hax & Hap). split_and!; [done| |].
             + intros ->. by eapply push_not_pop; [exists p|exists a].
@@ -439,22 +488,26 @@ Section vis_rr.
           - intros (Hb & Hbx & Hbp). split_and!; [done| |].
             + intros ->. by apply Hbp, (def_pop_once _ _ _ Hab).
             + intros ->. by eapply push_not_pop; [exists b|exists x]. }
-        eexists. exact (lin_of_wrap S x p R0 HSval HSx HSp Hxp Hnpre_x Hnpre_p HR0).
+        assert (HR_dec : RelDecision
+          (λ a b, R0 a b ∨ (a = x ∧ S b ∧ b ≠ x) ∨ (S a ∧ a ≠ p ∧ b = p))).
+        { intros a b. cbv beta. apply _. }
+        eexists _, HR_dec. exact (lin_of_wrap S x p R0 HSval HSx HSp Hxp Hnpre_x Hnpre_p HR0).
     Qed.
 
     (* Lemma 3 on elimination-free histories, as a linearization. *)
-    Lemma vis_rr_sequential_stack : ∃ prt, subrelation pre prt ∧ SequentialStack prt val.
+    Lemma vis_rr_sequential_stack :
+      ∃ prt (_ : RelDecision prt), subrelation pre prt ∧ SequentialStack prt val.
     Proof.
       destruct (operation_finite) as (enum & _ & Henum).
       destruct (lin_exists (length enum) (λ o, is_push val o ∨ is_pop val o) enum)
-        as [R HR]; [done|done|done| |].
+        as (R & HR_dec & HR); [intros o; cbv beta; apply _|done|done|done| |].
       { intros a b Hab. pose proof (val_push_pop a b Hab). naive_solver. }
       assert (Hop : ∀ a, (∃ c, val a c ∨ val c a) → is_push val a ∨ is_pop val a).
       { intros a (c & [Hac|Hca]); [left|right]; by eexists. }
       assert (Hsub : subrelation pre R).
       { intros a b Hab. destruct (def_push_or_pop a b Hab).
         apply (lin_pre _ _ _ _ HR); auto. }
-      exists R. split; first done.
+      exists R, _. split; first done.
       split; [split; [split| | |]|].
       - intros a b c. by apply (lin_trans _ _ _ _ HR).
       - intros a b Hab Hba. exfalso.
@@ -516,7 +569,8 @@ Section vis_rr.
   Qed.
 
   (* Theorem 1 with order-correctness replaced by the premises of Lemma 3. *)
-  Theorem abstract_stack_theorem_vis pre val empty vis rr :
+  Theorem abstract_stack_theorem_vis pre val empty vis rr
+      `{!RelDecision pre, !RelDecision val, ∀ a, Decision (empty a)} :
     linearizable_set pre val empty → VisRr (non_empty_pre pre empty) val vis rr →
     linearizable_stack pre val empty.
   Proof.
@@ -544,7 +598,7 @@ Section vis_rr.
       intros a b Hab. split_and!; [by destruct Hab as (? & _)|by destruct Hab as (_ & ? & _)|].
       by apply (elim_free_val_pre _ val). }
     assert (Hlin_ne : linearizable_non_empty_stack (non_empty_pre pre empty) val).
-    { apply elimination_theorem; [done|apply Hch_ne|done]. }
+    { apply (elimination_theorem (non_empty_pre pre empty) val); [done|apply Hch_ne|done]. }
     by apply concurrent_empty_stack_linearizable_main.
   Qed.
 End vis_rr.

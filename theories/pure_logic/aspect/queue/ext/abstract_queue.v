@@ -11,17 +11,14 @@ Section proof.
      SET (linearizable_set pre val emp) and order-correct (order_correct pre val), then <A, pre, val>
      is linearizable with respect to QUEUE (linearizable_queue pre val emp). The predicate emp
      indicates pop-empty operations. *)
-  Theorem abstract_queue_theorem pre val empty :
+  Theorem abstract_queue_theorem pre val empty
+      `{!RelDecision pre, !RelDecision val, ∀ a, Decision (empty a)} :
     linearizable_set pre val empty → order_correct pre val →
     linearizable_queue pre val empty.
   Proof.
     intros Hls Hoc.
     assert (Hch : ConcHistory pre).
     { destruct Hls as [Hch _]. done. }
-    assert (Hempty_dec : ∀ a, decidable (empty a)).
-    { destruct Hls as [_ (prt & _ & Hsel)].
-      destruct Hsel as [Hseh _]. destruct Hseh as [Hweh _].
-      by destruct Hweh as [_ _ _ _ _ _ _ ? _]. }
     assert (Hch_ne : ConcHistory (non_empty_pre pre empty)).
     { by apply pre_conc_history_then_non_empty_pre_conc_history. }
     assert (Hwf_ne : WellformedHistory (non_empty_pre pre empty) val).
@@ -29,7 +26,7 @@ Section proof.
     specialize (order_correct_then_pr_relaxed_queue pre val empty Hls Hoc) as Hiprrq.
     assert (Hlin_ef : linearizable_non_empty_queue
                         (non_empty_pre pre empty) val).
-    { apply (insert_pr_relaxed_queue_linearizable_final _ _).
+    { apply (insert_pr_relaxed_queue_linearizable_final (non_empty_pre pre empty) val).
       { eauto. }
       { done. }
     }
